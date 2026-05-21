@@ -1,0 +1,57 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nexus3d-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:8000
+      # Browser-side WebSocket URL (Next.js rewrites do NOT proxy WS).
+      # Override in .env to your public host/port (e.g. ws://nexus3d.lan:8000).
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8000}
+    networks:
+      - nexus3d_net
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nexus3d-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      VAULT_DATA_DIR: /data/files
+      VAULT_THUMB_DIR: /data/thumbs
+      VAULT_DB_URL: sqlite:////data/db/nexus3d.sqlite
+      VAULT_API_KEY: ${VAULT_API_KEY:-changeme}
+      VAULT_MAX_UPLOAD_MB: ${VAULT_MAX_UPLOAD_MB:-512}
+      VAULT_LOG_LEVEL: ${VAULT_LOG_LEVEL:-INFO}
+      TZ: UTC
+    volumes:
+      - vault_data:/data/files
+      - vault_thumbs:/data/thumbs
+      - vault_db:/data/db
+    networks:
+      - nexus3d_net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  nexus3d_net:
+    driver: bridge
+
+volumes:
+  vault_data:
+  vault_thumbs:
+  vault_db:

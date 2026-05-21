@@ -1,0 +1,250 @@
+"""Background worker: maintain one WS subscription per configured printer.
+
+For each Printer row, we keep:
+- a live snapshot of its Moonraker `printer.objects` (in memory)
+- a writeback to DB columns (status, last_seen_at, last_error)
+- a fan-out to any vault WebSocket clients subscribed to that printer
+
+The hub is intentionally simple — Stage 4 will likely replace it with Redis pub/sub.
+"""
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime
+from typing import Any, Dict, Set
+
+from fastapi import WebSocket
+from sqlmodel import Session, select
+
+from app.core.logging import get_logger
+from app.db.models import PrintJob, PrintJobState, Printer, PrinterStatus
+from app.db.session import engine
+from app.services.moonraker import MoonrakerClient, MoonrakerError
+
+logger = get_logger(__name__)
+
+
+# Map Moonraker print_stats.state -> vault PrinterStatus.
+_STATE_MAP: Dict[str, PrinterStatus] = {
+    "standby": PrinterStatus.READY,
+    "ready": PrinterStatus.READY,
+    "printing": PrinterStatus.PRINTING,
+    "paused": PrinterStatus.PAUSED,
+    "complete": PrinterStatus.READY,
+    "cancelled": PrinterStatus.READY,
+    "error": PrinterStatus.ERROR,
+    "shutdown": PrinterStatus.OFFLINE,
+}
+
+
+class PrinterHub:
+    def __init__(self) -> None:
+        self.snapshots: Dict[int, Dict[str, Any]] = {}
+        self.subscribers: Dict[int, Set[WebSocket]] = {}
+        self.tasks: Dict[int, asyncio.Task] = {}
+        self.stop_events: Dict[int, asyncio.Event] = {}
+        self._lock = asyncio.Lock()
+
+    # -- WS subscriber registry --
+
+    async def attach(self, printer_id: int, ws: WebSocket) -> None:
+        async with self._lock:
+            self.subscribers.setdefault(printer_id, set()).add(ws)
+        snap = self.snapshots.get(printer_id)
+        if snap is not None:
+            try:
+                await ws.send_json({"type": "snapshot", "printer_id": printer_id, "data": snap})
+            except Exception:
+                pass
+
+    async def detach(self, printer_id: int, ws: WebSocket) -> None:
+        async with self._lock:
+            subs = self.subscribers.get(printer_id)
+            if subs and ws in subs:
+                subs.remove(ws)
+
+    async def _broadcast(self, printer_id: int, payload: Dict[str, Any]) -> None:
+        async with self._lock:
+            subs = list(self.subscribers.get(printer_id, ()))
+        dead: list[WebSocket] = []
+        for ws in subs:
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                dead.append(ws)
+        if dead:
+            async with self._lock:
+                for ws in dead:
+                    self.subscribers.get(printer_id, set()).discard(ws)
+
+    # -- printer lifecycle --
+
+    async def add_printer(self, printer_id: int) -> None:
+        async with self._lock:
+            if printer_id in self.tasks:
+                return
+            stop = asyncio.Event()
+            self.stop_events[printer_id] = stop
+            task = asyncio.create_task(self._run_printer(printer_id, stop), name=f"printer-{printer_id}")
+            self.tasks[printer_id] = task
+
+    async def remove_printer(self, printer_id: int) -> None:
+        async with self._lock:
+            stop = self.stop_events.pop(printer_id, None)
+            task = self.tasks.pop(printer_id, None)
+            self.snapshots.pop(printer_id, None)
+        if stop:
+            stop.set()
+        if task:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    async def restart_printer(self, printer_id: int) -> None:
+        await self.remove_printer(printer_id)
+        await self.add_printer(printer_id)
+
+    async def start_all(self) -> None:
+        with Session(engine) as session:
+            ids = [p.id for p in session.exec(select(Printer)).all() if p.id]
+        for pid in ids:
+            await self.add_printer(pid)
+
+    async def stop_all(self) -> None:
+        async with self._lock:
+            ids = list(self.tasks.keys())
+        for pid in ids:
+            await self.remove_printer(pid)
+
+    # -- worker --
+
+    async def _run_printer(self, printer_id: int, stop: asyncio.Event) -> None:
+        # Load the printer row (re-load on each reconnect to pick up edits).
+        while not stop.is_set():
+            with Session(engine) as session:
+                printer = session.get(Printer, printer_id)
+                if printer is None:
+                    logger.info("printer worker[%s] gone; exiting", printer_id)
+                    return
+                base_url = printer.moonraker_url
+                api_key = printer.api_key
+
+            client = MoonrakerClient(base_url, api_key)
+
+            async def on_status(status: Dict[str, Any]) -> None:
+                await self._handle_status(printer_id, status)
+
+            try:
+                await client.subscribe(on_status, stop_event=stop)
+            except Exception as exc:  # noqa: BLE001 — last-ditch
+                logger.exception("printer worker[%s] subscribe crash: %s", printer_id, exc)
+                self._mark_status(printer_id, PrinterStatus.OFFLINE, error=str(exc))
+                # back-off before reloading config
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    pass
+
+    async def _handle_status(self, printer_id: int, status: Dict[str, Any]) -> None:
+        # Merge into in-memory snapshot.
+        snap = self.snapshots.setdefault(printer_id, {})
+        for obj_name, fields in status.items():
+            if not isinstance(fields, dict):
+                continue
+            existing = snap.setdefault(obj_name, {})
+            existing.update(fields)
+
+        # Compute coarse PrinterStatus + filename for DB writeback.
+        print_stats = snap.get("print_stats", {})
+        ms_state = (print_stats.get("state") or "").lower()
+        vault_status = _STATE_MAP.get(ms_state, PrinterStatus.UNKNOWN)
+        progress = float(snap.get("virtual_sdcard", {}).get("progress") or 0.0)
+        filename = print_stats.get("filename") or None
+
+        self._mark_status(printer_id, vault_status, error=None)
+        await self._sync_active_job(printer_id, ms_state, filename, progress, print_stats)
+
+        await self._broadcast(
+            printer_id,
+            {"type": "update", "printer_id": printer_id, "data": snap},
+        )
+
+    def _mark_status(self, printer_id: int, status: PrinterStatus, *, error: str | None) -> None:
+        try:
+            with Session(engine) as session:
+                p = session.get(Printer, printer_id)
+                if p is None:
+                    return
+                p.status = status
+                p.last_seen_at = datetime.utcnow()
+                p.last_error = error
+                p.updated_at = datetime.utcnow()
+                session.add(p)
+                session.commit()
+        except Exception:
+            logger.exception("printer hub: failed to mark status for %s", printer_id)
+
+    async def _sync_active_job(
+        self,
+        printer_id: int,
+        ms_state: str,
+        filename: str | None,
+        progress: float,
+        print_stats: Dict[str, Any],
+    ) -> None:
+        """Reflect Moonraker state onto the most-recent matching PrintJob row."""
+        if not filename:
+            return
+        try:
+            with Session(engine) as session:
+                job = session.exec(
+                    select(PrintJob)
+                    .where(
+                        PrintJob.printer_id == printer_id,
+                        PrintJob.remote_filename == filename,
+                    )
+                    .order_by(PrintJob.created_at.desc())  # type: ignore[attr-defined]
+                ).first()
+                if job is None:
+                    return
+
+                new_state: PrintJobState
+                if ms_state == "printing":
+                    new_state = PrintJobState.PRINTING
+                elif ms_state == "paused":
+                    new_state = PrintJobState.PAUSED
+                elif ms_state == "complete":
+                    new_state = PrintJobState.COMPLETED
+                elif ms_state == "cancelled":
+                    new_state = PrintJobState.CANCELLED
+                elif ms_state == "error":
+                    new_state = PrintJobState.FAILED
+                else:
+                    new_state = job.state
+
+                changed = False
+                if new_state != job.state:
+                    job.state = new_state
+                    changed = True
+                if abs(progress - job.progress) > 1e-3:
+                    job.progress = progress
+                    changed = True
+                if new_state == PrintJobState.PRINTING and job.started_at is None:
+                    job.started_at = datetime.utcnow()
+                    changed = True
+                if new_state in (PrintJobState.COMPLETED, PrintJobState.CANCELLED, PrintJobState.FAILED) and job.finished_at is None:
+                    job.finished_at = datetime.utcnow()
+                    changed = True
+                if changed:
+                    job.updated_at = datetime.utcnow()
+                    if new_state == PrintJobState.FAILED:
+                        job.error = print_stats.get("message")
+                    session.add(job)
+                    session.commit()
+        except Exception:
+            logger.exception("printer hub: job sync failed for printer %s", printer_id)
+
+
+hub = PrinterHub()

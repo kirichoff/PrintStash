@@ -1,0 +1,195 @@
+"""Moonraker HTTP + WebSocket client.
+
+Tight, dependency-light wrapper around the subset of Moonraker we need:
+- File upload to the printer's gcode store
+- Start / pause / resume / cancel
+- One-shot status query
+- Persistent WS subscription with status callbacks
+
+Reference: https://moonraker.readthedocs.io/en/latest/web_api/
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Dict, Optional
+
+import httpx
+import websockets
+
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class MoonrakerError(RuntimeError):
+    """Raised when a Moonraker request fails."""
+
+
+# Objects we subscribe to for live state.  Keys are object names, values are
+# the field lists we care about (None == all fields).
+SUBSCRIPTIONS: Dict[str, Optional[list[str]]] = {
+    "print_stats": ["state", "filename", "print_duration", "total_duration", "message"],
+    "virtual_sdcard": ["progress", "file_position", "file_size"],
+    "heater_bed": ["temperature", "target"],
+    "extruder": ["temperature", "target"],
+    "toolhead": ["position", "homed_axes"],
+    "webhooks": ["state", "state_message"],
+}
+
+
+class MoonrakerClient:
+    def __init__(self, base_url: str, api_key: Optional[str] = None, *, timeout: float = 30.0):
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.timeout = timeout
+
+    # -- HTTP helpers ------------------------------------------------------
+
+    def _headers(self) -> Dict[str, str]:
+        h: Dict[str, str] = {}
+        if self.api_key:
+            h["X-Api-Key"] = self.api_key
+        return h
+
+    async def _request(
+        self, method: str, path: str, **kwargs: Any
+    ) -> Dict[str, Any]:
+        url = f"{self.base_url}{path}"
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                resp = await client.request(method, url, headers=self._headers(), **kwargs)
+            except httpx.HTTPError as exc:
+                raise MoonrakerError(f"transport error: {exc}") from exc
+        if resp.status_code >= 400:
+            raise MoonrakerError(f"moonraker {resp.status_code}: {resp.text[:200]}")
+        try:
+            return resp.json()
+        except ValueError:
+            return {"raw": resp.text}
+
+    # -- Public API --------------------------------------------------------
+
+    async def info(self) -> Dict[str, Any]:
+        return await self._request("GET", "/printer/info")
+
+    async def query_status(self) -> Dict[str, Any]:
+        params = "&".join(
+            (f"{name}={','.join(fields)}" if fields else name)
+            for name, fields in SUBSCRIPTIONS.items()
+        )
+        return await self._request("GET", f"/printer/objects/query?{params}")
+
+    async def upload_gcode(self, local_path: Path, remote_filename: str, *, start_print: bool = False) -> Dict[str, Any]:
+        """Upload a g-code file to Moonraker. Streams from disk."""
+        url = f"{self.base_url}/server/files/upload"
+        data = {"root": "gcodes", "print": "true" if start_print else "false"}
+        async with httpx.AsyncClient(timeout=None) as client:
+            # Use sync open + read into memory? G-code can be huge — use streaming.
+            with local_path.open("rb") as fh:
+                files = {"file": (remote_filename, fh, "application/octet-stream")}
+                try:
+                    resp = await client.post(
+                        url, headers=self._headers(), data=data, files=files
+                    )
+                except httpx.HTTPError as exc:
+                    raise MoonrakerError(f"upload transport error: {exc}") from exc
+        if resp.status_code >= 400:
+            raise MoonrakerError(f"upload failed {resp.status_code}: {resp.text[:200]}")
+        return resp.json()
+
+    async def start_print(self, remote_filename: str) -> Dict[str, Any]:
+        return await self._request(
+            "POST", f"/printer/print/start?filename={remote_filename}"
+        )
+
+    async def pause_print(self) -> Dict[str, Any]:
+        return await self._request("POST", "/printer/print/pause")
+
+    async def resume_print(self) -> Dict[str, Any]:
+        return await self._request("POST", "/printer/print/resume")
+
+    async def cancel_print(self) -> Dict[str, Any]:
+        return await self._request("POST", "/printer/print/cancel")
+
+    # -- WebSocket subscription -------------------------------------------
+
+    def _ws_url(self) -> str:
+        if self.base_url.startswith("https://"):
+            return "wss://" + self.base_url[len("https://") :] + "/websocket"
+        if self.base_url.startswith("http://"):
+            return "ws://" + self.base_url[len("http://") :] + "/websocket"
+        return self.base_url.rstrip("/") + "/websocket"
+
+    async def subscribe(
+        self,
+        on_status: Callable[[Dict[str, Any]], Awaitable[None]],
+        *,
+        stop_event: Optional[asyncio.Event] = None,
+    ) -> None:
+        """Open a WS, subscribe to printer objects, dispatch updates to `on_status`.
+
+        Reconnects forever (or until stop_event is set) with exponential backoff.
+        Each callback gets a flat dict of {object: {field: value}}.
+        """
+        url = self._ws_url()
+        backoff = 1.0
+        request_id = 0
+
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                return
+            try:
+                logger.info("moonraker ws connect %s", url)
+                async with websockets.connect(url, max_size=8 * 1024 * 1024) as ws:
+                    # Subscribe.
+                    request_id += 1
+                    sub_payload = {
+                        "jsonrpc": "2.0",
+                        "method": "printer.objects.subscribe",
+                        "params": {
+                            "objects": {k: v for k, v in SUBSCRIPTIONS.items()}
+                        },
+                        "id": request_id,
+                    }
+                    await ws.send(json.dumps(sub_payload))
+                    backoff = 1.0  # reset after a successful connect
+
+                    while True:
+                        if stop_event is not None and stop_event.is_set():
+                            return
+                        try:
+                            raw = await asyncio.wait_for(ws.recv(), timeout=60.0)
+                        except asyncio.TimeoutError:
+                            # Ping to keep connection alive.
+                            await ws.ping()
+                            continue
+                        try:
+                            msg = json.loads(raw)
+                        except ValueError:
+                            continue
+
+                        # Initial reply to subscribe carries status under result.status
+                        if msg.get("id") == request_id and "result" in msg:
+                            status = msg["result"].get("status", {})
+                            if status:
+                                await on_status(status)
+                            continue
+
+                        # Push notifications.
+                        if msg.get("method") == "notify_status_update":
+                            params = msg.get("params") or []
+                            if params:
+                                await on_status(params[0])
+                            continue
+            except (websockets.WebSocketException, OSError) as exc:
+                logger.warning("moonraker ws error (%s); reconnect in %.1fs", exc, backoff)
+                try:
+                    await asyncio.wait_for(
+                        (stop_event.wait() if stop_event else asyncio.sleep(backoff)),
+                        timeout=backoff,
+                    )
+                except asyncio.TimeoutError:
+                    pass
+                backoff = min(backoff * 2, 30.0)

@@ -1,0 +1,228 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
+from sqlalchemy import func
+from sqlmodel import Session, select
+
+from app.core.security import require_api_key
+from app.db.models import File, Metadata, Model, ModelTagLink, Tag
+from app.db.session import get_session
+from app.schemas.models import (
+    FileRead,
+    MetadataRead,
+    ModelListItem,
+    ModelRead,
+    ModelUpdate,
+)
+from app.services import taxonomy
+
+router = APIRouter(prefix="/models", tags=["models"])
+
+
+def _tag_names_for(session: Session, model_id: int) -> List[str]:
+    stmt = (
+        select(Tag.name)
+        .join(ModelTagLink, ModelTagLink.tag_id == Tag.id)
+        .where(ModelTagLink.model_id == model_id)
+        .order_by(Tag.name)
+    )
+    return [name for name in session.exec(stmt).all()]
+
+
+def _thumb_url(model: Model) -> Optional[str]:
+    """Build a thumbnail URL for the model.
+
+    Prefers `thumbnail_file_id` (new), falls back to parsing the stored path
+    (legacy rows), and returns None if no thumbnail exists.
+    """
+    if model.thumbnail_file_id:
+        return f"/api/v1/files/{model.thumbnail_file_id}/thumbnail"
+    if model.thumbnail_path:
+        from pathlib import Path
+        stem = Path(model.thumbnail_path).stem
+        if stem.isdigit():
+            return f"/api/v1/files/{stem}/thumbnail"
+    return None
+
+
+@router.get(
+    "",
+    response_model=List[ModelListItem],
+    summary="List models",
+    description=(
+        "List logical models with optional filtering. Soft-deleted models are excluded. "
+        "Filter by category (path prefix match, includes descendants), one or more tag "
+        "slugs (AND semantics), and/or a name substring."
+    ),
+)
+def list_models(
+    request: Request,
+    category: Optional[str] = Query(None, description="Category path e.g. 'functional/brackets'"),
+    tag: Optional[List[str]] = Query(None, description="Tag slug; repeat for AND-filter"),
+    q: Optional[str] = Query(None, description="Substring match on name"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+) -> List[ModelListItem]:
+    stmt = select(Model).where(Model.deleted_at.is_(None))  # type: ignore[union-attr]
+
+    if category:
+        cat_path = category.strip().strip("/").lower()
+        # match the category path or any descendant ("foo/bar" matches "foo/bar/baz")
+        stmt = stmt.where(
+            (Model.category == cat_path)
+            | (Model.category.startswith(cat_path + "/"))  # type: ignore[attr-defined]
+        )
+
+    if q:
+        stmt = stmt.where(Model.name.contains(q))  # type: ignore[attr-defined]
+
+    if tag:
+        tag_slugs = [t.strip().lower() for t in tag if t.strip()]
+        for slug in tag_slugs:
+            # Each tag adds an EXISTS clause => AND semantics across tags.
+            stmt = stmt.where(
+                Model.id.in_(  # type: ignore[union-attr]
+                    select(ModelTagLink.model_id)
+                    .join(Tag, Tag.id == ModelTagLink.tag_id)
+                    .where(Tag.slug == slug)
+                )
+            )
+
+    stmt = stmt.order_by(Model.updated_at.desc()).offset(offset).limit(limit)  # type: ignore[attr-defined]
+    rows = session.exec(stmt).all()
+
+    out: List[ModelListItem] = []
+    for m in rows:
+        file_count = session.exec(
+            select(func.count(File.id)).where(File.model_id == m.id)
+        ).one()
+        out.append(
+            ModelListItem(
+                id=m.id,  # type: ignore[arg-type]
+                name=m.name,
+                slug=m.slug,
+                category=m.category,
+                category_id=m.category_id,
+                tags=_tag_names_for(session, m.id),  # type: ignore[arg-type]
+                thumbnail_url=_thumb_url(m),
+                file_count=int(file_count or 0),
+                updated_at=m.updated_at,
+            )
+        )
+    return out
+
+
+@router.get(
+    "/{model_id}",
+    response_model=ModelRead,
+    summary="Get model detail with files and metadata",
+)
+def get_model(model_id: int, session: Session = Depends(get_session)) -> ModelRead:
+    m = session.get(Model, model_id)
+    if m is None or m.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="model_not_found")
+
+    files = session.exec(select(File).where(File.model_id == model_id)).all()
+    file_reads: List[FileRead] = []
+    for f in files:
+        md = session.exec(select(Metadata).where(Metadata.file_id == f.id)).first()
+        file_reads.append(
+            FileRead(
+                id=f.id,  # type: ignore[arg-type]
+                model_id=f.model_id,
+                original_filename=f.original_filename,
+                file_type=f.file_type,
+                version=f.version,
+                size_bytes=f.size_bytes,
+                sha256=f.sha256,
+                uploaded_at=f.uploaded_at,
+                metadata=MetadataRead(**md.model_dump()) if md else None,
+            )
+        )
+
+    return ModelRead(
+        id=m.id,  # type: ignore[arg-type]
+        name=m.name,
+        slug=m.slug,
+        hash=m.hash,
+        category=m.category,
+        category_id=m.category_id,
+        description=m.description,
+        tags=_tag_names_for(session, m.id),  # type: ignore[arg-type]
+        thumbnail_url=_thumb_url(m),
+        created_at=m.created_at,
+        updated_at=m.updated_at,
+        files=file_reads,
+    )
+
+
+@router.patch(
+    "/{model_id}",
+    response_model=ModelRead,
+    dependencies=[Depends(require_api_key)],
+    summary="Update a model's name, description, category, or tags",
+)
+def update_model(
+    model_id: int,
+    payload: ModelUpdate,
+    session: Session = Depends(get_session),
+) -> ModelRead:
+    m = session.get(Model, model_id)
+    if m is None or m.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="model_not_found")
+
+    if payload.name is not None:
+        m.name = payload.name.strip() or m.name
+    if payload.description is not None:
+        m.description = payload.description
+
+    if payload.category is not None:
+        if payload.category.strip() == "":
+            m.category = None
+            m.category_id = None
+        else:
+            cat = taxonomy.resolve_or_create_category(session, payload.category)
+            if cat is not None:
+                m.category = cat.path
+                m.category_id = cat.id
+
+    if payload.tags is not None:
+        # Replace the tag set.
+        session.query(ModelTagLink).filter(ModelTagLink.model_id == model_id).delete()  # type: ignore[attr-defined]
+        session.commit()
+        if payload.tags:
+            new_tags = taxonomy.resolve_or_create_tags(session, payload.tags)
+            for t in new_tags:
+                session.add(ModelTagLink(model_id=model_id, tag_id=t.id))
+            m.tags_csv = ",".join(sorted({t.name for t in new_tags}))
+        else:
+            m.tags_csv = None
+
+    m.updated_at = datetime.utcnow()
+    session.add(m)
+    session.commit()
+    session.refresh(m)
+    return get_model(model_id=model_id, session=session)
+
+
+@router.delete(
+    "/{model_id}",
+    status_code=204,
+    response_class=Response,
+    dependencies=[Depends(require_api_key)],
+    summary="Soft-delete a model",
+    description="Marks the model deleted. Files remain on disk (Stage 4 will introduce hard delete + GC).",
+)
+def delete_model(model_id: int, session: Session = Depends(get_session)) -> Response:
+    m = session.get(Model, model_id)
+    if m is None or m.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="model_not_found")
+    m.deleted_at = datetime.utcnow()
+    session.add(m)
+    session.commit()
+    return Response(status_code=204)
