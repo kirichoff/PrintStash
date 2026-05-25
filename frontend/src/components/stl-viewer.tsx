@@ -1,33 +1,32 @@
 "use client";
 
-import { useRef, useState, Suspense } from "react";
-import { Canvas, useFrame, useLoader } from "@react-three/fiber";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { Canvas, useLoader } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera } from "@react-three/drei";
 import * as THREE from "three";
 import { STLLoader } from "three-stdlib";
 import { Loader2 } from "lucide-react";
 
+const box = new THREE.Box3();
+const sizeVec = new THREE.Vector3();
+const centerVec = new THREE.Vector3();
+
 function Mesh({ url }: { url: string }) {
   const geometry = useLoader(STLLoader, url);
   const meshRef = useRef<THREE.Mesh>(null);
+  const [ready, setReady] = useState(false);
 
-  // Center and scale
-  const [centered, setCentered] = useState(false);
-
-  useFrame(() => {
-    if (!meshRef.current || centered) return;
-    const box = new THREE.Box3().setFromObject(meshRef.current);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const maxDim = Math.max(size.x, size.y, size.z);
+  useEffect(() => {
+    if (!meshRef.current || ready) return;
+    box.setFromObject(meshRef.current);
+    box.getSize(sizeVec);
+    const maxDim = Math.max(sizeVec.x, sizeVec.y, sizeVec.z);
     const scale = maxDim > 0 ? 10 / maxDim : 1;
     meshRef.current.scale.setScalar(scale);
-
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    meshRef.current.position.sub(center.multiplyScalar(scale));
-    setCentered(true);
-  });
+    box.getCenter(centerVec);
+    meshRef.current.position.sub(centerVec.multiplyScalar(scale));
+    setReady(true);
+  }, [geometry, ready]);
 
   return (
     <mesh ref={meshRef} geometry={geometry}>
@@ -54,17 +53,16 @@ function Scene({ url }: { url: string }) {
 export function STLViewer({ url }: { url: string }) {
   return (
     <div className="relative h-full w-full">
-      <Canvas className="h-full w-full">
-        <Scene url={url} />
-      </Canvas>
       <Suspense
         fallback={
-          <div className="absolute inset-0 flex items-center justify-center bg-muted/50">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-[var(--on-surface-variant)]" />
           </div>
         }
       >
-        <div />
+        <Canvas className="h-full w-full">
+          <Scene url={url} />
+        </Canvas>
       </Suspense>
     </div>
   );

@@ -88,6 +88,15 @@ export interface ListModelsParams {
   offset?: number;
 }
 
+export interface CategoryCreate {
+  name: string;
+  parent_id?: number | null;
+}
+
+export interface TagCreate {
+  name: string;
+}
+
 export interface CategoryRead {
   id: number;
   name: string;

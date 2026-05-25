@@ -85,6 +85,15 @@ class CategoryRead(BaseModel):
     model_count: int = 0
 
 
+class CategoryCreate(BaseModel):
+    name: str
+    parent_id: Optional[int] = None
+
+
+class TagCreate(BaseModel):
+    name: str
+
+
 class TagRead(BaseModel):
     id: int
     name: str

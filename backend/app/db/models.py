@@ -89,7 +89,10 @@ class File(SQLModel, table=True):
 
     uploaded_at: datetime = Field(default_factory=_utcnow)
 
-    model: Optional["Model"] = Relationship(back_populates="files")
+    model: Optional["Model"] = Relationship(
+        back_populates="files",
+        sa_relationship_kwargs={"foreign_keys": "File.model_id"},
+    )
     file_metadata: Optional[Metadata] = Relationship(
         back_populates="file",
         sa_relationship_kwargs={"uselist": False, "cascade": "all, delete-orphan"},
@@ -99,6 +102,7 @@ class File(SQLModel, table=True):
 # ---------------------------------------------------------------------------
 # Categories (hierarchical) & Tags (flat, many-to-many)
 # ---------------------------------------------------------------------------
+
 
 class Category(SQLModel, table=True):
     """Hierarchical category. Self-referential via parent_id.
@@ -112,7 +116,9 @@ class Category(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(max_length=128)
     slug: str = Field(max_length=128, index=True)
-    parent_id: Optional[int] = Field(default=None, foreign_key="categories.id", index=True)
+    parent_id: Optional[int] = Field(
+        default=None, foreign_key="categories.id", index=True
+    )
     path: str = Field(max_length=512, unique=True, index=True)
 
     created_at: datetime = Field(default_factory=_utcnow)
@@ -132,7 +138,9 @@ class ModelTagLink(SQLModel, table=True):
 
     __tablename__ = "model_tags"
 
-    model_id: Optional[int] = Field(default=None, foreign_key="models.id", primary_key=True)
+    model_id: Optional[int] = Field(
+        default=None, foreign_key="models.id", primary_key=True
+    )
     tag_id: Optional[int] = Field(default=None, foreign_key="tags.id", primary_key=True)
 
 
@@ -149,7 +157,9 @@ class Model(SQLModel, table=True):
     # Legacy free-form category string — retained for backwards compat & the
     # OrcaSlicer push --category flag. New code should use category_id.
     category: Optional[str] = Field(default=None, index=True, max_length=128)
-    category_id: Optional[int] = Field(default=None, foreign_key="categories.id", index=True)
+    category_id: Optional[int] = Field(
+        default=None, foreign_key="categories.id", index=True
+    )
 
     description: Optional[str] = None
     tags_csv: Optional[str] = Field(default=None, max_length=512)  # legacy
@@ -176,6 +186,7 @@ class Model(SQLModel, table=True):
 # ---------------------------------------------------------------------------
 # Printers & Print Jobs (Stage 3 — Klipper / Moonraker integration)
 # ---------------------------------------------------------------------------
+
 
 class Printer(SQLModel, table=True):
     __tablename__ = "printers"

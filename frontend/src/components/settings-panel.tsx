@@ -1,0 +1,89 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Server, Database, HardDrive, Tag, Folder } from "lucide-react";
+import { TaxonomyManager } from "@/components/taxonomy-manager";
+import { ApiKeyCard } from "@/components/api-key-card";
+
+interface HealthResponse {
+  status: string;
+  name: string;
+  version: string;
+}
+
+export function SettingsPanel() {
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [categoryCount, setCategoryCount] = useState<number | null>(null);
+  const [tagCount, setTagCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/health")
+      .then((r) => r.json())
+      .then(setHealth)
+      .catch(() => {});
+    fetch("/api/v1/categories")
+      .then((r) => r.json())
+      .then((d) => setCategoryCount(d.length))
+      .catch(() => {});
+    fetch("/api/v1/tags")
+      .then((r) => r.json())
+      .then((d) => setTagCount(d.length))
+      .catch(() => {});
+  }, []);
+
+  const statItems = [
+    { label: "Vault version", value: health ? `${health.name} v${health.version}` : "Loading...", desc: "API server status and version", icon: Server },
+    { label: "Database", value: health?.status === "ok" ? "Connected" : "Unknown", desc: "SQLite backend for Stage 1-3", icon: Database },
+    { label: "Storage", value: "/data/files", desc: "Container-absolute model storage path", icon: HardDrive },
+    { label: "Categories", value: categoryCount != null ? `${categoryCount}` : "...", desc: "Hierarchical category tree entries", icon: Folder },
+    { label: "Tags", value: tagCount != null ? `${tagCount}` : "...", desc: "Flat tag vocabulary size", icon: Tag },
+  ];
+
+  return (
+    <div className="max-w-2xl mx-auto w-full space-y-8">
+      <h2 className="text-xl font-semibold text-[var(--on-surface)]">Settings</h2>
+
+      <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
+        <div className="px-8 py-5 border-b border-[var(--outline-variant)]">
+          <h3 className="text-sm font-semibold text-[var(--on-surface)]">Vault status</h3>
+          <p className="text-xs text-[var(--on-surface-variant)] mt-0.5">System overview and configuration</p>
+        </div>
+        <div className="p-6">
+          {statItems.map((item) => (
+            <div key={item.label} className="flex items-center gap-4 py-3 border-b border-[var(--surface-variant)] last:border-b-0">
+              <div className="w-9 h-9 rounded bg-[var(--surface-container)] flex items-center justify-center text-[var(--on-surface-variant)] flex-shrink-0">
+                <item.icon className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-[var(--on-surface)]">{item.label}</p>
+                <p className="text-xs text-[var(--on-surface-variant)]">{item.desc}</p>
+              </div>
+              <span className="font-mono text-sm text-[var(--on-surface)] text-right">{item.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <ApiKeyCard />
+
+      <TaxonomyManager />
+
+      <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
+        <div className="px-8 py-5 border-b border-[var(--outline-variant)]">
+          <h3 className="text-sm font-semibold text-[var(--on-surface)]">About</h3>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-[var(--on-surface-variant)] leading-relaxed">
+            <strong className="text-[var(--on-surface)]">Nexus3D Vault</strong> is a self-hosted, Plex-style asset management platform for 3D printing workflows. It ingests source meshes (STL/3MF) and sliced jobs (G-Code), extracts technical metadata, deduplicates assets, and exposes everything via a clean REST API.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <span className="bg-[var(--surface-container)] text-[var(--on-surface)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider">Stage 1: Headless Vault</span>
+            <span className="bg-[var(--surface-container)] text-[var(--on-surface)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider">Stage 2: Visual Experience</span>
+            <span className="bg-[var(--primary)]/10 text-[var(--primary)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider border border-[var(--primary)]/20">Stage 3: The Hub</span>
+            <span className="bg-[var(--surface-container)] text-[var(--on-surface-variant)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider">Stage 4: Cloud Readiness</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

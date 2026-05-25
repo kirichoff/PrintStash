@@ -1,89 +1,38 @@
 """Printer management + send-to-print + live WS status (Stage 3 / The Hub)."""
+
 from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Response,
     WebSocket,
     WebSocketDisconnect,
 )
-from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.core.logging import get_logger
 from app.core.security import require_api_key
-from app.db.models import (
-    File,
-    FileType,
-    Model,
-    PrintJob,
-    PrintJobState,
-    Printer,
-    PrinterStatus,
-)
+from app.db.models import File, FileType, PrintJob, PrintJobState, Printer
 from app.db.session import get_session
+from app.schemas.printers import (
+    PrinterCreate,
+    PrinterRead,
+    PrinterUpdate,
+    PrintJobRead,
+    SendToPrinter,
+)
 from app.services.moonraker import MoonrakerClient, MoonrakerError
-from app.services.printer_hub import hub
+from app.services.printer_hub import PrinterHub, get_hub, get_hub_from_ws
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/printers", tags=["printers"])
-
-
-# -- DTOs -----------------------------------------------------------------
-
-
-class PrinterCreate(BaseModel):
-    name: str
-    moonraker_url: str
-    api_key: Optional[str] = None
-    notes: Optional[str] = None
-
-
-class PrinterUpdate(BaseModel):
-    name: Optional[str] = None
-    moonraker_url: Optional[str] = None
-    api_key: Optional[str] = None
-    notes: Optional[str] = None
-
-
-class PrinterRead(BaseModel):
-    id: int
-    name: str
-    moonraker_url: str
-    has_api_key: bool
-    notes: Optional[str] = None
-    status: PrinterStatus
-    last_seen_at: Optional[datetime] = None
-    last_error: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class SendToPrinter(BaseModel):
-    file_id: int
-    start_print: bool = False
-    remote_filename: Optional[str] = None  # override
-
-
-class PrintJobRead(BaseModel):
-    id: int
-    printer_id: int
-    file_id: int
-    model_id: int
-    remote_filename: str
-    state: PrintJobState
-    progress: float
-    error: Optional[str] = None
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
 
 
 def _to_read(p: Printer) -> PrinterRead:
@@ -106,11 +55,15 @@ def _to_read(p: Printer) -> PrinterRead:
 
 @router.get("", response_model=List[PrinterRead], summary="List printers")
 def list_printers(session: Session = Depends(get_session)) -> List[PrinterRead]:
-    return [_to_read(p) for p in session.exec(select(Printer).order_by(Printer.name)).all()]
+    return [
+        _to_read(p) for p in session.exec(select(Printer).order_by(Printer.name)).all()
+    ]
 
 
 @router.get("/{printer_id}", response_model=PrinterRead, summary="Get a printer")
-def get_printer(printer_id: int, session: Session = Depends(get_session)) -> PrinterRead:
+def get_printer(
+    printer_id: int, session: Session = Depends(get_session)
+) -> PrinterRead:
     p = session.get(Printer, printer_id)
     if p is None:
         raise HTTPException(status_code=404, detail="printer_not_found")
@@ -125,7 +78,9 @@ def get_printer(printer_id: int, session: Session = Depends(get_session)) -> Pri
     summary="Register a new printer",
 )
 async def create_printer(
-    payload: PrinterCreate, session: Session = Depends(get_session)
+    payload: PrinterCreate,
+    session: Session = Depends(get_session),
+    hub: PrinterHub = Depends(get_hub),
 ) -> PrinterRead:
     p = Printer(
         name=payload.name.strip(),
@@ -148,7 +103,10 @@ async def create_printer(
     summary="Update a printer",
 )
 async def update_printer(
-    printer_id: int, payload: PrinterUpdate, session: Session = Depends(get_session)
+    printer_id: int,
+    payload: PrinterUpdate,
+    session: Session = Depends(get_session),
+    hub: PrinterHub = Depends(get_hub),
 ) -> PrinterRead:
     p = session.get(Printer, printer_id)
     if p is None:
@@ -172,16 +130,22 @@ async def update_printer(
 @router.delete(
     "/{printer_id}",
     status_code=204,
+    response_class=Response,
     dependencies=[Depends(require_api_key)],
     summary="Remove a printer",
 )
-async def delete_printer(printer_id: int, session: Session = Depends(get_session)) -> None:
+async def delete_printer(
+    printer_id: int,
+    session: Session = Depends(get_session),
+    hub: PrinterHub = Depends(get_hub),
+):
     p = session.get(Printer, printer_id)
     if p is None:
         raise HTTPException(status_code=404, detail="printer_not_found")
     session.delete(p)
     session.commit()
     await hub.remove_printer(printer_id)
+    return Response(status_code=204)
 
 
 # -- Send-to-print + control ---------------------------------------------
@@ -258,7 +222,9 @@ async def send_to_printer(
     dependencies=[Depends(require_api_key)],
     summary="Pause the current print",
 )
-async def pause_printer(printer_id: int, session: Session = Depends(get_session)) -> dict:
+async def pause_printer(
+    printer_id: int, session: Session = Depends(get_session)
+) -> dict:
     p = session.get(Printer, printer_id)
     if p is None:
         raise HTTPException(status_code=404, detail="printer_not_found")
@@ -274,7 +240,9 @@ async def pause_printer(printer_id: int, session: Session = Depends(get_session)
     dependencies=[Depends(require_api_key)],
     summary="Resume the paused print",
 )
-async def resume_printer(printer_id: int, session: Session = Depends(get_session)) -> dict:
+async def resume_printer(
+    printer_id: int, session: Session = Depends(get_session)
+) -> dict:
     p = session.get(Printer, printer_id)
     if p is None:
         raise HTTPException(status_code=404, detail="printer_not_found")
@@ -290,7 +258,9 @@ async def resume_printer(printer_id: int, session: Session = Depends(get_session
     dependencies=[Depends(require_api_key)],
     summary="Cancel the current print",
 )
-async def cancel_printer(printer_id: int, session: Session = Depends(get_session)) -> dict:
+async def cancel_printer(
+    printer_id: int, session: Session = Depends(get_session)
+) -> dict:
     p = session.get(Printer, printer_id)
     if p is None:
         raise HTTPException(status_code=404, detail="printer_not_found")
@@ -308,7 +278,11 @@ async def cancel_printer(printer_id: int, session: Session = Depends(get_session
     "/{printer_id}/status",
     summary="One-shot snapshot of cached printer state",
 )
-def printer_status(printer_id: int, session: Session = Depends(get_session)) -> dict:
+def printer_status(
+    printer_id: int,
+    session: Session = Depends(get_session),
+    hub: PrinterHub = Depends(get_hub),
+) -> dict:
     p = session.get(Printer, printer_id)
     if p is None:
         raise HTTPException(status_code=404, detail="printer_not_found")
@@ -338,7 +312,11 @@ def list_jobs(
 
 
 @router.websocket("/{printer_id}/ws")
-async def printer_ws(websocket: WebSocket, printer_id: int) -> None:
+async def printer_ws(
+    websocket: WebSocket,
+    printer_id: int,
+    hub: PrinterHub = Depends(get_hub_from_ws),
+) -> None:
     """Live status stream for a single printer.
 
     Pushes JSON messages of the form:

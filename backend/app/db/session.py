@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterator
+from typing import Callable, Iterator
 
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
@@ -12,13 +12,19 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 # `check_same_thread=False` is required for SQLite + FastAPI (multiple threads).
-_connect_args = {"check_same_thread": False} if settings.db_url.startswith("sqlite") else {}
+_connect_args = (
+    {"check_same_thread": False} if settings.db_url.startswith("sqlite") else {}
+)
 
 engine: Engine = create_engine(
     settings.db_url,
     echo=False,
     connect_args=_connect_args,
 )
+
+
+SessionFactory = Callable[[], Session]
+"""Type alias for a session factory suitable for background tasks + test injection."""
 
 
 # Mini-migrations: SQLite + create_all() never adds columns to existing tables.
@@ -59,3 +65,13 @@ def get_session() -> Iterator[Session]:
     """FastAPI dependency: yields a Session and ensures cleanup."""
     with Session(engine) as session:
         yield session
+
+
+def get_session_factory() -> SessionFactory:
+    """FastAPI dependency: returns a session factory for background tasks.
+
+    Callers get a simple callable so they can create their own sessions
+    without coupling to the module-level engine.  Tests can override this
+    dependency to inject an in-memory SQLite factory.
+    """
+    return lambda: Session(engine)

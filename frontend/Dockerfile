@@ -1,27 +1,24 @@
 FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@latest-10 --activate
 
-# Install dependencies only when needed
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod=false
 
-# Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# NEXT_PUBLIC_ vars are inlined at build time.
 ARG NEXT_PUBLIC_API_URL=http://api:8000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm run build
+RUN pnpm run build
 
-# Production image, copy all the files and run next
 FROM base AS runner
 WORKDIR /app
 

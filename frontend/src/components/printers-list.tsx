@@ -3,44 +3,18 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PrinterRead } from "@/types";
-import {
-  createPrinter,
-  deletePrinter,
-  listPrinters,
-} from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Modal } from "@/components/ui/modal";
+import { createPrinter, deletePrinter, listPrinters } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  ArrowRight,
-  Plus,
-  Printer as PrinterIcon,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
+import { Plus, Trash2, RefreshCw, ArrowRight, Wifi, WifiOff } from "lucide-react";
 
-const STATUS_VARIANT: Record<
-  PrinterRead["status"],
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  ready: "default",
-  printing: "default",
-  paused: "secondary",
-  offline: "outline",
-  unknown: "outline",
-  error: "destructive",
+const STATUS_COLORS: Record<string, string> = {
+  ready: "bg-emerald-500",
+  printing: "bg-[var(--primary)]",
+  paused: "bg-amber-500",
+  offline: "bg-[var(--outline)]",
+  unknown: "bg-[var(--outline)]",
+  error: "bg-[var(--error)]",
 };
-
-function StatusBadge({ status }: { status: PrinterRead["status"] }) {
-  return (
-    <Badge variant={STATUS_VARIANT[status]} className="capitalize">
-      {status}
-    </Badge>
-  );
-}
 
 export function PrintersPage() {
   const [printers, setPrinters] = useState<PrinterRead[]>([]);
@@ -64,12 +38,12 @@ export function PrintersPage() {
     refresh();
   }, []);
 
-  async function handleDelete(p: PrinterRead) {
+  async function handleDelete(p: PrinterRead, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
     if (!confirm(`Remove printer "${p.name}"?`)) return;
-    const key = prompt("Enter API key to confirm:");
-    if (!key) return;
     try {
-      await deletePrinter(p.id, key);
+      await deletePrinter(p.id);
       await refresh();
     } catch (e: any) {
       alert("Delete failed: " + e.message);
@@ -77,26 +51,31 @@ export function PrintersPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 max-w-5xl mx-auto w-full">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Printers</h1>
-          <p className="text-muted-foreground">
-            Klipper/Moonraker printers connected to the vault.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={refresh}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-          </Button>
-          <Button size="sm" onClick={() => setAddOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" /> Add printer
-          </Button>
+        <h2 className="text-xl font-semibold text-[var(--on-surface)]">
+          Printers
+        </h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={refresh}
+            className="px-3 py-1.5 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-[13px] flex items-center gap-1.5"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+          <button
+            onClick={() => setAddOpen(true)}
+            className="px-3 py-1.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-mono text-xs uppercase tracking-wider hover:opacity-90 transition-opacity flex items-center gap-1.5"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add printer
+          </button>
         </div>
       </div>
 
       {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="rounded border border-[var(--error)]/50 bg-[var(--error-container)]/30 p-3 text-sm text-[var(--error)]">
           {error}
         </div>
       )}
@@ -104,101 +83,130 @@ export function PrintersPage() {
       {loading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-40 w-full" />
+            <div
+              key={i}
+              className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded p-5 space-y-3"
+            >
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-4 w-48" />
+              <Skeleton className="h-4 w-24" />
+            </div>
           ))}
         </div>
       ) : printers.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground">
-            <PrinterIcon className="h-10 w-10" />
-            <p className="text-sm">No printers configured yet.</p>
-            <Button size="sm" onClick={() => setAddOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" /> Add your first printer
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded flex flex-col items-center justify-center gap-4 py-16 text-[var(--on-surface-variant)]">
+          <PrinterIcon className="h-12 w-12 opacity-30" />
+          <p className="text-sm font-mono">No printers configured yet.</p>
+          <button
+            onClick={() => setAddOpen(true)}
+            className="px-4 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-mono text-xs uppercase tracking-wider hover:opacity-90 transition-opacity flex items-center gap-2"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add your first printer
+          </button>
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {printers.map((p) => (
-            <Card key={p.id} className="overflow-hidden">
-              <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
-                <CardTitle className="text-lg leading-tight">{p.name}</CardTitle>
-                <StatusBadge status={p.status} />
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="text-xs text-muted-foreground break-all">
-                  {p.moonraker_url}
+            <Link
+              key={p.id}
+              href={`/printers/${p.id}`}
+              className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded hover:shadow-[0_4px_12px_rgba(0,0,0,0.05)] hover:border-[var(--primary)] transition-all duration-200 p-5 flex flex-col gap-3 group"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="text-[15px] font-semibold text-[var(--on-surface)] truncate">
+                  {p.name}
+                </h3>
+                <span className="flex items-center gap-1.5 flex-shrink-0">
+                  <span
+                    className={`w-2 h-2 rounded-full ${STATUS_COLORS[p.status] || "bg-[var(--outline)]"}`}
+                  />
+                  <span className="font-mono text-[10px] text-[var(--on-surface-variant)] uppercase tracking-wider">
+                    {p.status}
+                  </span>
+                </span>
+              </div>
+
+              <p className="text-[13px] text-[var(--on-surface-variant)] font-mono truncate">
+                {p.moonraker_url}
+              </p>
+
+              {p.last_error && (
+                <div className="rounded bg-[var(--error-container)]/30 border border-[var(--error)]/20 p-2 text-xs text-[var(--error)] font-mono truncate">
+                  {p.last_error}
                 </div>
-                {p.last_error && (
-                  <div className="rounded border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
-                    {p.last_error}
-                  </div>
-                )}
-                <div className="text-xs text-muted-foreground">
-                  {p.last_seen_at
-                    ? `Last seen ${new Date(p.last_seen_at).toLocaleString()}`
-                    : "Never connected"}
-                </div>
-                <div className="flex items-center justify-between pt-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDelete(p)}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" /> Remove
-                  </Button>
-                  <Button size="sm" variant="outline" asChild>
-                    <Link href={`/printers/${p.id}`}>
-                      Open <ArrowRight className="ml-2 h-4 w-4" />
-                    </Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+              )}
+
+              <div className="text-[11px] text-[var(--on-surface-variant)] font-mono mt-auto">
+                {p.last_seen_at
+                  ? `Last seen ${new Date(p.last_seen_at).toLocaleString()}`
+                  : "Never connected"}
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-[var(--surface-variant)]">
+                <button
+                  onClick={(e) => handleDelete(p, e)}
+                  className="px-2 py-1 rounded text-[var(--error)] hover:bg-[var(--error-container)]/30 transition-colors font-mono text-[10px] uppercase tracking-wider flex items-center gap-1"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  Remove
+                </button>
+                <span className="px-2 py-1 rounded border border-[var(--outline-variant)] text-[var(--on-surface)] font-mono text-[10px] uppercase tracking-wider flex items-center gap-1 group-hover:border-[var(--primary)] group-hover:text-[var(--primary)] transition-colors">
+                  Open
+                  <ArrowRight className="h-3 w-3" />
+                </span>
+              </div>
+            </Link>
           ))}
         </div>
       )}
 
-      <AddPrinterModal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        onCreated={() => {
-          setAddOpen(false);
-          refresh();
-        }}
-      />
+      {addOpen && (
+        <AddPrinterModal
+          onClose={() => setAddOpen(false)}
+          onCreated={() => {
+            setAddOpen(false);
+            refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
 
+function PrinterIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="6 9 6 2 18 2 18 9" />
+      <path d="M6 12H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2h-2" />
+      <rect x="6" y="14" width="12" height="8" />
+    </svg>
+  );
+}
+
 function AddPrinterModal({
-  open,
   onClose,
   onCreated,
 }: {
-  open: boolean;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
+  const [moonrakerKey, setMoonrakerKey] = useState("");
   const [notes, setNotes] = useState("");
-  const [vaultKey, setVaultKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) {
-      setName("");
-      setUrl("");
-      setApiKey("");
-      setNotes("");
-      setVaultKey("");
-      setErr(null);
-    }
-  }, [open]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -209,10 +217,9 @@ function AddPrinterModal({
         {
           name: name.trim(),
           moonraker_url: url.trim(),
-          api_key: apiKey || undefined,
+          api_key: moonrakerKey || undefined,
           notes: notes || undefined,
         },
-        vaultKey,
       );
       onCreated();
     } catch (e: any) {
@@ -223,73 +230,89 @@ function AddPrinterModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Add printer">
-      <form onSubmit={submit} className="space-y-3">
-        <div className="space-y-1">
-          <label className="text-sm font-medium">Name</label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Voron 2.4"
-            required
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium">Moonraker URL</label>
-          <Input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="http://voron.local:7125"
-            required
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium">
-            Moonraker API key{" "}
-            <span className="text-xs font-normal text-muted-foreground">
-              (optional)
-            </span>
-          </label>
-          <Input
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Leave blank if auth is disabled"
-            type="password"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium">Notes</label>
-          <Input
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium">
-            Vault API key <Badge variant="destructive">required</Badge>
-          </label>
-          <Input
-            value={vaultKey}
-            onChange={(e) => setVaultKey(e.target.value)}
-            type="password"
-            required
-          />
-        </div>
-        {err && (
-          <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
-            {err}
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div
+        className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="relative bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded w-full max-w-md p-6 shadow-lg">
+        <h3 className="text-lg font-semibold text-[var(--on-surface)] mb-5">
+          Add printer
+        </h3>
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label className="block font-mono text-xs text-[var(--on-surface-variant)] tracking-wider uppercase mb-1.5">
+              Name
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-sm border border-[var(--outline-variant)] rounded px-3 py-[7px] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              placeholder="Voron 2.4"
+              required
+            />
           </div>
-        )}
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={submitting || !name || !url || !vaultKey}>
-            {submitting ? "Adding…" : "Add printer"}
-          </Button>
-        </div>
-      </form>
-    </Modal>
+          <div>
+            <label className="block font-mono text-xs text-[var(--on-surface-variant)] tracking-wider uppercase mb-1.5">
+              Moonraker URL
+            </label>
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="w-full bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-sm border border-[var(--outline-variant)] rounded px-3 py-[7px] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              placeholder="http://voron.local:7125"
+              required
+            />
+          </div>
+          <div>
+            <label className="block font-mono text-xs text-[var(--on-surface-variant)] tracking-wider uppercase mb-1.5">
+              Moonraker API key{" "}
+              <span className="font-normal normal-case tracking-normal opacity-60">
+                (optional)
+              </span>
+            </label>
+            <input
+              type="password"
+              value={moonrakerKey}
+              onChange={(e) => setMoonrakerKey(e.target.value)}
+              className="w-full bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-sm border border-[var(--outline-variant)] rounded px-3 py-[7px] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              placeholder="Leave blank if auth is disabled"
+            />
+          </div>
+          <div>
+            <label className="block font-mono text-xs text-[var(--on-surface-variant)] tracking-wider uppercase mb-1.5">
+              Notes
+            </label>
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-sm border border-[var(--outline-variant)] rounded px-3 py-[7px] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              placeholder="Optional"
+            />
+          </div>
+          {err && (
+            <div className="rounded border border-[var(--error)]/40 bg-[var(--error-container)]/30 p-2 text-xs text-[var(--error)] font-mono">
+              {err}
+            </div>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] font-mono text-xs uppercase tracking-wider hover:bg-[var(--surface-container-low)] transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !name || !url}
+              className="px-4 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-mono text-xs uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submitting ? "Adding..." : "Add printer"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }

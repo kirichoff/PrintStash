@@ -169,13 +169,17 @@ When asked to debug:
 ## 8. Useful Commands
 
 ```bash
-# Local dev (without Docker)
+# Backend local dev (uv)
 cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 VAULT_DB_URL=sqlite:///./dev.sqlite VAULT_DATA_DIR=./_data/files \
 VAULT_THUMB_DIR=./_data/thumbs VAULT_API_KEY=devkey \
-uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload
+
+# Frontend local dev (pnpm)
+cd frontend
+pnpm install
+pnpm dev
 
 # Docker
 docker compose up --build

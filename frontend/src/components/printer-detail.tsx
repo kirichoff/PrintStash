@@ -16,13 +16,9 @@ import {
   pausePrinter,
   resumePrinter,
 } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft,
+  Loader2,
   Pause,
   Play,
   Square,
@@ -31,16 +27,13 @@ import {
   WifiOff,
 } from "lucide-react";
 
-const STATUS_VARIANT: Record<
-  PrinterStatus,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  ready: "default",
-  printing: "default",
-  paused: "secondary",
-  offline: "outline",
-  unknown: "outline",
-  error: "destructive",
+const STATUS_COLORS: Record<PrinterStatus, string> = {
+  ready: "bg-emerald-500",
+  printing: "bg-[var(--primary)]",
+  paused: "bg-amber-500",
+  offline: "bg-[var(--outline)]",
+  unknown: "bg-[var(--outline)]",
+  error: "bg-[var(--error)]",
 };
 
 function formatDuration(s?: number | null): string {
@@ -80,14 +73,14 @@ export function PrinterDetailPage({ printerId }: { printerId: number }) {
   const [jobs, setJobs] = useState<PrintJobRead[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"pause" | "resume" | "cancel" | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function loadJobs() {
     try {
       setJobs(await listPrinterJobs(printerId));
-    } catch (e: any) {
-      // non-fatal
+    } catch (e) {
       console.warn("Failed to load jobs:", e);
     }
   }
@@ -110,9 +103,7 @@ export function PrinterDetailPage({ printerId }: { printerId: number }) {
         if (reconnectRef.current) clearTimeout(reconnectRef.current);
         reconnectRef.current = setTimeout(connect, 3000);
       };
-      ws.onerror = () => {
-        // onclose will follow.
-      };
+      ws.onerror = () => {};
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
@@ -121,11 +112,10 @@ export function PrinterDetailPage({ printerId }: { printerId: number }) {
           } else if (msg.type === "update") {
             setSnapshot((prev) => deepMerge(prev, msg.data || {}));
           }
-          // Refresh job list when print state changes are observed.
           const state = msg?.data?.print_stats?.state;
           if (state) loadJobs();
         } catch {
-          /* ignore parse errors */
+          /* ignore */
         }
       };
     } catch (e: any) {
@@ -145,15 +135,16 @@ export function PrinterDetailPage({ printerId }: { printerId: number }) {
   }, [printerId]);
 
   async function control(
-    fn: (key: string) => Promise<void>,
-    label: string,
+    action: "pause" | "resume" | "cancel",
+    fn: () => Promise<void>,
   ) {
-    const key = prompt(`Enter API key to ${label}:`);
-    if (!key) return;
+    setBusy(action);
     try {
-      await fn(key);
+      await fn();
     } catch (e: any) {
-      alert(`${label} failed: ${e.message}`);
+      alert(`${action} failed: ${e.message}`);
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -165,206 +156,299 @@ export function PrinterDetailPage({ printerId }: { printerId: number }) {
 
   if (!printer) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
+      <div className="max-w-6xl mx-auto w-full space-y-4">
+        <div className="h-8 w-48 rounded bg-[var(--surface-container)] animate-pulse" />
+        <div className="h-64 w-full rounded bg-[var(--surface-container)] animate-pulse" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-6xl mx-auto w-full space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/printers">
-            <ArrowLeft className="mr-2 h-4 w-4" /> Printers
-          </Link>
-        </Button>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Link
+          href="/printers"
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-[13px]"
+        >
+          <ArrowLeft className="h-4 w-4" /> Printers
+        </Link>
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded">
           {wsConnected ? (
             <>
-              <Wifi className="h-3.5 w-3.5 text-emerald-500" /> Live
+              <Wifi className="h-3 w-3 text-emerald-500" />
+              <span className="font-mono text-[10px] uppercase tracking-wider text-emerald-500 font-bold">
+                Live
+              </span>
             </>
           ) : (
             <>
-              <WifiOff className="h-3.5 w-3.5 text-amber-500" /> Reconnecting…
+              <WifiOff className="h-3 w-3 text-amber-500" />
+              <span className="font-mono text-[10px] uppercase tracking-wider text-amber-500">
+                Reconnecting…
+              </span>
             </>
           )}
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-3xl font-bold tracking-tight">{printer.name}</h1>
-        <Badge variant={STATUS_VARIANT[printer.status]} className="capitalize">
-          {printer.status}
-        </Badge>
+      {/* Title */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-2xl font-semibold text-[var(--on-surface)]">
+            {printer.name}
+          </h1>
+          <span className="flex items-center gap-1.5 px-2 py-1 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded">
+            <span
+              className={`w-2 h-2 rounded-full ${STATUS_COLORS[printer.status] || "bg-[var(--outline)]"}`}
+            />
+            <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)]">
+              {printer.status}
+            </span>
+          </span>
+        </div>
+        <p className="font-mono text-xs text-[var(--on-surface-variant)] break-all">
+          {printer.moonraker_url}
+        </p>
       </div>
-      <p className="text-sm text-muted-foreground break-all">
-        {printer.moonraker_url}
-      </p>
 
       {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="rounded border border-[var(--error)]/40 bg-[var(--error-container)]/30 p-3 text-sm text-[var(--error)] font-mono">
           {error}
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-lg">Current print</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">File</span>
-              <span className="ml-auto truncate font-medium">
-                {ps.filename || "—"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">State</span>
-              <span className="ml-auto font-medium capitalize">
-                {ps.state || "—"}
-              </span>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Current print */}
+        <section className="lg:col-span-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
+          <div className="px-6 py-4 border-b border-[var(--outline-variant)]">
+            <h2 className="text-sm font-semibold text-[var(--on-surface)]">
+              Current print
+            </h2>
+          </div>
+          <div className="p-6 space-y-5">
+            <Row label="FILE" value={ps.filename || "—"} truncate />
+            <Row label="STATE" value={ps.state || "—"} capitalize />
+
             <div>
-              <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-                <span>Progress</span>
-                <span>{progress != null ? `${progress.toFixed(1)}%` : "—"}</span>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)]">
+                  Progress
+                </span>
+                <span className="font-mono text-xs text-[var(--on-surface)] font-semibold">
+                  {progress != null ? `${progress.toFixed(1)}%` : "—"}
+                </span>
               </div>
-              <div className="h-2 w-full overflow-hidden rounded bg-muted">
+              <div className="h-2 w-full overflow-hidden rounded bg-[var(--surface-container-high)]">
                 <div
-                  className="h-full bg-primary transition-all"
+                  className="h-full bg-[var(--primary)] transition-all duration-500"
                   style={{ width: `${Math.min(100, progress ?? 0)}%` }}
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <div className="text-xs text-muted-foreground">Elapsed</div>
-                <div className="font-medium">
-                  {formatDuration(ps.print_duration)}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Total</div>
-                <div className="font-medium">
-                  {formatDuration(ps.total_duration)}
-                </div>
-              </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Row label="ELAPSED" value={formatDuration(ps.print_duration)} stack />
+              <Row label="TOTAL" value={formatDuration(ps.total_duration)} stack />
             </div>
 
-            <Separator />
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  control((k) => pausePrinter(printerId, k), "pause")
-                }
-                disabled={ps.state !== "printing"}
-              >
-                <Pause className="mr-2 h-4 w-4" /> Pause
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  control((k) => resumePrinter(printerId, k), "resume")
-                }
-                disabled={ps.state !== "paused"}
-              >
-                <Play className="mr-2 h-4 w-4" /> Resume
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() =>
-                  control((k) => cancelPrinter(printerId, k), "cancel")
-                }
-                disabled={ps.state !== "printing" && ps.state !== "paused"}
-              >
-                <Square className="mr-2 h-4 w-4" /> Cancel
-              </Button>
+            <div className="border-t border-[var(--surface-container-high)] pt-4 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <ControlButton
+                  onClick={() => control("pause", () => pausePrinter(printerId))}
+                  disabled={ps.state !== "printing" || busy !== null}
+                  busy={busy === "pause"}
+                  icon={Pause}
+                  label="Pause"
+                />
+                <ControlButton
+                  onClick={() => control("resume", () => resumePrinter(printerId))}
+                  disabled={ps.state !== "paused" || busy !== null}
+                  busy={busy === "resume"}
+                  icon={Play}
+                  label="Resume"
+                />
+                <ControlButton
+                  onClick={() => control("cancel", () => cancelPrinter(printerId))}
+                  disabled={
+                    (ps.state !== "printing" && ps.state !== "paused") ||
+                    busy !== null
+                  }
+                  busy={busy === "cancel"}
+                  icon={Square}
+                  label="Cancel"
+                  destructive
+                />
+              </div>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)]">
+                Controls use the API key from Settings.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Controls will prompt for the vault API key.
-            </p>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Thermometer className="h-4 w-4" /> Temperatures
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
+        {/* Temperatures */}
+        <section className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
+          <div className="px-6 py-4 border-b border-[var(--outline-variant)] flex items-center gap-2">
+            <Thermometer className="h-4 w-4 text-[var(--on-surface-variant)]" />
+            <h2 className="text-sm font-semibold text-[var(--on-surface)]">
+              Temperatures
+            </h2>
+          </div>
+          <div className="p-6 space-y-5">
             <TempRow label="Hotend" cur={ext.temperature} tgt={ext.target} />
             <TempRow label="Bed" cur={bed.temperature} tgt={bed.target} />
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Print history</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {jobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No print jobs yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs uppercase text-muted-foreground">
-                  <tr>
-                    <th className="py-2 pr-3">When</th>
-                    <th className="py-2 pr-3">File</th>
-                    <th className="py-2 pr-3">State</th>
-                    <th className="py-2 pr-3">Progress</th>
-                    <th className="py-2 pr-3">Started</th>
-                    <th className="py-2 pr-3">Finished</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.map((j) => (
-                    <tr key={j.id} className="border-t">
-                      <td className="py-2 pr-3 text-xs text-muted-foreground">
-                        {new Date(j.created_at).toLocaleString()}
-                      </td>
-                      <td className="py-2 pr-3 max-w-[260px] truncate">
-                        <Link
-                          href={`/models/${j.model_id}`}
-                          className="hover:underline"
-                          title={j.remote_filename}
-                        >
-                          {j.remote_filename}
-                        </Link>
-                      </td>
-                      <td className="py-2 pr-3 capitalize">{j.state}</td>
-                      <td className="py-2 pr-3">
-                        {(j.progress * 100).toFixed(0)}%
-                      </td>
-                      <td className="py-2 pr-3 text-xs text-muted-foreground">
-                        {j.started_at
-                          ? new Date(j.started_at).toLocaleTimeString()
-                          : "—"}
-                      </td>
-                      <td className="py-2 pr-3 text-xs text-muted-foreground">
-                        {j.finished_at
-                          ? new Date(j.finished_at).toLocaleTimeString()
-                          : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {/* History */}
+      <section className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
+        <div className="px-6 py-4 border-b border-[var(--outline-variant)] flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-[var(--on-surface)]">
+            Print history
+          </h2>
+          {jobs.length > 0 && (
+            <span className="font-mono text-xs text-[var(--on-surface-variant)]">
+              {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
+            </span>
           )}
-        </CardContent>
-      </Card>
+        </div>
+        {jobs.length === 0 ? (
+          <div className="p-10 text-center font-mono text-xs text-[var(--on-surface-variant)]">
+            No print jobs yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)] border-b border-[var(--surface-variant)]">
+                  <th className="py-3 px-4 font-medium">When</th>
+                  <th className="py-3 px-4 font-medium">File</th>
+                  <th className="py-3 px-4 font-medium">State</th>
+                  <th className="py-3 px-4 font-medium text-right">Progress</th>
+                  <th className="py-3 px-4 font-medium">Started</th>
+                  <th className="py-3 px-4 font-medium">Finished</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((j) => (
+                  <tr
+                    key={j.id}
+                    className="border-b border-[var(--surface-variant)] last:border-0 hover:bg-[var(--surface-container-low)] transition-colors"
+                  >
+                    <td className="py-3 px-4 font-mono text-xs text-[var(--on-surface-variant)] whitespace-nowrap">
+                      {new Date(j.created_at).toLocaleString()}
+                    </td>
+                    <td className="py-3 px-4 max-w-[260px] truncate">
+                      <Link
+                        href={`/models/${j.model_id}`}
+                        className="text-[var(--on-surface)] hover:text-[var(--primary)] hover:underline font-mono text-xs"
+                        title={j.remote_filename}
+                      >
+                        {j.remote_filename}
+                      </Link>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-[var(--surface-container)] text-[var(--on-surface)]">
+                        {j.state}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-xs text-[var(--on-surface)]">
+                      {(j.progress * 100).toFixed(0)}%
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs text-[var(--on-surface-variant)] whitespace-nowrap">
+                      {j.started_at
+                        ? new Date(j.started_at).toLocaleTimeString()
+                        : "—"}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs text-[var(--on-surface-variant)] whitespace-nowrap">
+                      {j.finished_at
+                        ? new Date(j.finished_at).toLocaleTimeString()
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  truncate,
+  capitalize,
+  stack,
+}: {
+  label: string;
+  value: string;
+  truncate?: boolean;
+  capitalize?: boolean;
+  stack?: boolean;
+}) {
+  if (stack) {
+    return (
+      <div className="space-y-1">
+        <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)]">
+          {label}
+        </div>
+        <div className="font-mono text-sm text-[var(--on-surface)] font-semibold">
+          {value}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)] flex-shrink-0">
+        {label}
+      </span>
+      <span
+        className={`font-mono text-xs text-[var(--on-surface)] font-medium ${truncate ? "truncate" : ""} ${capitalize ? "capitalize" : ""}`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ControlButton({
+  onClick,
+  disabled,
+  busy,
+  icon: Icon,
+  label,
+  destructive,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  busy?: boolean;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex items-center gap-1.5 px-3 py-2 rounded font-mono text-xs uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+        destructive
+          ? "bg-[var(--error)] text-white hover:opacity-90"
+          : "border border-[var(--outline-variant)] text-[var(--on-surface)] hover:bg-[var(--surface-container-low)] hover:border-[var(--outline)]"
+      }`}
+    >
+      {busy ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <Icon className="h-3.5 w-3.5" />
+      )}
+      {label}
+    </button>
   );
 }
 
@@ -377,26 +461,29 @@ function TempRow({
   cur?: number;
   tgt?: number;
 }) {
+  const pct = tgt != null && tgt > 0 && cur != null
+    ? Math.min(100, Math.max(0, (cur / tgt) * 100))
+    : null;
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)]">
+          {label}
+        </span>
+        <span className="font-mono text-xs text-[var(--on-surface)] font-semibold">
           {cur != null ? cur.toFixed(1) : "—"}°C
           {tgt != null && tgt > 0 && (
-            <span className="ml-1 text-xs text-muted-foreground">
+            <span className="ml-1.5 text-[var(--on-surface-variant)] font-normal">
               / {tgt.toFixed(0)}°C
             </span>
           )}
         </span>
       </div>
-      {tgt != null && tgt > 0 && cur != null && (
-        <div className="h-1 w-full overflow-hidden rounded bg-muted">
+      {pct != null && (
+        <div className="h-1 w-full overflow-hidden rounded bg-[var(--surface-container-high)]">
           <div
-            className="h-full bg-orange-500 transition-all"
-            style={{
-              width: `${Math.min(100, Math.max(0, (cur / tgt) * 100))}%`,
-            }}
+            className="h-full bg-orange-500 transition-all duration-500"
+            style={{ width: `${pct}%` }}
           />
         </div>
       )}

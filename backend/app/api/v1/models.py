@@ -43,6 +43,7 @@ def _thumb_url(model: Model) -> Optional[str]:
         return f"/api/v1/files/{model.thumbnail_file_id}/thumbnail"
     if model.thumbnail_path:
         from pathlib import Path
+
         stem = Path(model.thumbnail_path).stem
         if stem.isdigit():
             return f"/api/v1/files/{stem}/thumbnail"
@@ -61,8 +62,12 @@ def _thumb_url(model: Model) -> Optional[str]:
 )
 def list_models(
     request: Request,
-    category: Optional[str] = Query(None, description="Category path e.g. 'functional/brackets'"),
-    tag: Optional[List[str]] = Query(None, description="Tag slug; repeat for AND-filter"),
+    category: Optional[str] = Query(
+        None, description="Category path e.g. 'functional/brackets'"
+    ),
+    tag: Optional[List[str]] = Query(
+        None, description="Tag slug; repeat for AND-filter"
+    ),
     q: Optional[str] = Query(None, description="Substring match on name"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -74,8 +79,7 @@ def list_models(
         cat_path = category.strip().strip("/").lower()
         # match the category path or any descendant ("foo/bar" matches "foo/bar/baz")
         stmt = stmt.where(
-            (Model.category == cat_path)
-            | (Model.category.startswith(cat_path + "/"))  # type: ignore[attr-defined]
+            (Model.category == cat_path) | (Model.category.startswith(cat_path + "/"))  # type: ignore[attr-defined]
         )
 
     if q:
@@ -117,20 +121,19 @@ def list_models(
     return out
 
 
-@router.get(
-    "/{model_id}",
-    response_model=ModelRead,
-    summary="Get model detail with files and metadata",
-)
-def get_model(model_id: int, session: Session = Depends(get_session)) -> ModelRead:
+def _build_model_read(session: Session, model_id: int) -> ModelRead:
+    """Shared query-builder: given a session and model_id, return ModelRead or raise 404."""
     m = session.get(Model, model_id)
     if m is None or m.deleted_at is not None:
         raise HTTPException(status_code=404, detail="model_not_found")
 
-    files = session.exec(select(File).where(File.model_id == model_id)).all()
+    files_with_meta = session.exec(
+        select(File, Metadata)
+        .where(File.model_id == model_id)
+        .outerjoin(Metadata, Metadata.file_id == File.id)
+    ).all()
     file_reads: List[FileRead] = []
-    for f in files:
-        md = session.exec(select(Metadata).where(Metadata.file_id == f.id)).first()
+    for f, md in files_with_meta:
         file_reads.append(
             FileRead(
                 id=f.id,  # type: ignore[arg-type]
@@ -159,6 +162,15 @@ def get_model(model_id: int, session: Session = Depends(get_session)) -> ModelRe
         updated_at=m.updated_at,
         files=file_reads,
     )
+
+
+@router.get(
+    "/{model_id}",
+    response_model=ModelRead,
+    summary="Get model detail with files and metadata",
+)
+def get_model(model_id: int, session: Session = Depends(get_session)) -> ModelRead:
+    return _build_model_read(session, model_id)
 
 
 @router.patch(
@@ -207,7 +219,7 @@ def update_model(
     session.add(m)
     session.commit()
     session.refresh(m)
-    return get_model(model_id=model_id, session=session)
+    return _build_model_read(session, model_id)
 
 
 @router.delete(

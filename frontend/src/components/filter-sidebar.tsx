@@ -1,12 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { CategoryRead, TagRead } from "@/types";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronRight, FolderTree, Tag as TagIcon, X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 
 interface CategoryNode {
   cat: CategoryRead;
@@ -52,41 +49,46 @@ function CategoryNodeRow({
   const isOpen = expanded.has(node.cat.path);
   const isSelected = selected === node.cat.path;
   const hasChildren = node.children.length > 0;
+
   return (
     <div>
       <div
-        className={`group flex items-center gap-1 rounded-md px-1 py-1 text-sm hover:bg-accent ${
-          isSelected ? "bg-accent font-medium" : ""
+        className={`flex items-center justify-between rounded-lg py-1.5 cursor-pointer transition-colors ${
+          isSelected
+            ? "bg-[var(--secondary-container)] text-[var(--on-secondary-container)] font-medium"
+            : "text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] hover:text-[var(--on-surface)]"
         }`}
-        style={{ paddingLeft: `${depth * 12 + 4}px` }}
+        style={{ paddingLeft: `${depth * 12 + 12}px`, paddingRight: "4px" }}
       >
-        {hasChildren ? (
+        <div className="flex items-center gap-1 flex-1 min-w-0">
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={() => toggle(node.cat.path)}
+              className="rounded p-0.5 hover:bg-[var(--surface-container-high)] flex-shrink-0"
+              aria-label={isOpen ? "Collapse" : "Expand"}
+            >
+              <ChevronRight
+                className={`h-3 w-3 transition-transform ${
+                  isOpen ? "rotate-90" : ""
+                }`}
+              />
+            </button>
+          ) : (
+            <span className="inline-block w-[18px] flex-shrink-0" />
+          )}
           <button
             type="button"
-            onClick={() => toggle(node.cat.path)}
-            className="rounded p-0.5 hover:bg-muted"
-            aria-label={isOpen ? "Collapse" : "Expand"}
+            onClick={() => onSelect(isSelected ? null : node.cat.path)}
+            className="flex flex-1 items-center justify-between gap-2 truncate text-left font-mono text-[13px]"
+            title={node.cat.path}
           >
-            <ChevronRight
-              className={`h-3.5 w-3.5 transition-transform ${
-                isOpen ? "rotate-90" : ""
-              }`}
-            />
+            <span className="truncate">{node.cat.name}</span>
           </button>
-        ) : (
-          <span className="inline-block w-4" />
-        )}
-        <button
-          type="button"
-          onClick={() => onSelect(isSelected ? null : node.cat.path)}
-          className="flex flex-1 items-center justify-between gap-2 truncate text-left"
-          title={node.cat.path}
-        >
-          <span className="truncate">{node.cat.name}</span>
-          <span className="text-xs text-muted-foreground">
-            {node.cat.model_count}
-          </span>
-        </button>
+        </div>
+        <span className="bg-[var(--surface-container)] px-1 rounded text-[10px] font-mono text-[var(--on-surface-variant)] mr-1">
+          {node.cat.model_count}
+        </span>
       </div>
       {isOpen &&
         node.children.map((child) => (
@@ -124,7 +126,6 @@ export function FilterSidebar({
   const tree = useMemo(() => buildTree(categories), [categories]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Auto-expand ancestors of the selected category.
   useEffect(() => {
     if (!selectedCategory) return;
     const parts = selectedCategory.split("/");
@@ -158,45 +159,36 @@ export function FilterSidebar({
 
   if (loading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-6 w-24" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-6 w-24" />
-        <Skeleton className="h-24 w-full" />
-      </div>
+      <aside className="w-56 shrink-0 p-4 space-y-6">
+        <Skeleton className="h-5 w-20" />
+        <Skeleton className="h-36 w-full" />
+        <Skeleton className="h-5 w-14" />
+        <Skeleton className="h-28 w-full" />
+      </aside>
     );
   }
 
   return (
-    <aside className="space-y-6">
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <FolderTree className="h-4 w-4" /> Categories
-          </h3>
-          {selectedCategory && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={() => onCategoryChange(null)}
-            >
-              Clear
-            </Button>
-          )}
-        </div>
-        <div className="rounded-md border bg-card p-2">
+    <aside className="w-56 shrink-0 overflow-y-auto border-r border-[var(--outline-variant)] bg-[var(--surface-container-lowest)] p-4 flex flex-col gap-5">
+      {/* Categories */}
+      <div>
+        <h3 className="font-mono text-[10px] text-[var(--on-surface-variant)] tracking-wider uppercase mb-2">
+          Categories
+        </h3>
+        <div className="flex flex-col gap-0.5">
           <button
             type="button"
             onClick={() => onCategoryChange(null)}
-            className={`flex w-full items-center justify-between rounded-md px-2 py-1 text-sm hover:bg-accent ${
-              selectedCategory === null ? "bg-accent font-medium" : ""
+            className={`flex items-center justify-between px-3 py-1.5 rounded-lg font-mono text-[13px] transition-colors ${
+              selectedCategory === null
+                ? "bg-[var(--secondary-container)] text-[var(--on-secondary-container)] font-medium"
+                : "text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] hover:text-[var(--on-surface)]"
             }`}
           >
-            <span>All</span>
+            <span>All Models</span>
           </button>
           {tree.length === 0 ? (
-            <p className="px-2 py-1 text-xs text-muted-foreground">
+            <p className="px-3 py-2 text-[11px] text-[var(--on-surface-variant)] font-mono">
               No categories yet.
             </p>
           ) : (
@@ -213,57 +205,40 @@ export function FilterSidebar({
             ))
           )}
         </div>
-      </section>
+      </div>
 
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <TagIcon className="h-4 w-4" /> Tags
-          </h3>
-          {selectedTags.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={() => onTagsChange([])}
-            >
-              Clear
-            </Button>
-          )}
-        </div>
-        {tags.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No tags yet.</p>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {tags.map((t) => {
-              const active = selectedTags.includes(t.slug);
-              return (
-                <button
-                  type="button"
-                  key={t.id}
-                  onClick={() => toggleTag(t.slug)}
-                  className="focus:outline-none"
-                >
-                  <Badge
-                    variant={active ? "default" : "outline"}
-                    className="cursor-pointer"
+      {/* Tags */}
+      {tags.length > 0 && (
+        <>
+          <hr className="border-t border-[var(--outline-variant)]" />
+          <div>
+            <h3 className="font-mono text-[10px] text-[var(--on-surface-variant)] tracking-wider uppercase mb-2">
+              Tags
+            </h3>
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((t) => {
+                const active = selectedTags.includes(t.slug);
+                return (
+                  <button
+                    type="button"
+                    key={t.id}
+                    onClick={() => toggleTag(t.slug)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg font-mono text-[10px] tracking-wider uppercase border transition-colors ${
+                      active
+                        ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
+                        : "border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:border-[var(--outline)] hover:bg-[var(--surface-container-low)]"
+                    }`}
                   >
                     {t.name}
-                    <span className="ml-1 opacity-70">{t.model_count}</span>
-                    {active && <X className="ml-1 h-3 w-3" />}
-                  </Badge>
-                </button>
-              );
-            })}
+                    <span className="opacity-60">{t.model_count}</span>
+                    {active && <X className="h-3 w-3 ml-0.5" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        )}
-      </section>
-
-      <section className="text-xs text-muted-foreground">
-        <Link href="/printers" className="hover:underline">
-          Manage printers →
-        </Link>
-      </section>
+        </>
+      )}
     </aside>
   );
 }

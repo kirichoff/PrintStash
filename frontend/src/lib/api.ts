@@ -1,4 +1,6 @@
+import { emitUnauthorized, getStoredApiKey } from "@/lib/auth";
 import {
+  CategoryCreate,
   CategoryRead,
   IngestJobStatus,
   IngestResponse,
@@ -12,6 +14,7 @@ import {
   PrinterStatusResponse,
   PrinterUpdate,
   SendToPrinter,
+  TagCreate,
   TagRead,
 } from "@/types";
 
@@ -78,11 +81,41 @@ export function getWsUrl(path: string): string {
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const text = await res.text().catch(() => "Unknown error");
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
+}
+
+function resolveKey(explicit?: string): string | undefined {
+  if (explicit !== undefined) return explicit || undefined;
+  return getStoredApiKey() ?? undefined;
+}
+
+function writeHeaders(apiKey?: string): Record<string, string> {
+  const k = resolveKey(apiKey);
+  return k ? { "X-API-Key": k } : {};
+}
+
+function jsonHeaders(apiKey?: string): Record<string, string> {
+  const k = resolveKey(apiKey);
+  return k
+    ? { "Content-Type": "application/json", "X-API-Key": k }
+    : { "Content-Type": "application/json" };
+}
+
+/**
+ * Bare fetch wrapper for endpoints that don't return JSON (DELETE, POST control).
+ * Broadcasts 401s so the auth banner can surface.
+ */
+async function expectOk(res: Response): Promise<void> {
+  if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
+    const text = await res.text().catch(() => "Unknown error");
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
 }
 
 // -- Models ---------------------------------------------------------------
@@ -115,27 +148,23 @@ export async function getModel(id: number): Promise<ModelRead> {
 export async function updateModel(
   id: number,
   payload: ModelUpdate,
-  apiKey: string,
+  apiKey?: string,
 ): Promise<ModelRead> {
   const res = await fetch(getUrl(`/api/v1/models/${id}`), {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-Key": apiKey,
-    },
+    headers: jsonHeaders(apiKey),
     body: JSON.stringify(payload),
   });
   return handleResponse<ModelRead>(res);
 }
 
-export async function deleteModel(id: number, apiKey: string): Promise<void> {
+export async function deleteModel(id: number, apiKey?: string): Promise<void> {
   const res = await fetch(getUrl(`/api/v1/models/${id}`), {
     method: "DELETE",
-    headers: {
-      "X-API-Key": apiKey,
-    },
+    headers: writeHeaders(apiKey),
   });
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const text = await res.text().catch(() => "Unknown error");
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
@@ -145,13 +174,11 @@ export async function deleteModel(id: number, apiKey: string): Promise<void> {
 
 export async function ingestOrca(
   formData: FormData,
-  apiKey: string,
+  apiKey?: string,
 ): Promise<IngestResponse> {
   const res = await fetch(getUrl("/api/v1/ingest/orca"), {
     method: "POST",
-    headers: {
-      "X-API-Key": apiKey,
-    },
+    headers: writeHeaders(apiKey),
     body: formData,
   });
   return handleResponse<IngestResponse>(res);
@@ -166,13 +193,11 @@ export async function getJobStatus(jobId: string): Promise<IngestJobStatus> {
 
 export async function ingestModel(
   formData: FormData,
-  apiKey: string,
+  apiKey?: string,
 ): Promise<IngestResponse> {
   const res = await fetch(getUrl("/api/v1/ingest/model"), {
     method: "POST",
-    headers: {
-      "X-API-Key": apiKey,
-    },
+    headers: writeHeaders(apiKey),
     body: formData,
   });
   return handleResponse<IngestResponse>(res);
@@ -185,9 +210,57 @@ export async function listCategories(): Promise<CategoryRead[]> {
   return handleResponse<CategoryRead[]>(res);
 }
 
+export async function createCategory(
+  payload: CategoryCreate,
+  apiKey?: string,
+): Promise<CategoryRead> {
+  const res = await fetch(getUrl("/api/v1/categories"), {
+    method: "POST",
+    headers: jsonHeaders(apiKey),
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<CategoryRead>(res);
+}
+
+export async function deleteCategory(id: number, apiKey?: string): Promise<void> {
+  const res = await fetch(getUrl(`/api/v1/categories/${id}`), {
+    method: "DELETE",
+    headers: writeHeaders(apiKey),
+  });
+  if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
+    const text = await res.text().catch(() => "Unknown error");
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+}
+
 export async function listTags(): Promise<TagRead[]> {
   const res = await fetch(getUrl("/api/v1/tags"), { cache: "no-store" });
   return handleResponse<TagRead[]>(res);
+}
+
+export async function createTag(
+  payload: TagCreate,
+  apiKey?: string,
+): Promise<TagRead> {
+  const res = await fetch(getUrl("/api/v1/tags"), {
+    method: "POST",
+    headers: jsonHeaders(apiKey),
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<TagRead>(res);
+}
+
+export async function deleteTag(id: number, apiKey?: string): Promise<void> {
+  const res = await fetch(getUrl(`/api/v1/tags/${id}`), {
+    method: "DELETE",
+    headers: writeHeaders(apiKey),
+  });
+  if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
+    const text = await res.text().catch(() => "Unknown error");
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
 }
 
 // -- Printers -------------------------------------------------------------
@@ -206,14 +279,11 @@ export async function getPrinter(id: number): Promise<PrinterRead> {
 
 export async function createPrinter(
   payload: PrinterCreate,
-  apiKey: string,
+  apiKey?: string,
 ): Promise<PrinterRead> {
   const res = await fetch(getUrl("/api/v1/printers"), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-Key": apiKey,
-    },
+    headers: jsonHeaders(apiKey),
     body: JSON.stringify(payload),
   });
   return handleResponse<PrinterRead>(res);
@@ -222,25 +292,23 @@ export async function createPrinter(
 export async function updatePrinter(
   id: number,
   payload: PrinterUpdate,
-  apiKey: string,
+  apiKey?: string,
 ): Promise<PrinterRead> {
   const res = await fetch(getUrl(`/api/v1/printers/${id}`), {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-Key": apiKey,
-    },
+    headers: jsonHeaders(apiKey),
     body: JSON.stringify(payload),
   });
   return handleResponse<PrinterRead>(res);
 }
 
-export async function deletePrinter(id: number, apiKey: string): Promise<void> {
+export async function deletePrinter(id: number, apiKey?: string): Promise<void> {
   const res = await fetch(getUrl(`/api/v1/printers/${id}`), {
     method: "DELETE",
-    headers: { "X-API-Key": apiKey },
+    headers: writeHeaders(apiKey),
   });
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const text = await res.text().catch(() => "Unknown error");
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
@@ -249,14 +317,11 @@ export async function deletePrinter(id: number, apiKey: string): Promise<void> {
 export async function sendToPrinter(
   id: number,
   payload: SendToPrinter,
-  apiKey: string,
+  apiKey?: string,
 ): Promise<PrintJobRead> {
   const res = await fetch(getUrl(`/api/v1/printers/${id}/send`), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-Key": apiKey,
-    },
+    headers: jsonHeaders(apiKey),
     body: JSON.stringify(payload),
   });
   return handleResponse<PrintJobRead>(res);
@@ -265,27 +330,28 @@ export async function sendToPrinter(
 async function printerControl(
   id: number,
   action: "pause" | "resume" | "cancel",
-  apiKey: string,
+  apiKey?: string,
 ): Promise<void> {
   const res = await fetch(getUrl(`/api/v1/printers/${id}/${action}`), {
     method: "POST",
-    headers: { "X-API-Key": apiKey },
+    headers: writeHeaders(apiKey),
   });
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const text = await res.text().catch(() => "Unknown error");
     throw new Error(`HTTP ${res.status}: ${text}`);
   }
 }
 
-export function pausePrinter(id: number, apiKey: string) {
+export function pausePrinter(id: number, apiKey?: string) {
   return printerControl(id, "pause", apiKey);
 }
 
-export function resumePrinter(id: number, apiKey: string) {
+export function resumePrinter(id: number, apiKey?: string) {
   return printerControl(id, "resume", apiKey);
 }
 
-export function cancelPrinter(id: number, apiKey: string) {
+export function cancelPrinter(id: number, apiKey?: string) {
   return printerControl(id, "cancel", apiKey);
 }
 

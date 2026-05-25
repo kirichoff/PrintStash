@@ -7,13 +7,14 @@ For each Printer row, we keep:
 
 The hub is intentionally simple — Stage 4 will likely replace it with Redis pub/sub.
 """
+
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime
 from typing import Any, Dict, Set
 
-from fastapi import WebSocket
+from fastapi import Request, WebSocket
 from sqlmodel import Session, select
 
 from app.core.logging import get_logger
@@ -53,7 +54,9 @@ class PrinterHub:
         snap = self.snapshots.get(printer_id)
         if snap is not None:
             try:
-                await ws.send_json({"type": "snapshot", "printer_id": printer_id, "data": snap})
+                await ws.send_json(
+                    {"type": "snapshot", "printer_id": printer_id, "data": snap}
+                )
             except Exception:
                 pass
 
@@ -85,7 +88,9 @@ class PrinterHub:
                 return
             stop = asyncio.Event()
             self.stop_events[printer_id] = stop
-            task = asyncio.create_task(self._run_printer(printer_id, stop), name=f"printer-{printer_id}")
+            task = asyncio.create_task(
+                self._run_printer(printer_id, stop), name=f"printer-{printer_id}"
+            )
             self.tasks[printer_id] = task
 
     async def remove_printer(self, printer_id: int) -> None:
@@ -139,7 +144,9 @@ class PrinterHub:
             try:
                 await client.subscribe(on_status, stop_event=stop)
             except Exception as exc:  # noqa: BLE001 — last-ditch
-                logger.exception("printer worker[%s] subscribe crash: %s", printer_id, exc)
+                logger.exception(
+                    "printer worker[%s] subscribe crash: %s", printer_id, exc
+                )
                 self._mark_status(printer_id, PrinterStatus.OFFLINE, error=str(exc))
                 # back-off before reloading config
                 try:
@@ -164,14 +171,18 @@ class PrinterHub:
         filename = print_stats.get("filename") or None
 
         self._mark_status(printer_id, vault_status, error=None)
-        await self._sync_active_job(printer_id, ms_state, filename, progress, print_stats)
+        await self._sync_active_job(
+            printer_id, ms_state, filename, progress, print_stats
+        )
 
         await self._broadcast(
             printer_id,
             {"type": "update", "printer_id": printer_id, "data": snap},
         )
 
-    def _mark_status(self, printer_id: int, status: PrinterStatus, *, error: str | None) -> None:
+    def _mark_status(
+        self, printer_id: int, status: PrinterStatus, *, error: str | None
+    ) -> None:
         try:
             with Session(engine) as session:
                 p = session.get(Printer, printer_id)
@@ -234,7 +245,15 @@ class PrinterHub:
                 if new_state == PrintJobState.PRINTING and job.started_at is None:
                     job.started_at = datetime.utcnow()
                     changed = True
-                if new_state in (PrintJobState.COMPLETED, PrintJobState.CANCELLED, PrintJobState.FAILED) and job.finished_at is None:
+                if (
+                    new_state
+                    in (
+                        PrintJobState.COMPLETED,
+                        PrintJobState.CANCELLED,
+                        PrintJobState.FAILED,
+                    )
+                    and job.finished_at is None
+                ):
                     job.finished_at = datetime.utcnow()
                     changed = True
                 if changed:
@@ -247,4 +266,11 @@ class PrinterHub:
             logger.exception("printer hub: job sync failed for printer %s", printer_id)
 
 
-hub = PrinterHub()
+def get_hub(request: Request) -> PrinterHub:
+    """FastAPI dependency: returns the PrinterHub stored on app.state."""
+    return request.app.state.printer_hub
+
+
+def get_hub_from_ws(websocket: WebSocket) -> PrinterHub:
+    """FastAPI dependency (WebSocket variant): returns the PrinterHub."""
+    return websocket.app.state.printer_hub

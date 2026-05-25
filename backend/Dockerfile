@@ -2,11 +2,13 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    UV_CACHE_DIR=/tmp/.uv_cache \
+    UV_COMPILE_BYTECODE=1
 
 WORKDIR /app
 
-# System deps: curl for healthcheck, build deps for lxml/matplotlib
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
     curl \
@@ -16,16 +18,15 @@ RUN apt-get update \
     libpng-dev \
  && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-editable
 
 COPY app ./app
 
-# Default storage roots (overridable via env)
 ENV VAULT_DATA_DIR=/data/files \
     VAULT_THUMB_DIR=/data/thumbs \
     VAULT_DB_URL=sqlite:////data/db/nexus3d.sqlite
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
