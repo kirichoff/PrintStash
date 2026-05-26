@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Mapped, Relationship, SQLModel
 
 from app.core.time import utcnow
 
@@ -92,7 +92,7 @@ class Metadata(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=utcnow)
 
-    file: Optional["File"] = Relationship(back_populates="file_metadata")
+    file: Mapped[Optional["File"]] = Relationship(back_populates="file_metadata")
 
 
 class File(SQLModel, table=True):
@@ -112,11 +112,11 @@ class File(SQLModel, table=True):
 
     uploaded_at: datetime = Field(default_factory=utcnow)
 
-    model: Optional["Model"] = Relationship(
+    model: Mapped[Optional["Model"]] = Relationship(
         back_populates="files",
         sa_relationship_kwargs={"foreign_keys": "File.model_id"},
     )
-    file_metadata: Optional[Metadata] = Relationship(
+    file_metadata: Mapped[Optional[Metadata]] = Relationship(
         back_populates="file",
         sa_relationship_kwargs={"uselist": False, "cascade": "all, delete-orphan"},
     )
@@ -193,14 +193,14 @@ class Model(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
-    files: List[File] = Relationship(
+    files: Mapped[List[File]] = Relationship(
         back_populates="model",
         sa_relationship_kwargs={
             "cascade": "all, delete-orphan",
             "foreign_keys": "File.model_id",
         },
     )
-    tags: List[Tag] = Relationship(
+    tags: Mapped[List[Tag]] = Relationship(
         link_model=ModelTagLink,
         sa_relationship_kwargs={"lazy": "selectin"},
     )
