@@ -7,14 +7,20 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.http import get_or_404
-from app.db.models import File
+from app.core.logging import get_logger
+from app.core.security import require_auth
+from app.db.models import File, FileType, Model
 from app.db.session import get_session
 from app.services import storage
 
+logger = get_logger(__name__)
+
 router = APIRouter(prefix="/files", tags=["files"])
+
+_MESH_TYPES = {FileType.STL, FileType.THREE_MF, FileType.OBJ}
 
 
 @router.get(
@@ -80,3 +86,78 @@ def file_as_stl(file_id: int, session: Session = Depends(get_session)) -> Stream
         media_type="application/sla",
         headers={"Content-Disposition": f'attachment; filename="{stem}.stl"'},
     )
+
+
+@router.post(
+    "/thumbnails/rebuild",
+    dependencies=[Depends(require_auth)],
+    summary="Regenerate missing mesh thumbnails for existing models",
+    description=(
+        "Walks every non-soft-deleted Model that has no thumbnail and tries to "
+        "render one from its newest mesh file (STL/3MF/OBJ). Useful after a "
+        "dependency fix (e.g. installing networkx for 3MF parsing) without "
+        "re-uploading. Returns a per-model summary."
+    ),
+)
+def rebuild_missing_thumbnails(
+    session: Session = Depends(get_session),
+) -> dict:
+    from app.services import mesh_processing
+
+    models = session.exec(
+        select(Model).where(
+            Model.deleted_at.is_(None),  # type: ignore[union-attr]
+            Model.thumbnail_file_id.is_(None),  # type: ignore[union-attr]
+        )
+    ).all()
+
+    rebuilt: list[int] = []
+    skipped: list[int] = []
+    failed: list[int] = []
+
+    for m in models:
+        assert m.id is not None
+        # Newest mesh file wins.
+        mesh_file = session.exec(
+            select(File)
+            .where(File.model_id == m.id, File.file_type.in_(_MESH_TYPES))  # type: ignore[attr-defined]
+            .order_by(File.version.desc())  # type: ignore[attr-defined]
+        ).first()
+        if mesh_file is None:
+            skipped.append(m.id)
+            continue
+
+        path = Path(mesh_file.path)
+        if not path.exists():
+            skipped.append(m.id)
+            continue
+
+        try:
+            thumb_bytes = mesh_processing.render_thumbnail(path)
+        except Exception:  # noqa: BLE001 — defensive, log and continue
+            logger.exception("rebuild: render_thumbnail crashed for model %s", m.id)
+            thumb_bytes = None
+
+        if not thumb_bytes:
+            failed.append(m.id)
+            continue
+
+        assert mesh_file.id is not None
+        thumb_path = storage.thumbnail_path_for(mesh_file.id)
+        thumb_path.parent.mkdir(parents=True, exist_ok=True)
+        thumb_path.write_bytes(thumb_bytes)
+        m.thumbnail_path = str(thumb_path)
+        m.thumbnail_file_id = mesh_file.id
+        session.add(m)
+        session.commit()
+        rebuilt.append(m.id)
+        logger.info(
+            "rebuild: thumbnail regenerated for model %s file %s", m.id, mesh_file.id
+        )
+
+    return {
+        "scanned": len(models),
+        "rebuilt": rebuilt,
+        "skipped_no_mesh": skipped,
+        "failed_render": failed,
+    }
