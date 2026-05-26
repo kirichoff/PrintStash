@@ -30,3 +30,7 @@ frontend/dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Project tools
+AGENTS.md
+.opencode/
