@@ -5,7 +5,7 @@
 /// - ``rasterise(tri, shade, width, height) -> bytes``  — parallel triangle rasteriser
 
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyBytes, PyDict};
 
 mod gcode;
 mod raster;
@@ -17,46 +17,51 @@ mod raster;
 #[pyfunction]
 fn gcode_scan(py: Python<'_>, path: &str) -> PyResult<Py<PyDict>> {
     let result = crate::gcode::gcode_scan(std::path::Path::new(path))
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(e.to_string()))?;
 
     let dict = PyDict::new(py);
-    dict.set_item("sha256", result.sha256)?;
+    dict.set_item("sha256", &result.sha256)?;
 
-    let meta = result.meta;
-    // Use None for missing fields so Python consumers get None, not absent keys.
-    let none = || py.None();
-
-    let set_opt = |key: &str, val: Option<String>| -> PyResult<()> {
-        dict.set_item(key, val.map_or_else(none, |v| v.into_py(py)))?;
-        Ok(())
-    };
-    let set_opt_int = |key: &str, val: Option<i64>| -> PyResult<()> {
-        dict.set_item(key, val.map_or_else(none, |v| v.into_py(py)))?;
-        Ok(())
-    };
-    let set_opt_float = |key: &str, val: Option<f64>| -> PyResult<()> {
-        dict.set_item(key, val.map_or_else(none, |v| v.into_py(py)))?;
-        Ok(())
+    let meta = &result.meta;
+    let set = |dict: &Bound<'_, PyDict>, key: &str, val: &dyn std::fmt::Display| {
+        dict.set_item(key, val.to_string())
     };
 
-    set_opt("slicer_name", meta.slicer_name)?;
-    set_opt("slicer_version", meta.slicer_version)?;
-    set_opt("printer_model", meta.printer_model)?;
-    set_opt_float("nozzle_diameter_mm", meta.nozzle_diameter_mm)?;
-    set_opt_float("layer_height_mm", meta.layer_height_mm)?;
-    set_opt_float("infill_percent", meta.infill_percent)?;
-    set_opt_int("estimated_time_s", meta.estimated_time_s)?;
-    set_opt_float("filament_weight_g", meta.filament_weight_g)?;
-    set_opt_float("filament_length_mm", meta.filament_length_mm)?;
-    set_opt_float("filament_cost", meta.filament_cost)?;
-    set_opt("material_type", meta.material_type)?;
+    let set_opt_str = |dict: &Bound<'_, PyDict>, key: &str, val: &Option<String>| {
+        match val {
+            Some(v) => dict.set_item(key, v.as_str()),
+            None => dict.set_item(key, py.None()),
+        }
+    };
+    let set_opt_i64 = |dict: &Bound<'_, PyDict>, key: &str, val: Option<i64>| {
+        match val {
+            Some(v) => dict.set_item(key, v),
+            None => dict.set_item(key, py.None()),
+        }
+    };
+    let set_opt_f64 = |dict: &Bound<'_, PyDict>, key: &str, val: Option<f64>| {
+        match val {
+            Some(v) => dict.set_item(key, v),
+            None => dict.set_item(key, py.None()),
+        }
+    };
 
-    dict.set_item(
-        "thumbnail_png",
-        result
-            .thumbnail_png
-            .map_or_else(none, |v| pyo3::types::PyBytes::new(py, &v).into_py(py)),
-    )?;
+    set_opt_str(&dict, "slicer_name", &meta.slicer_name)?;
+    set_opt_str(&dict, "slicer_version", &meta.slicer_version)?;
+    set_opt_str(&dict, "printer_model", &meta.printer_model)?;
+    set_opt_f64(&dict, "nozzle_diameter_mm", meta.nozzle_diameter_mm)?;
+    set_opt_f64(&dict, "layer_height_mm", meta.layer_height_mm)?;
+    set_opt_f64(&dict, "infill_percent", meta.infill_percent)?;
+    set_opt_i64(&dict, "estimated_time_s", meta.estimated_time_s)?;
+    set_opt_f64(&dict, "filament_weight_g", meta.filament_weight_g)?;
+    set_opt_f64(&dict, "filament_length_mm", meta.filament_length_mm)?;
+    set_opt_f64(&dict, "filament_cost", meta.filament_cost)?;
+    set_opt_str(&dict, "material_type", &meta.material_type)?;
+
+    match &result.thumbnail_png {
+        Some(png) => dict.set_item("thumbnail_png", PyBytes::new(py, png))?,
+        None => dict.set_item("thumbnail_png", py.None())?,
+    }
 
     Ok(dict.into())
 }
@@ -71,9 +76,9 @@ fn rasterise(
     shade: Vec<f64>,
     width: u32,
     height: u32,
-) -> PyResult<pyo3::types::Py<pyo3::types::PyBytes>> {
+) -> PyResult<Py<PyBytes>> {
     let buf = crate::raster::rasterise(&tri, &shade, width, height);
-    Python::with_gil(|py| Ok(pyo3::types::PyBytes::new(py, &buf).into()))
+    Python::with_gil(|py| Ok(PyBytes::new(py, &buf).into()))
 }
 
 // ---------------------------------------------------------------------------

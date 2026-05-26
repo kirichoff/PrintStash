@@ -9,7 +9,7 @@
 /// read.
 
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::io::Read;
 use std::path::Path;
 
 use base64::Engine;
@@ -304,16 +304,14 @@ pub fn gcode_scan(path: &Path) -> std::io::Result<GcodeScan> {
     let file_len = file.metadata()?.len() as usize;
 
     let mut hasher = Sha256::new();
-    let mut head_buf = Vec::with_capacity(HEAD_TAIL_BYTES.min(file_len));
     let mut tail_ring: Vec<u8> = Vec::new();
     let mut thumb_scanner = ThumbScanner::new();
 
     // Read first 64 KB (or whole file if smaller than 128 KB).
     let head_size = HEAD_TAIL_BYTES.min(file_len);
-    let mut chunk = vec![0u8; head_size];
-    file.read_exact(&mut chunk)?;
-    hasher.update(&chunk);
-    head_buf = chunk;
+    let mut head_buf = vec![0u8; head_size];
+    file.read_exact(&mut head_buf)?;
+    hasher.update(&head_buf);
 
     if file_len > head_size {
         // Stream the middle in 1 MiB chunks.
