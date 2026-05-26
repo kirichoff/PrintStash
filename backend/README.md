@@ -65,10 +65,13 @@ backend/
 | `VAULT_JWT_SECRET` | Signing key for auth tokens | anything random |
 | `VAULT_JWT_ALGORITHM` | JWT algorithm | `HS256` |
 | `VAULT_ACCESS_TOKEN_EXPIRE_MINUTES` | Token lifetime | `60` |
-| `VAULT_DEFAULT_USERNAME` | Admin user created on first boot | `admin` |
-| `VAULT_DEFAULT_PASSWORD` | Admin password (change it) | `admin` |
 | `VAULT_MAX_UPLOAD_MB` | Upload size limit | `512` |
 | `VAULT_LOG_LEVEL` | Python log level | `INFO` |
+
+> The first admin user is created via the web-based first-run wizard at
+> `/setup` — there is no env-driven default account. Storage paths above are
+> the defaults; the wizard can override `data_dir` / `thumb_dir` per install
+> and persists them in the `system_config` table.
 
 ## Building the Rust module
 

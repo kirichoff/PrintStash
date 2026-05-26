@@ -61,23 +61,3 @@ def authenticate_user(session: Session, username: str, password: str) -> Optiona
         return None
     logger.info("login success: user=%s", username)
     return user
-
-
-def ensure_default_user(session: Session) -> None:
-    if not settings.default_username or not settings.default_password:
-        return
-    user = get_user_by_username(session, settings.default_username)
-    if user:
-        return
-    logger.info(
-        "creating default user: %s (change password via env: VAULT_DEFAULT_USERNAME / VAULT_DEFAULT_PASSWORD)",
-        settings.default_username,
-    )
-    user = User(
-        username=settings.default_username,
-        hashed_password=hash_password(settings.default_password),
-        is_superuser=True,
-        is_active=True,
-    )
-    session.add(user)
-    session.commit()

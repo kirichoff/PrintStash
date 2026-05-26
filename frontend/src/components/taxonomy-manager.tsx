@@ -10,9 +10,12 @@ import {
   deleteCategory,
   deleteTag,
 } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useRequireAuth } from "@/lib/use-require-auth";
 import { Plus, X, FolderTree, Tag as TagIcon } from "lucide-react";
 
 export function TaxonomyManager() {
+  const auth = useRequireAuth();
   const [categories, setCategories] = useState<CategoryRead[]>([]);
   const [tags, setTags] = useState<TagRead[]>([]);
   const [newCat, setNewCat] = useState("");
@@ -38,42 +41,52 @@ export function TaxonomyManager() {
   async function handleCreateCategory() {
     const name = newCat.trim();
     if (!name) return;
+    if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
     try {
       await createCategory({ name });
       setNewCat("");
+      toast.success(`Category "${name}" created`);
       refresh();
     } catch (e: any) {
       setError(e.message);
+      toast.error(e);
     }
   }
 
   async function handleDeleteCategory(id: number) {
     try {
       await deleteCategory(id);
+      toast.success("Category removed");
       refresh();
     } catch (e: any) {
       setError(e.message);
+      toast.error(e);
     }
   }
 
   async function handleCreateTag() {
     const name = newTag.trim();
     if (!name) return;
+    if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
     try {
       await createTag({ name });
       setNewTag("");
+      toast.success(`Tag "${name}" created`);
       refresh();
     } catch (e: any) {
       setError(e.message);
+      toast.error(e);
     }
   }
 
   async function handleDeleteTag(id: number) {
     try {
       await deleteTag(id);
+      toast.success("Tag removed");
       refresh();
     } catch (e: any) {
       setError(e.message);
+      toast.error(e);
     }
   }
 
@@ -104,12 +117,13 @@ export function TaxonomyManager() {
             <input
               value={newCat}
               onChange={(e) => setNewCat(e.target.value)}
-              placeholder="New category..."
-              className="bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] w-40 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              disabled={!auth.isAuthenticated}
+              placeholder={auth.isAuthenticated ? "New category..." : "Sign in to add"}
+              className="bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] w-40 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent disabled:opacity-40"
             />
             <button
               type="submit"
-              disabled={!newCat.trim()}
+              disabled={!newCat.trim() || !auth.isAuthenticated}
               className="p-1.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -145,13 +159,14 @@ export function TaxonomyManager() {
                     </span>
                     <button
                       onClick={() => {
+                        if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
                         if (c.model_count > 0) {
-                          alert("Cannot delete: category has models assigned.");
+                          toast.warning("Cannot delete category", "Remove all assigned models first.");
                           return;
                         }
                         handleDeleteCategory(c.id);
                       }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-[var(--error-container)]/30 text-[var(--error)]"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-[var(--error-container)]/30 text-[var(--error)] disabled:opacity-20"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -182,12 +197,13 @@ export function TaxonomyManager() {
             <input
               value={newTag}
               onChange={(e) => setNewTag(e.target.value)}
-              placeholder="New tag..."
-              className="bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] w-40 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              disabled={!auth.isAuthenticated}
+              placeholder={auth.isAuthenticated ? "New tag..." : "Sign in to add"}
+              className="bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] w-40 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent disabled:opacity-40"
             />
             <button
               type="submit"
-              disabled={!newTag.trim()}
+              disabled={!newTag.trim() || !auth.isAuthenticated}
               className="p-1.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -214,7 +230,10 @@ export function TaxonomyManager() {
                     ({t.model_count})
                   </span>
                   <button
-                    onClick={() => handleDeleteTag(t.id)}
+                    onClick={() => {
+                      if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
+                      handleDeleteTag(t.id);
+                    }}
                     className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:text-[var(--error)]"
                   >
                     <X className="h-3 w-3" />

@@ -9,8 +9,8 @@ from app.api.v1 import api_router
 from app.core.config import ensure_dirs, settings
 from app.core.logging import get_logger
 from app.db.session import get_session_factory, init_db
-from app.services.auth import ensure_default_user
 from app.services.printer_hub import PrinterHub
+from app.services.runtime_config import apply_overlay, is_configured
 
 logger = get_logger(__name__)
 
@@ -18,10 +18,17 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("starting %s v%s", settings.app_name, settings.app_version)
-    ensure_dirs()
+    # DB must exist before we can read the runtime overlay.
     init_db()
     with get_session_factory()() as session:
-        ensure_default_user(session)
+        apply_overlay(session)
+        configured = is_configured(session)
+    # ensure_dirs() runs against the (possibly overlaid) settings.
+    ensure_dirs()
+    if not configured:
+        logger.warning(
+            "vault is unconfigured — open the web UI to run the first-run setup wizard"
+        )
     logger.info(
         "data_dir=%s thumb_dir=%s db=%s",
         settings.data_dir,

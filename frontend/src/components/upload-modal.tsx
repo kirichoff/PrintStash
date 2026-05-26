@@ -19,8 +19,9 @@ import {
   listCategories,
   listTags,
 } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useRequireAuth } from "@/lib/use-require-auth";
 import { CategoryRead, TagRead } from "@/types";
-import { hasStoredApiKey } from "@/lib/auth";
 
 const MESH_EXT = new Set([".stl", ".3mf", ".obj"]);
 const GCODE_EXT = new Set([".gcode", ".g", ".gco"]);
@@ -62,6 +63,7 @@ export function UploadModal({
   onClose: () => void;
   onUploaded: () => void;
 }) {
+  const auth = useRequireAuth();
   const meshRef = useRef<HTMLInputElement>(null);
   const gcodeRef = useRef<HTMLInputElement>(null);
   const [meshFile, setMeshFile] = useState<File | null>(null);
@@ -78,13 +80,11 @@ export function UploadModal({
   const [categories, setCategories] = useState<CategoryRead[]>([]);
   const [tags, setTags] = useState<TagRead[]>([]);
   const [catOpen, setCatOpen] = useState(false);
-  const [hasKey, setHasKey] = useState(true);
 
   useEffect(() => {
     if (!open) return;
     listCategories().then(setCategories).catch(() => {});
     listTags().then(setTags).catch(() => {});
-    setHasKey(hasStoredApiKey());
   }, [open]);
 
   useEffect(() => {
@@ -172,6 +172,10 @@ export function UploadModal({
   async function doSubmit(e: React.FormEvent) {
     e.preventDefault();
     if ((!meshFile && !gcodeFile) || submitting) return;
+    if (!auth.isAuthenticated) {
+      auth.showAuthRequiredToast();
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -224,7 +228,9 @@ export function UploadModal({
       setStep("done");
       onUploaded();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      toast.error(err);
     } finally {
       setSubmitting(false);
     }
@@ -244,8 +250,10 @@ export function UploadModal({
       const t = await createTag({ name: trimmed });
       setTags((p) => [...p, t]);
       setSelectedTags((p) => [...p, t.slug]);
-    } catch {
-      /* duplicate or 401 — silently ignored; auth banner handles 401 */
+    } catch (err) {
+      // 401 is surfaced by AuthBanner; duplicate slug is harmless.
+      if (err && typeof err === "object" && "status" in err && (err as { status: number }).status === 401) return;
+      toast.error(err);
     }
   }
 
@@ -321,10 +329,9 @@ export function UploadModal({
               </button>
             </div>
 
-            {!hasKey && (
+            {!auth.isAuthenticated && (
               <div className="mx-6 mt-4 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200 font-mono">
-                No vault API key configured. Upload will fail if the server
-                requires one.{" "}
+                Sign in or add an API key in Settings before uploading.{" "}
                 <a href="/settings" className="underline">
                   Open settings
                 </a>

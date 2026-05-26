@@ -1,6 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import type { STLViewerControls } from "@/components/stl-viewer";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { CategoryRead, ModelRead, PrinterRead, TagRead } from "@/types";
@@ -19,6 +20,8 @@ import {
   sendToPrinter,
   updateModel,
 } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useRequireAuth } from "@/lib/use-require-auth";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -67,6 +70,7 @@ function timeAgo(dateStr: string): string {
 
 export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
   const router = useRouter();
+  const auth = useRequireAuth();
   const [model, setModel] = useState(initialModel);
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -80,16 +84,18 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
   const [categories, setCategories] = useState<CategoryRead[]>([]);
   const [tags, setTags] = useState<TagRead[]>([]);
   const [catLoaded, setCatLoaded] = useState(false);
+  const viewerControls = useRef<STLViewerControls | null>(null);
 
   async function doDelete() {
     if (!confirm("Delete this model? This cannot be undone.")) return;
     setDeleting(true);
     try {
       await deleteModel(model.id);
+      toast.success("Model deleted");
       router.push("/");
       router.refresh();
-    } catch (e: any) {
-      alert("Delete failed: " + e.message);
+    } catch (e) {
+      toast.error(e);
     } finally {
       setDeleting(false);
     }
@@ -124,8 +130,9 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
       });
       setModel(updated);
       setEditing(false);
-    } catch (e: any) {
-      alert("Update failed: " + (e.message || String(e)));
+      toast.success("Model updated");
+    } catch (e) {
+      toast.error(e);
     } finally {
       setSaving(false);
     }
@@ -233,20 +240,25 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
           ) : (
             <>
               <button
-                onClick={enterEdit}
-                className="px-4 py-2 rounded border border-[var(--outline)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5"
+                onClick={auth.isAuthenticated ? enterEdit : auth.showAuthRequiredToast}
+                disabled={!auth.isAuthenticated}
+                title={auth.blockReason ?? "Edit model"}
+                className="px-4 py-2 rounded border border-[var(--outline)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <Pencil className="h-4 w-4" /> Edit
+                <Pencil className="h-4 w-4" /> {auth.isAuthenticated ? "Edit" : "Sign in to edit"}
               </button>
               <button
-                onClick={doDelete}
-                disabled={deleting}
-                className="px-4 py-2 rounded border border-[var(--outline)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5"
+                onClick={auth.isAuthenticated ? doDelete : auth.showAuthRequiredToast}
+                disabled={deleting || !auth.isAuthenticated}
+                title={auth.blockReason ?? "Delete model"}
+                className="px-4 py-2 rounded border border-[var(--outline)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {deleting ? (
                   <><Loader2 className="h-4 w-4 animate-spin" /> Deleting...</>
-                ) : (
+                ) : auth.isAuthenticated ? (
                   <><Trash2 className="h-4 w-4" /> Delete</>
+                ) : (
+                  <><Trash2 className="h-4 w-4" /> Sign in to delete</>
                 )}
               </button>
             </>
@@ -265,7 +277,10 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
                 <Loader2 className="h-8 w-8 animate-spin" />
               </div>
             }>
-              <STLViewer url={getAssetUrl(`/api/v1/files/${meshFile.id}/stl`)} />
+              <STLViewer
+                url={getAssetUrl(`/api/v1/files/${meshFile.id}/stl`)}
+                onControlsReady={(api) => { viewerControls.current = api; }}
+              />
             </Suspense>
           ) : thumbUrl ? (
             <img
@@ -283,12 +298,14 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
           <div className="absolute bottom-4 right-4 flex flex-col gap-1 z-10">
             <div className="flex bg-[var(--surface-container-lowest)]/90 backdrop-blur border border-[var(--outline-variant)] rounded overflow-hidden shadow-sm">
               <button
+                onClick={() => viewerControls.current?.zoomIn()}
                 className="w-9 h-9 flex items-center justify-center text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-high)] hover:text-[var(--primary)] transition-colors border-r border-[var(--outline-variant)]"
                 title="Zoom in"
               >
                 <Plus className="h-4 w-4" />
               </button>
               <button
+                onClick={() => viewerControls.current?.zoomOut()}
                 className="w-9 h-9 flex items-center justify-center text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-high)] hover:text-[var(--primary)] transition-colors"
                 title="Zoom out"
               >
@@ -296,6 +313,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
               </button>
             </div>
             <button
+              onClick={() => viewerControls.current?.resetView()}
               className="h-9 px-3 bg-[var(--surface-container-lowest)]/90 backdrop-blur border border-[var(--outline-variant)] rounded shadow-sm flex items-center justify-center text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-high)] hover:text-[var(--primary)] transition-colors"
               title="Reset view"
             >
@@ -578,6 +596,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
 }
 
 function SendToButtons({ modelId, gcodeFiles }: { modelId: number; gcodeFiles: { id: number; original_filename: string; version: number }[] }) {
+  const auth = useRequireAuth();
   const [showSend, setShowSend] = useState(false);
   const [selectedFile, setSelectedFile] = useState<number>(gcodeFiles[gcodeFiles.length - 1]?.id ?? 0);
   const [startPrint, setStartPrint] = useState(false);
@@ -617,7 +636,7 @@ function SendToButtons({ modelId, gcodeFiles }: { modelId: number; gcodeFiles: {
         start_print: startPrint,
       });
       setShowSend(false);
-      alert(startPrint ? `Print started (job #${job.id})` : `Sent to printer (job #${job.id})`);
+      toast.success(startPrint ? `Print started (job #${job.id})` : `Sent to printer (job #${job.id})`);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -699,11 +718,18 @@ function SendToButtons({ modelId, gcodeFiles }: { modelId: number; gcodeFiles: {
             {printers.length === 0 ? "Configure printers" : "Manage printers"}
           </Link>
           <button
-            onClick={() => setShowSend(true)}
-            disabled={printers.length === 0}
+            onClick={() => {
+              if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
+              setShowSend(true);
+            }}
+            disabled={printers.length === 0 || !auth.isAuthenticated}
             className="w-full py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity rounded font-mono text-xs uppercase tracking-wider shadow-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <Send className="h-4 w-4" /> Send to printer
+            {!auth.isAuthenticated ? (
+              <><Send className="h-4 w-4" /> Sign in to send</>
+            ) : (
+              <><Send className="h-4 w-4" /> Send to printer</>
+            )}
           </button>
         </div>
       )}

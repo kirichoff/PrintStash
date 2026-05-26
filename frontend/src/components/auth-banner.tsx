@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { AlertTriangle, X } from "lucide-react";
 import {
@@ -9,12 +9,14 @@ import {
   onAuthChange,
   onUnauthorized,
 } from "@/lib/auth";
+import { toast } from "@/lib/toast";
 
 export function AuthBanner() {
   const [show, setShow] = useState(false);
   const [reason, setReason] = useState<"missing" | "rejected" | "expired">(
     "missing",
   );
+  const firstFire = useRef(true);
 
   useEffect(() => {
     function update() {
@@ -24,14 +26,26 @@ export function AuthBanner() {
     }
     const offAuth = onAuthChange(update);
     const offUnauth = onUnauthorized(() => {
+      let r: "missing" | "rejected" | "expired";
       if (isLoggedIn()) {
-        setReason("expired");
+        r = "expired";
       } else if (hasStoredApiKey()) {
-        setReason("rejected");
+        r = "rejected";
       } else {
-        setReason("missing");
+        r = "missing";
       }
+      setReason(r);
       setShow(true);
+      // Toast only on subsequent 401s, not the automatic bootstrap probe.
+      if (!firstFire.current) {
+        const msgs: Record<string, string> = {
+          missing: "Authentication required — sign in or add an API key in Settings.",
+          rejected: "Credentials were rejected by the server. Sign in again or update your API key.",
+          expired: "Your session has expired. Please sign in again.",
+        };
+        toast.warning(msgs[r]);
+      }
+      firstFire.current = false;
     });
     return () => {
       offAuth();

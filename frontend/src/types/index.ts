@@ -226,3 +226,33 @@ export interface UserRead {
   created_at: string;
   updated_at: string;
 }
+
+// -- First-run setup ---------------------------------------------------------
+
+export interface SetupStatus {
+  configured: boolean;
+  user_count: number;
+  default_data_dir: string;
+  default_thumb_dir: string;
+  current_data_dir: string;
+  current_thumb_dir: string;
+  configured_at: string | null;
+}
+
+export interface SetupRequest {
+  username: string;
+  password: string;
+  email?: string;
+  data_dir?: string;
+  thumb_dir?: string;
+}
+
+export interface SetupResponse {
+  configured: boolean;
+  user_id: number;
+  username: string;
+  data_dir: string;
+  thumb_dir: string;
+  access_token: string;
+  token_type: string;
+}

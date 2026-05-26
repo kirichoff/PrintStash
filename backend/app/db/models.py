@@ -10,14 +10,11 @@ SQLModel/SQLAlchemy's column descriptors confuse static type checkers. They
 are correct at runtime.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
 from sqlmodel import Field, Relationship, SQLModel
-from sqlalchemy.orm import Mapped
 
 from app.core.time import utcnow
 
@@ -93,7 +90,7 @@ class Metadata(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=utcnow)
 
-    file: Mapped[Optional["File"]] = Relationship(back_populates="file_metadata")
+    file: Optional["File"] = Relationship(back_populates="file_metadata")
 
 
 class File(SQLModel, table=True):
@@ -113,11 +110,11 @@ class File(SQLModel, table=True):
 
     uploaded_at: datetime = Field(default_factory=utcnow)
 
-    model: Mapped[Optional["Model"]] = Relationship(
+    model: Optional["Model"] = Relationship(
         back_populates="files",
         sa_relationship_kwargs={"foreign_keys": "File.model_id"},
     )
-    file_metadata: Mapped[Optional[Metadata]] = Relationship(
+    file_metadata: Optional[Metadata] = Relationship(
         back_populates="file",
         sa_relationship_kwargs={"uselist": False, "cascade": "all, delete-orphan"},
     )
@@ -194,14 +191,14 @@ class Model(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
-    files: Mapped[List[File]] = Relationship(
+    files: List[File] = Relationship(
         back_populates="model",
         sa_relationship_kwargs={
             "cascade": "all, delete-orphan",
             "foreign_keys": "File.model_id",
         },
     )
-    tags: Mapped[List[Tag]] = Relationship(
+    tags: List[Tag] = Relationship(
         link_model=ModelTagLink,
         sa_relationship_kwargs={"lazy": "selectin"},
     )
@@ -240,6 +237,30 @@ class User(SQLModel, table=True):
     hashed_password: str = Field(max_length=255)
     is_superuser: bool = Field(default=False)
     is_active: bool = Field(default=True)
+
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class SystemConfig(SQLModel, table=True):
+    """Singleton row (id=1) holding runtime-configurable settings.
+
+    Values stored here overlay the env-based ``Settings`` on each startup and
+    after the first-run setup wizard completes. Anything ``None`` means
+    "fall back to env / default".
+
+    A ``configured_at`` non-null value is the source of truth for whether the
+    install has completed first-run setup. If ``configured_at`` is ``None`` and
+    no users exist, the API exposes the ``/setup`` flow and refuses all other
+    write traffic.
+    """
+
+    __tablename__ = "system_config"
+
+    id: Optional[int] = Field(default=1, primary_key=True)
+    data_dir: Optional[str] = Field(default=None, max_length=1024)
+    thumb_dir: Optional[str] = Field(default=None, max_length=1024)
+    configured_at: Optional[datetime] = Field(default=None, index=True)
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

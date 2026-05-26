@@ -24,14 +24,12 @@ class Settings(BaseSettings):
     db_url: str = "sqlite:////data/db/nexus3d.sqlite"
 
     # Auth — Stage 1 uses a shared API key on writes; Stage 3+ adds JWT login.
+    # The very first user is created by the web-based setup wizard
+    # (POST /api/v1/setup) — there is no env-driven default admin.
     api_key: str = "changeme"
     jwt_secret: str = "changeme_jwt_secret_please_change"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
-
-    # Default admin user created on first startup.
-    default_username: str = "admin"
-    default_password: str = "admin"
 
     # Limits
     max_upload_mb: int = 512

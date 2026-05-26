@@ -16,6 +16,8 @@ import {
   pausePrinter,
   resumePrinter,
 } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useRequireAuth } from "@/lib/use-require-auth";
 import {
   ArrowLeft,
   Loader2,
@@ -68,6 +70,7 @@ function deepMerge<T extends Record<string, any>>(a: T, b: Partial<T>): T {
 }
 
 export function PrinterDetailPage({ printerId }: { printerId: number }) {
+  const auth = useRequireAuth();
   const [printer, setPrinter] = useState<PrinterRead | null>(null);
   const [snapshot, setSnapshot] = useState<PrinterSnapshot>({});
   const [jobs, setJobs] = useState<PrintJobRead[]>([]);
@@ -138,11 +141,12 @@ export function PrinterDetailPage({ printerId }: { printerId: number }) {
     action: "pause" | "resume" | "cancel",
     fn: () => Promise<void>,
   ) {
+    if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
     setBusy(action);
     try {
       await fn();
-    } catch (e: any) {
-      alert(`${action} failed: ${e.message}`);
+    } catch (e) {
+      toast.error(e);
     } finally {
       setBusy(null);
     }
@@ -256,32 +260,35 @@ export function PrinterDetailPage({ printerId }: { printerId: number }) {
               <div className="flex flex-wrap gap-2">
                 <ControlButton
                   onClick={() => control("pause", () => pausePrinter(printerId))}
-                  disabled={ps.state !== "printing" || busy !== null}
+                  disabled={!auth.isAuthenticated || ps.state !== "printing" || busy !== null}
                   busy={busy === "pause"}
                   icon={Pause}
-                  label="Pause"
+                  label={auth.isAuthenticated ? "Pause" : "Sign in"}
                 />
                 <ControlButton
                   onClick={() => control("resume", () => resumePrinter(printerId))}
-                  disabled={ps.state !== "paused" || busy !== null}
+                  disabled={!auth.isAuthenticated || ps.state !== "paused" || busy !== null}
                   busy={busy === "resume"}
                   icon={Play}
-                  label="Resume"
+                  label={auth.isAuthenticated ? "Resume" : "Sign in"}
                 />
                 <ControlButton
                   onClick={() => control("cancel", () => cancelPrinter(printerId))}
                   disabled={
+                    !auth.isAuthenticated ||
                     (ps.state !== "printing" && ps.state !== "paused") ||
                     busy !== null
                   }
                   busy={busy === "cancel"}
                   icon={Square}
-                  label="Cancel"
+                  label={auth.isAuthenticated ? "Cancel" : "Sign in"}
                   destructive
                 />
               </div>
               <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)]">
-                Controls use the API key from Settings.
+                {auth.isAuthenticated
+                  ? "Controls use the API key from Settings."
+                  : "Sign in or add an API key in Settings to control printers."}
               </p>
             </div>
           </div>

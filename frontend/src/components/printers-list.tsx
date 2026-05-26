@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PrinterRead } from "@/types";
 import { createPrinter, deletePrinter, listPrinters } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useRequireAuth } from "@/lib/use-require-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Trash2, RefreshCw, ArrowRight, Wifi, WifiOff } from "lucide-react";
 
@@ -17,6 +19,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function PrintersPage() {
+  const auth = useRequireAuth();
   const [printers, setPrinters] = useState<PrinterRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,9 +47,10 @@ export function PrintersPage() {
     if (!confirm(`Remove printer "${p.name}"?`)) return;
     try {
       await deletePrinter(p.id);
+      toast.success(`Printer "${p.name}" removed`);
       await refresh();
-    } catch (e: any) {
-      alert("Delete failed: " + e.message);
+    } catch (e) {
+      toast.error(e);
     }
   }
 
@@ -65,11 +69,15 @@ export function PrintersPage() {
             Refresh
           </button>
           <button
-            onClick={() => setAddOpen(true)}
-            className="px-3 py-1.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-mono text-xs uppercase tracking-wider hover:opacity-90 transition-opacity flex items-center gap-1.5"
+            onClick={() => {
+              if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
+              setAddOpen(true);
+            }}
+            disabled={!auth.isAuthenticated}
+            className="px-3 py-1.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-mono text-xs uppercase tracking-wider hover:opacity-90 transition-opacity flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Plus className="h-3.5 w-3.5" />
-            Add printer
+            {auth.isAuthenticated ? "Add printer" : "Sign in to add"}
           </button>
         </div>
       </div>
@@ -145,11 +153,15 @@ export function PrintersPage() {
 
               <div className="flex items-center justify-between pt-2 border-t border-[var(--surface-variant)]">
                 <button
-                  onClick={(e) => handleDelete(p, e)}
-                  className="px-2 py-1 rounded text-[var(--error)] hover:bg-[var(--error-container)]/30 transition-colors font-mono text-[10px] uppercase tracking-wider flex items-center gap-1"
+                  onClick={(e) => {
+                    if (!auth.isAuthenticated) { e.preventDefault(); e.stopPropagation(); auth.showAuthRequiredToast(); return; }
+                    handleDelete(p, e);
+                  }}
+                  disabled={!auth.isAuthenticated}
+                  className="px-2 py-1 rounded text-[var(--error)] hover:bg-[var(--error-container)]/30 transition-colors font-mono text-[10px] uppercase tracking-wider flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Trash2 className="h-3 w-3" />
-                  Remove
+                  {auth.isAuthenticated ? "Remove" : "Sign in"}
                 </button>
                 <span className="px-2 py-1 rounded border border-[var(--outline-variant)] text-[var(--on-surface)] font-mono text-[10px] uppercase tracking-wider flex items-center gap-1 group-hover:border-[var(--primary)] group-hover:text-[var(--primary)] transition-colors">
                   Open
@@ -221,9 +233,11 @@ function AddPrinterModal({
           notes: notes || undefined,
         },
       );
+      toast.success(`Printer "${name.trim()}" added`);
       onCreated();
     } catch (e: any) {
       setErr(e.message);
+      toast.error(e);
     } finally {
       setSubmitting(false);
     }

@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import { Hanken_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import { SidebarNav } from "@/components/sidebar-nav";
-import { TopBar } from "@/components/top-bar";
-import { AuthBanner } from "@/components/auth-banner";
+import { AppShell } from "@/components/app-shell";
+import { SetupGate } from "@/components/setup-gate";
 import { AuthProvider } from "@/lib/auth-context";
 
 const hankenGrotesk = Hanken_Grotesk({
@@ -36,16 +35,11 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="flex min-h-screen">
+      <body className="min-h-screen">
         <AuthProvider>
-          <SidebarNav />
-          <div className="ml-64 flex flex-col flex-1 min-h-screen max-h-screen">
-            <TopBar />
-            <AuthBanner />
-            <main className="flex-1 min-h-0 overflow-hidden">
-              {children}
-            </main>
-          </div>
+          <SetupGate>
+            <AppShell>{children}</AppShell>
+          </SetupGate>
         </AuthProvider>
       </body>
     </html>
