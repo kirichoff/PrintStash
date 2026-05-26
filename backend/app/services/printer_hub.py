@@ -11,13 +11,13 @@ The hub is intentionally simple — Stage 4 will likely replace it with Redis pu
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 from typing import Any, Dict, Set
 
 from fastapi import Request, WebSocket
 from sqlmodel import Session, select
 
 from app.core.logging import get_logger
+from app.core.time import utcnow
 from app.db.models import PrintJob, PrintJobState, Printer, PrinterStatus
 from app.db.session import engine
 from app.services.moonraker import MoonrakerClient, MoonrakerError
@@ -25,7 +25,12 @@ from app.services.moonraker import MoonrakerClient, MoonrakerError
 logger = get_logger(__name__)
 
 
-# Map Moonraker print_stats.state -> vault PrinterStatus.
+# Map Moonraker `print_stats.state` -> coarse vault PrinterStatus.
+#
+# Note: `complete` and `cancelled` collapse to READY because they describe
+# the *job* outcome, not the *printer* state — the machine is idle and ready
+# for the next job. The finer-grained per-job lifecycle (COMPLETED/CANCELLED)
+# is tracked separately on the PrintJob row in `_sync_active_job`.
 _STATE_MAP: Dict[str, PrinterStatus] = {
     "standby": PrinterStatus.READY,
     "ready": PrinterStatus.READY,
@@ -57,7 +62,7 @@ class PrinterHub:
                 await ws.send_json(
                     {"type": "snapshot", "printer_id": printer_id, "data": snap}
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort initial send; drop on failure
                 pass
 
     async def detach(self, printer_id: int, ws: WebSocket) -> None:
@@ -104,8 +109,10 @@ class PrinterHub:
             task.cancel()
             try:
                 await task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass
+            except Exception:
+                logger.exception("printer hub: worker exit error for %s", printer_id)
 
     async def restart_printer(self, printer_id: int) -> None:
         await self.remove_printer(printer_id)
@@ -189,9 +196,9 @@ class PrinterHub:
                 if p is None:
                     return
                 p.status = status
-                p.last_seen_at = datetime.utcnow()
+                p.last_seen_at = utcnow()
                 p.last_error = error
-                p.updated_at = datetime.utcnow()
+                p.updated_at = utcnow()
                 session.add(p)
                 session.commit()
         except Exception:
@@ -243,7 +250,7 @@ class PrinterHub:
                     job.progress = progress
                     changed = True
                 if new_state == PrintJobState.PRINTING and job.started_at is None:
-                    job.started_at = datetime.utcnow()
+                    job.started_at = utcnow()
                     changed = True
                 if (
                     new_state
@@ -254,10 +261,10 @@ class PrinterHub:
                     )
                     and job.finished_at is None
                 ):
-                    job.finished_at = datetime.utcnow()
+                    job.finished_at = utcnow()
                     changed = True
                 if changed:
-                    job.updated_at = datetime.utcnow()
+                    job.updated_at = utcnow()
                     if new_state == PrintJobState.FAILED:
                         job.error = print_stats.get("message")
                     session.add(job)

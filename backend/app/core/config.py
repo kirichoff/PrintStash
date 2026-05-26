@@ -1,14 +1,14 @@
+"""Process-wide configuration, sourced from ``VAULT_*`` environment variables."""
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine.url import make_url
 
 
 class Settings(BaseSettings):
-    """Process-wide configuration, sourced from environment variables."""
-
     model_config = SettingsConfigDict(
         env_prefix="VAULT_",
         env_file=".env",
@@ -23,8 +23,15 @@ class Settings(BaseSettings):
     # Database
     db_url: str = "sqlite:////data/db/nexus3d.sqlite"
 
-    # Auth (Stage 1: shared API key on write endpoints)
+    # Auth — Stage 1 uses a shared API key on writes; Stage 3+ adds JWT login.
     api_key: str = "changeme"
+    jwt_secret: str = "changeme_jwt_secret_please_change"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60
+
+    # Default admin user created on first startup.
+    default_username: str = "admin"
+    default_password: str = "admin"
 
     # Limits
     max_upload_mb: int = 512
@@ -48,16 +55,22 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+def _sqlite_db_path(db_url: str) -> Path | None:
+    """Return the on-disk path for a sqlite URL, or ``None`` for in-memory/other."""
+    if not db_url.startswith("sqlite"):
+        return None
+    database = make_url(db_url).database
+    if not database or database == ":memory:":
+        return None
+    return Path(database)
+
+
 def ensure_dirs() -> None:
-    """Create required storage directories at startup."""
+    """Create required storage directories at startup. Idempotent."""
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.thumb_dir.mkdir(parents=True, exist_ok=True)
     settings.incoming_dir.mkdir(parents=True, exist_ok=True)
 
-    # If db_url points at a sqlite file under /data/db, ensure the parent exists.
-    if settings.db_url.startswith("sqlite"):
-        # Strip 'sqlite:///' or 'sqlite:////' prefix safely.
-        raw = settings.db_url.split("sqlite:///", 1)[-1]
-        # leading '/' on absolute URLs is preserved by split above for sqlite:////...
-        db_path = Path(raw if raw.startswith("/") else f"/{raw}") if settings.db_url.startswith("sqlite:////") else Path(raw)
+    db_path = _sqlite_db_path(settings.db_url)
+    if db_path is not None:
         db_path.parent.mkdir(parents=True, exist_ok=True)

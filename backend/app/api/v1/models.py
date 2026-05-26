@@ -1,14 +1,18 @@
+"""Model browse + detail + edit + soft-delete endpoints."""
+
 from __future__ import annotations
 
-from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import func
-from sqlmodel import Session, select
+from sqlmodel import Session, delete, select
 
-from app.core.security import require_api_key
+from app.core.http import get_or_404
+from app.core.security import require_auth
+from app.core.time import utcnow
 from app.db.models import File, Metadata, Model, ModelTagLink, Tag
 from app.db.session import get_session
 from app.schemas.models import (
@@ -30,24 +34,30 @@ def _tag_names_for(session: Session, model_id: int) -> List[str]:
         .where(ModelTagLink.model_id == model_id)
         .order_by(Tag.name)
     )
-    return [name for name in session.exec(stmt).all()]
+    return list(session.exec(stmt).all())
 
 
 def _thumb_url(model: Model) -> Optional[str]:
-    """Build a thumbnail URL for the model.
+    """Stable URL for the model's thumbnail, or None.
 
-    Prefers `thumbnail_file_id` (new), falls back to parsing the stored path
-    (legacy rows), and returns None if no thumbnail exists.
+    Prefers ``thumbnail_file_id`` (current); falls back to parsing the legacy
+    ``thumbnail_path`` for rows written before the file-id column existed.
     """
     if model.thumbnail_file_id:
         return f"/api/v1/files/{model.thumbnail_file_id}/thumbnail"
     if model.thumbnail_path:
-        from pathlib import Path
-
         stem = Path(model.thumbnail_path).stem
         if stem.isdigit():
             return f"/api/v1/files/{stem}/thumbnail"
     return None
+
+
+def _live_model(session: Session, model_id: int) -> Model:
+    """Like ``get_or_404`` but also rejects soft-deleted rows."""
+    m = session.get(Model, model_id)
+    if m is None or m.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="model_not_found")
+    return m
 
 
 @router.get(
@@ -61,7 +71,6 @@ def _thumb_url(model: Model) -> Optional[str]:
     ),
 )
 def list_models(
-    request: Request,
     category: Optional[str] = Query(
         None, description="Category path e.g. 'functional/brackets'"
     ),
@@ -77,17 +86,17 @@ def list_models(
 
     if category:
         cat_path = category.strip().strip("/").lower()
-        # match the category path or any descendant ("foo/bar" matches "foo/bar/baz")
+        # Match the category path or any descendant ("foo/bar" matches "foo/bar/baz").
         stmt = stmt.where(
-            (Model.category == cat_path) | (Model.category.startswith(cat_path + "/"))  # type: ignore[attr-defined]
+            (Model.category == cat_path)
+            | (Model.category.startswith(cat_path + "/"))  # type: ignore[attr-defined]
         )
 
     if q:
         stmt = stmt.where(Model.name.contains(q))  # type: ignore[attr-defined]
 
     if tag:
-        tag_slugs = [t.strip().lower() for t in tag if t.strip()]
-        for slug in tag_slugs:
+        for slug in (t.strip().lower() for t in tag if t.strip()):
             # Each tag adds an EXISTS clause => AND semantics across tags.
             stmt = stmt.where(
                 Model.id.in_(  # type: ignore[union-attr]
@@ -122,31 +131,27 @@ def list_models(
 
 
 def _build_model_read(session: Session, model_id: int) -> ModelRead:
-    """Shared query-builder: given a session and model_id, return ModelRead or raise 404."""
-    m = session.get(Model, model_id)
-    if m is None or m.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="model_not_found")
+    m = _live_model(session, model_id)
 
     files_with_meta = session.exec(
         select(File, Metadata)
         .where(File.model_id == model_id)
         .outerjoin(Metadata, Metadata.file_id == File.id)
     ).all()
-    file_reads: List[FileRead] = []
-    for f, md in files_with_meta:
-        file_reads.append(
-            FileRead(
-                id=f.id,  # type: ignore[arg-type]
-                model_id=f.model_id,
-                original_filename=f.original_filename,
-                file_type=f.file_type,
-                version=f.version,
-                size_bytes=f.size_bytes,
-                sha256=f.sha256,
-                uploaded_at=f.uploaded_at,
-                metadata=MetadataRead(**md.model_dump()) if md else None,
-            )
+    file_reads = [
+        FileRead(
+            id=f.id,  # type: ignore[arg-type]
+            model_id=f.model_id,
+            original_filename=f.original_filename,
+            file_type=f.file_type,
+            version=f.version,
+            size_bytes=f.size_bytes,
+            sha256=f.sha256,
+            uploaded_at=f.uploaded_at,
+            metadata=MetadataRead(**md.model_dump()) if md else None,
         )
+        for f, md in files_with_meta
+    ]
 
     return ModelRead(
         id=m.id,  # type: ignore[arg-type]
@@ -176,7 +181,7 @@ def get_model(model_id: int, session: Session = Depends(get_session)) -> ModelRe
 @router.patch(
     "/{model_id}",
     response_model=ModelRead,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_auth)],
     summary="Update a model's name, description, category, or tags",
 )
 def update_model(
@@ -184,9 +189,7 @@ def update_model(
     payload: ModelUpdate,
     session: Session = Depends(get_session),
 ) -> ModelRead:
-    m = session.get(Model, model_id)
-    if m is None or m.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="model_not_found")
+    m = _live_model(session, model_id)
 
     if payload.name is not None:
         m.name = payload.name.strip() or m.name
@@ -204,9 +207,8 @@ def update_model(
                 m.category_id = cat.id
 
     if payload.tags is not None:
-        # Replace the tag set.
-        session.query(ModelTagLink).filter(ModelTagLink.model_id == model_id).delete()  # type: ignore[attr-defined]
-        session.commit()
+        # Replace the tag set atomically in a single transaction.
+        session.exec(delete(ModelTagLink).where(ModelTagLink.model_id == model_id))  # type: ignore[call-overload]
         if payload.tags:
             new_tags = taxonomy.resolve_or_create_tags(session, payload.tags)
             for t in new_tags:
@@ -215,10 +217,9 @@ def update_model(
         else:
             m.tags_csv = None
 
-    m.updated_at = datetime.utcnow()
+    m.updated_at = utcnow()
     session.add(m)
     session.commit()
-    session.refresh(m)
     return _build_model_read(session, model_id)
 
 
@@ -226,15 +227,16 @@ def update_model(
     "/{model_id}",
     status_code=204,
     response_class=Response,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_auth)],
     summary="Soft-delete a model",
-    description="Marks the model deleted. Files remain on disk (Stage 4 will introduce hard delete + GC).",
+    description=(
+        "Marks the model deleted. Files remain on disk; Stage 4 will introduce "
+        "hard delete + GC."
+    ),
 )
 def delete_model(model_id: int, session: Session = Depends(get_session)) -> Response:
-    m = session.get(Model, model_id)
-    if m is None or m.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="model_not_found")
-    m.deleted_at = datetime.utcnow()
+    m = _live_model(session, model_id)
+    m.deleted_at = utcnow()
     session.add(m)
     session.commit()
     return Response(status_code=204)

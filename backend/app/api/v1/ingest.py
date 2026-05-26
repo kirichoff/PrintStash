@@ -1,3 +1,5 @@
+"""Ingestion endpoints: OrcaSlicer G-code + mesh uploads."""
+
 from __future__ import annotations
 
 import uuid
@@ -17,7 +19,8 @@ from fastapi import (
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.core.security import require_api_key
+from app.core.security import require_auth
+from app.db.models import SUFFIX_TO_FILE_TYPE, FileType
 from app.db.session import SessionFactory, get_session_factory
 from app.schemas.ingest import IngestJobStatus, IngestResponse
 from app.services import storage
@@ -28,16 +31,16 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
+_GCODE_SUFFIXES = {".gcode", ".g", ".gco"}
+_MESH_SUFFIXES = {".stl", ".3mf", ".obj"}
+
 
 def _stage_upload(upload: UploadFile, suffix: str) -> Path:
-    """Stream an UploadFile into the staging directory; return the staged path."""
+    """Stream an UploadFile into the staging dir; reject if it exceeds the limit."""
     staged = settings.incoming_dir / f"{uuid.uuid4().hex}{suffix}"
     written = storage.stream_to_path(upload.file, staged)
     if written > settings.max_upload_bytes:
-        try:
-            staged.unlink(missing_ok=True)
-        except OSError:
-            pass
+        staged.unlink(missing_ok=True)
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="upload_too_large",
@@ -45,11 +48,17 @@ def _stage_upload(upload: UploadFile, suffix: str) -> Path:
     return staged
 
 
+def _resolve_name(model_name: Optional[str], original_filename: str) -> str:
+    """Return a non-empty display name, falling back to the file stem."""
+    stem = Path(original_filename).stem
+    return (model_name or stem).strip() or stem
+
+
 @router.post(
     "/orca",
     response_model=IngestResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_auth)],
     summary="Ingest a sliced G-code file from OrcaSlicer",
     description=(
         "Multipart upload from the OrcaSlicer post-processing hook. The G-code is "
@@ -76,56 +85,30 @@ async def ingest_orca(
 
     original_filename = Path(file.filename).name
     suffix = Path(original_filename).suffix.lower() or ".gcode"
-
-    if suffix not in {".gcode", ".g", ".gco"}:
+    if suffix not in _GCODE_SUFFIXES:
         raise HTTPException(status_code=400, detail="unsupported_file_type")
 
     staged = _stage_upload(file, suffix)
-    name = (model_name or Path(original_filename).stem).strip() or Path(
-        original_filename
-    ).stem
-
     job_id = registry.create()
     background_tasks.add_task(
         ingest_orca_gcode,
         job_id=job_id,
         staged_path=staged,
         original_filename=original_filename,
-        model_name=name,
+        model_name=_resolve_name(model_name, original_filename),
         category=category,
         tags=tags,
         source_hash=source_hash,
         session_factory=session_factory,
     )
-
     return IngestResponse(job_id=job_id, state="pending")
-
-
-@router.get(
-    "/jobs/{job_id}",
-    response_model=IngestJobStatus,
-    summary="Get the status of an ingestion job",
-)
-def get_job(job_id: str) -> IngestJobStatus:
-    job = registry.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job_not_found")
-    return job
-
-
-_MESH_SUFFIXES = {".stl", ".3mf", ".obj"}
-_SUFFIX_TO_TYPE = {
-    ".stl": "stl",
-    ".3mf": "3mf",
-    ".obj": "obj",
-}
 
 
 @router.post(
     "/model",
     response_model=IngestResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_auth)],
     summary="Ingest a source mesh file (STL, 3MF, OBJ)",
     description=(
         "Multipart upload of a source mesh. The file is staged and processed "
@@ -150,35 +133,33 @@ async def ingest_model(
 
     original_filename = Path(file.filename).name
     suffix = Path(original_filename).suffix.lower()
-
     if suffix not in _MESH_SUFFIXES:
         raise HTTPException(status_code=400, detail="unsupported_file_type")
 
     staged = _stage_upload(file, suffix)
-    name = (model_name or Path(original_filename).stem).strip() or Path(
-        original_filename
-    ).stem
-
-    from app.db.models import FileType
-
-    file_type_map = {
-        ".stl": FileType.STL,
-        ".3mf": FileType.THREE_MF,
-        ".obj": FileType.OBJ,
-    }
-
     job_id = registry.create()
     background_tasks.add_task(
         ingest_mesh,
         job_id=job_id,
         staged_path=staged,
         original_filename=original_filename,
-        model_name=name,
+        model_name=_resolve_name(model_name, original_filename),
         category=category,
         tags=tags,
-        file_type=file_type_map[suffix],
+        file_type=SUFFIX_TO_FILE_TYPE[suffix],
         source_hash=source_hash,
         session_factory=session_factory,
     )
-
     return IngestResponse(job_id=job_id, state="pending")
+
+
+@router.get(
+    "/jobs/{job_id}",
+    response_model=IngestJobStatus,
+    summary="Get the status of an ingestion job",
+)
+def get_job(job_id: str) -> IngestJobStatus:
+    job = registry.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job_not_found")
+    return job

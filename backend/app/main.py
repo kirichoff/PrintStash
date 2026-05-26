@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1 import api_router
 from app.core.config import ensure_dirs, settings
 from app.core.logging import get_logger
-from app.db.session import init_db
+from app.db.session import get_session_factory, init_db
+from app.services.auth import ensure_default_user
 from app.services.printer_hub import PrinterHub
 
 logger = get_logger(__name__)
@@ -19,6 +20,8 @@ async def lifespan(app: FastAPI):
     logger.info("starting %s v%s", settings.app_name, settings.app_version)
     ensure_dirs()
     init_db()
+    with get_session_factory()() as session:
+        ensure_default_user(session)
     logger.info(
         "data_dir=%s thumb_dir=%s db=%s",
         settings.data_dir,

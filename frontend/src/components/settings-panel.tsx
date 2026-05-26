@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Server, Database, HardDrive, Tag, Folder } from "lucide-react";
+import { Server, Database, HardDrive, Tag, Folder, User } from "lucide-react";
 import { TaxonomyManager } from "@/components/taxonomy-manager";
 import { ApiKeyCard } from "@/components/api-key-card";
+import { useAuth } from "@/lib/auth-context";
 
 interface HealthResponse {
   status: string;
@@ -12,6 +13,7 @@ interface HealthResponse {
 }
 
 export function SettingsPanel() {
+  const { user } = useAuth();
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [categoryCount, setCategoryCount] = useState<number | null>(null);
   const [tagCount, setTagCount] = useState<number | null>(null);
@@ -42,6 +44,29 @@ export function SettingsPanel() {
   return (
     <div className="max-w-2xl mx-auto w-full space-y-8">
       <h2 className="text-xl font-semibold text-[var(--on-surface)]">Settings</h2>
+
+      {/* Current user */}
+      {user && (
+        <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
+          <div className="px-8 py-5 border-b border-[var(--outline-variant)] flex items-center gap-3">
+            <div className="w-9 h-9 rounded bg-[var(--surface-container)] flex items-center justify-center text-[var(--on-surface-variant)]">
+              <User className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--on-surface)]">
+                Signed in as {user.username}
+              </h3>
+              <p className="text-xs text-[var(--on-surface-variant)] mt-0.5">
+                {user.is_superuser ? "Administrator" : "User"}
+                {user.email ? ` — ${user.email}` : ""}
+              </p>
+            </div>
+          </div>
+          <div className="p-4 text-xs font-mono text-[var(--on-surface-variant)]">
+            Write operations use your JWT token. The API key below is kept for OrcaSlicer hooks and scripts.
+          </div>
+        </div>
+      )}
 
       <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
         <div className="px-8 py-5 border-b border-[var(--outline-variant)]">

@@ -18,6 +18,10 @@ backend/dev.sqlite*
 
 # Node / Next.js
 node_modules/
+
+# Rust
+backend/rust/target/
+backend/rust/.maturin/
 .next/
 frontend/out/
 frontend/dist/

@@ -1,8 +1,24 @@
+"""SQLModel tables for the vault.
+
+Conventions:
+- Every table has ``id``, ``created_at``, and (where mutable) ``updated_at``.
+- Hashes are lowercase sha256 hex (64 chars), indexed when used for dedup.
+- File paths are container-absolute; host mapping is a deployment concern.
+
+The ``# type: ignore`` comments scattered through this module exist because
+SQLModel/SQLAlchemy's column descriptors confuse static type checkers. They
+are correct at runtime.
+"""
+
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
 from sqlmodel import Field, Relationship, SQLModel
+
+from app.core.time import utcnow
 
 
 class FileType(str, Enum):
@@ -10,6 +26,17 @@ class FileType(str, Enum):
     THREE_MF = "3mf"
     GCODE = "gcode"
     OBJ = "obj"
+
+
+# Mapping from filesystem suffix to ``FileType``. Used by ingest routers.
+SUFFIX_TO_FILE_TYPE: dict[str, FileType] = {
+    ".stl": FileType.STL,
+    ".3mf": FileType.THREE_MF,
+    ".obj": FileType.OBJ,
+    ".gcode": FileType.GCODE,
+    ".g": FileType.GCODE,
+    ".gco": FileType.GCODE,
+}
 
 
 class PrinterStatus(str, Enum):
@@ -30,10 +57,6 @@ class PrintJobState(str, Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
-
-
-def _utcnow() -> datetime:
-    return datetime.utcnow()
 
 
 class Metadata(SQLModel, table=True):
@@ -67,7 +90,7 @@ class Metadata(SQLModel, table=True):
     volume_mm3: Optional[float] = None
     triangle_count: Optional[int] = None
 
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
     file: Optional["File"] = Relationship(back_populates="file_metadata")
 
@@ -87,7 +110,7 @@ class File(SQLModel, table=True):
     size_bytes: int
     sha256: str = Field(index=True, max_length=64)
 
-    uploaded_at: datetime = Field(default_factory=_utcnow)
+    uploaded_at: datetime = Field(default_factory=utcnow)
 
     model: Optional["Model"] = Relationship(
         back_populates="files",
@@ -121,7 +144,7 @@ class Category(SQLModel, table=True):
     )
     path: str = Field(max_length=512, unique=True, index=True)
 
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class Tag(SQLModel, table=True):
@@ -130,7 +153,7 @@ class Tag(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(max_length=64, unique=True, index=True)
     slug: str = Field(max_length=64, unique=True, index=True)
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class ModelTagLink(SQLModel, table=True):
@@ -167,8 +190,8 @@ class Model(SQLModel, table=True):
     thumbnail_file_id: Optional[int] = Field(default=None, foreign_key="files.id")
 
     deleted_at: Optional[datetime] = Field(default=None, index=True)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
     files: List[File] = Relationship(
         back_populates="model",
@@ -203,8 +226,22 @@ class Printer(SQLModel, table=True):
     last_seen_at: Optional[datetime] = None
     last_error: Optional[str] = Field(default=None, max_length=512)
 
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class User(SQLModel, table=True):
+    __tablename__ = "users"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(max_length=128, unique=True, index=True)
+    email: Optional[str] = Field(default=None, max_length=255)
+    hashed_password: str = Field(max_length=255)
+    is_superuser: bool = Field(default=False)
+    is_active: bool = Field(default=True)
+
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class PrintJob(SQLModel, table=True):
@@ -222,5 +259,5 @@ class PrintJob(SQLModel, table=True):
 
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)

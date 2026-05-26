@@ -1,10 +1,12 @@
-import { emitUnauthorized, getStoredApiKey } from "@/lib/auth";
+import { emitUnauthorized, getStoredApiKey, getStoredToken } from "@/lib/auth";
 import {
   CategoryCreate,
   CategoryRead,
   IngestJobStatus,
   IngestResponse,
   ListModelsParams,
+  TokenResponse,
+  LoginRequest,
   ModelListItem,
   ModelRead,
   ModelUpdate,
@@ -16,6 +18,7 @@ import {
   SendToPrinter,
   TagCreate,
   TagRead,
+  UserRead,
 } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -89,21 +92,25 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function resolveKey(explicit?: string): string | undefined {
-  if (explicit !== undefined) return explicit || undefined;
-  return getStoredApiKey() ?? undefined;
+function authHeaders(apiKey?: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const token = getStoredToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const k = apiKey !== undefined ? (apiKey || undefined) : (getStoredApiKey() ?? undefined);
+  if (k) {
+    headers["X-API-Key"] = k;
+  }
+  return headers;
 }
 
 function writeHeaders(apiKey?: string): Record<string, string> {
-  const k = resolveKey(apiKey);
-  return k ? { "X-API-Key": k } : {};
+  return authHeaders(apiKey);
 }
 
 function jsonHeaders(apiKey?: string): Record<string, string> {
-  const k = resolveKey(apiKey);
-  return k
-    ? { "Content-Type": "application/json", "X-API-Key": k }
-    : { "Content-Type": "application/json" };
+  return { "Content-Type": "application/json", ...authHeaders(apiKey) };
 }
 
 /**
@@ -377,4 +384,23 @@ export async function listPrinterJobs(
 
 export function openPrinterWS(id: number): WebSocket {
   return new WebSocket(getWsUrl(`/api/v1/printers/${id}/ws`));
+}
+
+// -- Auth --------------------------------------------------------------------
+
+export async function login(body: LoginRequest): Promise<TokenResponse> {
+  const res = await fetch(getUrl("/api/v1/auth/login"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<TokenResponse>(res);
+}
+
+export async function getMe(apiKey?: string): Promise<UserRead> {
+  const res = await fetch(getUrl("/api/v1/auth/me"), {
+    headers: authHeaders(apiKey),
+    cache: "no-store",
+  });
+  return handleResponse<UserRead>(res);
 }

@@ -1,117 +1,169 @@
 # Nexus3D Vault
 
-Self-hosted, Plex-style asset management for 3D printing workflows.
-Ingest STL / 3MF / G-Code, deduplicate, extract slicer metadata, browse via API and Web UI.
+A self-hosted asset library for your 3D prints. Drop STLs, 3MFs, and
+G-code files into it. The vault keeps them organized, de-duplicated,
+and searchable — with a web UI that shows you what you've got and a
+3D viewer so you don't have to guess from filenames.
 
-> **Status:** Stage 2 (The Visual Experience) — Next.js 14 frontend with asset grid,
-> model detail pages, R3F 3D viewer, and manual upload. Backend ingestion (Stage 1)
-> is complete.
+It's built to work with OrcaSlicer. Every time you slice something
+and hit "Export G-code", the vault picks it up, extracts the settings
+you used (filament type, layer height, print time...), and files it
+away. Six months later when you need to reprint that bracket, you
+know exactly which file it was and what settings you sliced it with.
 
-See [`AGENTS.md`](./AGENTS.md) for conventions and the
-[architecture skill](.opencode/skills/nexus3d-vault/SKILL.md) for the deep dive.
+## What it looks like
 
----
+Still early. The web UI has an asset grid, model detail pages, and a
+3MF/STL viewer. Search and filtering work. Printer monitoring (Stage 3)
+is in progress.
 
-## Quick start (Docker)
+## Quick start
 
 ```bash
 cp .env.example .env
-# edit .env and set VAULT_API_KEY
+# open .env, pick an API key, set a real JWT secret
 docker compose up --build -d
-docker compose logs -f api
 ```
 
-| Service   | URL                     |
-| --------- | ----------------------- |
-| API       | <http://localhost:8000> |
-| Swagger   | <http://localhost:8000/docs> |
-| Frontend  | <http://localhost:3000> |
+Then open your browser:
 
-Smoke test:
+| Service  | URL                          |
+| -------- | ---------------------------- |
+| Web UI   | <http://localhost:3000>      |
+| API docs | <http://localhost:8000/docs> |
+| Health   | <http://localhost:8000/api/v1/health> |
+
+First login: `admin` / `admin`. Change it from the `.env` or the UI.
+
+### Send it a file to test
+
 ```bash
-curl http://localhost:8000/api/v1/health
-
-curl -F "file=@sample.gcode" \
-     -F "model_name=Bracket v1" \
+curl -F "file=@some_print.gcode" \
+     -F "model_name=Desk Bracket" \
      -F "category=Functional/Brackets" \
      -H "X-API-Key: changeme" \
      http://localhost:8000/api/v1/ingest/orca
 ```
 
----
+This is the same endpoint your OrcaSlicer hook will call.
 
-## Local development (no Docker)
+## Hook it up to OrcaSlicer
 
-### Backend
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-export VAULT_API_KEY=devkey
-export VAULT_DB_URL=sqlite:///./dev.sqlite
-export VAULT_DATA_DIR=./_data/files
-export VAULT_THUMB_DIR=./_data/thumbs
-
-uvicorn app.main:app --reload
-```
-
-### Frontend
-```bash
-cd frontend
-npm install
-
-# In development, the frontend proxies /api/v1/* to the backend.
-# If your backend is not on localhost:8000, set:
-# export NEXT_PUBLIC_API_URL=http://localhost:8000
-
-npm run dev
-```
-
----
-
-## OrcaSlicer integration
-
-In OrcaSlicer: **Process → Others → Post-processing scripts**:
+In OrcaSlicer, go to **Process → Others → Post-processing scripts** and
+paste something like:
 
 ```
-/usr/bin/python3 /absolute/path/to/scripts/nexus3d_orca_push.py \
-    --url http://your-vault-host:8000 \
-    --api-key YOUR_VAULT_API_KEY \
+/usr/bin/python3 /path/to/nexus3d-vault/scripts/nexus3d_orca_push.py \
+    --url http://your-server:8000 \
+    --api-key YOUR_API_KEY \
     --category "Functional/Brackets"
 ```
 
-The script is stdlib-only and **always exits 0** — a vault outage will never
-block your export. Failures are logged to `~/.nexus3d_orca_push.log`.
+The script is stdlib-only (no pip install needed) and it will never block
+your export if the vault is down — it logs failures and exits clean.
 
----
+## What it does with your files
 
-## Endpoints (Stage 1–2)
+When you send a G-code file:
 
-| Method | Path                           |
-| ------ | ------------------------------ |
-| GET    | `/api/v1/health`               |
-| POST   | `/api/v1/ingest/orca`          |
-| GET    | `/api/v1/ingest/jobs/{job_id}` |
-| GET    | `/api/v1/models`               |
-| GET    | `/api/v1/models/{id}`          |
-| DELETE | `/api/v1/models/{id}`          |
-| GET    | `/api/v1/files/{id}/download`  |
-| GET    | `/api/v1/files/{id}/thumbnail` |
+1. Hashes it (SHA-256) so duplicates don't create extra copies
+2. Pulls out slicer settings from the header comments (OrcaSlicer and
+   PrusaSlicer both embed these)
+3. Extracts the embedded preview thumbnail if there is one
+4. Files the G-code under a model slug with version tracking — so if you
+   slice the same model again with different settings, it keeps both
 
----
+When you send an STL or 3MF:
 
-## Roadmap
+1. Same deduplication
+2. Runs it through Trimesh to pull bounding box, volume, triangle count
+3. Renders a thumbnail (software rasteriser, no GPU needed)
+4. Lets you download a normalized STL from the UI viewer
 
-| Stage | Codename              | Status     |
-| ----- | --------------------- | ---------- |
-| 1     | The Headless Vault    | completed  |
-| 2     | The Visual Experience | **active** |
-| 3     | The Hub               | planned    |
-| 4     | Cloud Readiness       | planned    |
+Tags and categories are supported if you pass `--tags` and `--category`
+from the hook. You can also edit them from the web UI.
 
----
+## Architecture
+
+```
+Browser ──► Next.js (port 3000) ──► FastAPI (port 8000) ──► SQLite
+                                        │
+                                   OrcaSlicer hook
+                                   (POST /api/v1/ingest/orca)
+```
+
+Both the frontend and API live in Docker by default. The API writes files
+to named Docker volumes so your data sticks around.
+
+For local development the frontend and backend can run natively
+(see [Development](#development) below).
+
+The backend has an optional Rust acceleration module that speeds up
+thumbnail rendering (rayon-parallel rasteriser) and G-code scanning
+(single-pass SHA-256 + parse + thumbnail extract). If you don't have
+a Rust toolchain, it falls back to pure Python and works exactly the
+same — just a bit slower on really big meshes.
+
+## Development
+
+You'll need Python 3.11+ and Node.js 20+.
+
+### Backend
+
+```bash
+cd backend
+uv sync
+
+VAULT_API_KEY=devkey \
+VAULT_DB_URL=sqlite:///./dev.sqlite \
+VAULT_DATA_DIR=./_data/files \
+VAULT_THUMB_DIR=./_data/thumbs \
+uv run uvicorn app.main:app --reload
+```
+
+If you don't have uv, create a venv and pip install from pyproject.toml.
+
+### Frontend
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
+The dev server proxies `/api` to `http://localhost:8000` automatically.
+
+### Running tests
+
+```bash
+cd backend
+uv run pytest tests
+```
+
+## How far along is it
+
+| Stage | What it covers                           | Status    |
+| ----- | ---------------------------------------- | --------- |
+| 1     | API, ingestion, dedup, G-code parsing    | done      |
+| 2     | Web UI, asset grid, R3F viewer, search   | done      |
+| 3     | Moonraker/Klipper printer farm           | in progress |
+| 4     | Multi-user auth, Postgres, S3            | planned   |
+
+Stage 3 is the current focus — bidirectional communication with Klipper
+so you can browse the vault, pick a file, and send it straight to a printer.
+
+## What it is not
+
+- Not a slicer. It doesn't generate G-code. You bring your own sliced files.
+- Not a cloud service. It runs on your own hardware by design. Cloud stuff
+  (if it ever happens) will be opt-in.
+- Not a print queue manager. You can send jobs to Moonraker from the UI,
+  but the actual queue management lives on your printer firmware.
 
 ## License
 
-TBD.
+AGPL-3.0.
+
+I picked AGPL because this is a tool for makers. If you improve it, share
+back. If you're just running it on your own server to manage your own
+prints, the license doesn't get in your way.

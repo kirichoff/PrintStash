@@ -148,9 +148,7 @@ class MoonrakerClient:
                     sub_payload = {
                         "jsonrpc": "2.0",
                         "method": "printer.objects.subscribe",
-                        "params": {
-                            "objects": {k: v for k, v in SUBSCRIPTIONS.items()}
-                        },
+                        "params": {"objects": SUBSCRIPTIONS},
                         "id": request_id,
                     }
                     await ws.send(json.dumps(sub_payload))
