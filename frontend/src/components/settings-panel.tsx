@@ -36,7 +36,7 @@ export function SettingsPanel() {
 
   const statItems = [
     { label: "Vault version", value: health ? `${health.name} v${health.version}` : "Loading...", desc: "API server status and version", icon: Server },
-    { label: "Database", value: health?.status === "ok" ? "Connected" : "Unknown", desc: "SQLite backend for Stage 1-3", icon: Database },
+    { label: "Database", value: health?.status === "ok" ? "Connected" : "Unknown", desc: "SQLite (Stage 4: Postgres + Alembic)", icon: Database },
     { label: "Storage", value: "/data/files", desc: "Container-absolute model storage path", icon: HardDrive },
     { label: "Categories", value: categoryCount != null ? `${categoryCount}` : "...", desc: "Hierarchical category tree entries", icon: Folder },
     { label: "Tags", value: tagCount != null ? `${tagCount}` : "...", desc: "Flat tag vocabulary size", icon: Tag },
@@ -101,10 +101,10 @@ export function SettingsPanel() {
                 <strong className="text-[var(--on-surface)]">PrintStash</strong> is a self-hosted, Plex-style asset management platform for 3D printing workflows. It ingests source meshes (STL/3MF) and sliced jobs (G-Code), extracts technical metadata, deduplicates assets, and exposes everything via a clean REST API.
               </p>
               <div className="flex flex-wrap gap-2">
-                <span className="bg-[var(--surface-container)] text-[var(--on-surface)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider">Stage 1: Headless Vault</span>
-                <span className="bg-[var(--surface-container)] text-[var(--on-surface)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider">Stage 2: Visual Experience</span>
-                <span className="bg-[var(--primary)]/10 text-[var(--primary)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider border border-[var(--primary)]/20">Stage 3: The Hub</span>
-                <span className="bg-[var(--surface-container)] text-[var(--on-surface-variant)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider">Stage 4: Cloud Readiness</span>
+                <span className="bg-[var(--surface-container)] text-[var(--on-surface)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider">Stage 1: Headless Vault &#10003;</span>
+                <span className="bg-[var(--surface-container)] text-[var(--on-surface)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider">Stage 2: Visual Experience &#10003;</span>
+                <span className="bg-[var(--surface-container)] text-[var(--on-surface)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider">Stage 3: The Hub &#10003;</span>
+                <span className="bg-[var(--primary)]/10 text-[var(--primary)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider border border-[var(--primary)]/20">Stage 4: Cloud Readiness</span>
               </div>
             </div>
           </div>

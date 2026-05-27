@@ -13,11 +13,10 @@ extracts technical metadata, deduplicates assets, and exposes everything via a R
 
 ---
 
-## Current Stage: 3 (The Hub) — active
+## Current Stage: 4 (Cloud Readiness) — active
 
-Status: ~95% feature-complete. All core Moonraker/Klipper features are implemented and tested.
-99 tests (73 printer/API + 26 extraction pipeline). Printer-to-vault ingestion, farm dashboard,
-and printer grouping are done.
+Stage 3 is **complete** — all Moonraker/Klipper features implemented and tested (99 tests).
+Stage 4 is now active. See AGENTS.md roadmap and `docs/stage4.md` for the execution plan.
 
 ### Architectural improvements (2026-05-27)
 

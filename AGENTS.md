@@ -24,8 +24,8 @@ and exposes everything via a clean REST API.
 | ----- | -------------------- | ------------------------------------------------------------------ | ---------- |
 | 1     | The Headless Vault   | FastAPI, SQLite, Docker, OrcaSlicer ingestion, G-code parser       | completed  |
 | 2     | The Visual Experience| Next.js 14 frontend, Shadcn UI, R3F 3D viewer, asset grid          | completed  |
-| 3     | The Hub              | Moonraker/Klipper bidirectional integration, multi-printer farm    | **active** |
-| 4     | Cloud Readiness      | OAuth2/JWT, multi-tenant, Postgres, S3, audit logs                 | planned    |
+| 3     | The Hub              | Moonraker/Klipper bidirectional integration, multi-printer farm    | completed  |
+| 4     | Cloud Readiness      | OAuth2/JWT, multi-tenant, Postgres, S3, audit logs                 | **active** |
 
 Do **not** introduce features from a later stage into an earlier one without explicit
 sign-off. Architectural decisions for later stages should still be considered (e.g., we
