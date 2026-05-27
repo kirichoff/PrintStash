@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-nexus3d_orca_push.py — OrcaSlicer post-processing hook for Nexus3D Vault.
+nexus3d_orca_push.py — OrcaSlicer post-processing hook for PrintStash.
 
 Configure in OrcaSlicer:
     Process → Others → Post-processing scripts:

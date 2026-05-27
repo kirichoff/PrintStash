@@ -16,7 +16,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Nexus3D Vault",
+  title: "PrintStash",
   description: "Self-hosted asset management for 3D printing workflows",
 };
 

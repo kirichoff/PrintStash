@@ -1,4 +1,4 @@
-# Nexus3D Vault — Backend
+# PrintStash — Backend
 
 FastAPI backend for the vault. Ingests STL / 3MF / G-code, extracts
 metadata, deduplicates by hash, and serves everything through a versioned

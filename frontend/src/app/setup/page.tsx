@@ -196,7 +196,7 @@ export default function SetupPage() {
             <Box className="h-7 w-7" />
           </div>
           <h1 className="text-2xl font-bold text-[var(--on-surface)]">
-            Welcome to Nexus3D Vault
+            Welcome to PrintStash
           </h1>
           <p className="text-sm text-[var(--on-surface-variant)] mt-1">
             Let&apos;s get your self-hosted vault configured.

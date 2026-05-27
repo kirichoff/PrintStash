@@ -99,7 +99,7 @@ export function SettingsPanel() {
         </div>
         <div className="p-6 space-y-4">
           <p className="text-sm text-[var(--on-surface-variant)] leading-relaxed">
-            <strong className="text-[var(--on-surface)]">Nexus3D Vault</strong> is a self-hosted, Plex-style asset management platform for 3D printing workflows. It ingests source meshes (STL/3MF) and sliced jobs (G-Code), extracts technical metadata, deduplicates assets, and exposes everything via a clean REST API.
+            <strong className="text-[var(--on-surface)]">PrintStash</strong> is a self-hosted, Plex-style asset management platform for 3D printing workflows. It ingests source meshes (STL/3MF) and sliced jobs (G-Code), extracts technical metadata, deduplicates assets, and exposes everything via a clean REST API.
           </p>
           <div className="flex flex-wrap gap-2">
             <span className="bg-[var(--surface-container)] text-[var(--on-surface)] px-2 py-1 rounded font-mono text-[10px] uppercase tracking-wider">Stage 1: Headless Vault</span>

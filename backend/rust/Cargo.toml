@@ -2,7 +2,7 @@
 name = "nexus3d-rust"
 version = "0.1.0"
 edition = "2021"
-description = "Nexus3D Vault — Rust acceleration for G-code parsing and thumbnail rasterisation"
+description = "PrintStash — Rust acceleration for G-code parsing and thumbnail rasterisation"
 
 [lib]
 name = "_nexus3d_rust"

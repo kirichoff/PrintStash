@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "nexus3d-rust"
 version = "0.1.0"
-description = "Nexus3D Vault — Rust acceleration module"
+description = "PrintStash — Rust acceleration module"
 requires-python = ">=3.11"
 
 [tool.maturin]

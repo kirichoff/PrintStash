@@ -1,7 +1,7 @@
 import { SettingsPanel } from "@/components/settings-panel";
 
 export const metadata = {
-  title: "Settings — Nexus3D Vault",
+  title: "Settings — PrintStash",
 };
 
 export default function SettingsPage() {

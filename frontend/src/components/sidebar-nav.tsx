@@ -27,10 +27,10 @@ export function SidebarNav() {
         </div>
         <div>
           <h1 className="text-xl font-bold text-[var(--primary)] leading-tight">
-            Nexus3D
+            PrintStash
           </h1>
           <p className="text-[11px] text-[var(--on-surface-variant)] font-mono">
-            Precision 3D Storage
+            Your prints, organized
           </p>
         </div>
       </div>

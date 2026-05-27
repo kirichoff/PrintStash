@@ -1,7 +1,7 @@
 [project]
-name = "nexus3d-vault"
+name = "printstash"
 version = "0.1.0"
-description = "Nexus3D Vault — self-hosted 3D printing asset manager"
+description = "PrintStash — self-hosted 3D printing asset manager"
 requires-python = ">=3.11"
 dependencies = [
     "bcrypt>=5.0.0",
