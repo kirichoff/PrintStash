@@ -155,14 +155,14 @@ def run_ingestion_pipeline(
             _apply_taxonomy(session, model, category, tags)
 
             version = _next_version_for_model(session, model.id)
-            dest = storage.canonical_blob_path(model.slug, version, original_filename)
+            dest_key = storage.canonical_blob_path(model.slug, version, original_filename)
 
-            storage.move_file(staged_path, dest)
-            size_bytes = dest.stat().st_size
+            storage.move_file(staged_path, dest_key)
+            size_bytes = storage.stat_size(dest_key)
 
             file_row = File(
                 model_id=model.id,
-                path=str(dest),
+                path=dest_key,
                 original_filename=original_filename,
                 file_type=strategy.file_type,
                 version=version,
@@ -175,11 +175,10 @@ def run_ingestion_pipeline(
             assert file_row.id is not None
 
             if thumb_bytes:
-                thumb_path = storage.thumbnail_path_for(file_row.id)
-                thumb_path.parent.mkdir(parents=True, exist_ok=True)
-                thumb_path.write_bytes(thumb_bytes)
+                thumb_key = storage.thumbnail_path_for(file_row.id)
+                storage.write_bytes(thumb_key, thumb_bytes)
                 if strategy.overwrite_thumbnail or not model.thumbnail_path:
-                    model.thumbnail_path = str(thumb_path)
+                    model.thumbnail_path = thumb_key
                     model.thumbnail_file_id = file_row.id
                     session.add(model)
                     session.commit()

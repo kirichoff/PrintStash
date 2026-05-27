@@ -1,13 +1,13 @@
 """Filesystem layout helpers for the vault."""
+
 from __future__ import annotations
 
 import re
-import shutil
 import unicodedata
 from pathlib import Path
 from typing import BinaryIO
 
-from app.core.config import settings
+from app.services.storage_backend import LocalStorageBackend, get_backend
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -29,8 +29,16 @@ def ensure_unique_slug(base: str, exists: callable) -> str:
     return candidate
 
 
+# ---------------------------------------------------------------------------
+# Thin delegation to the active StorageBackend
+# ---------------------------------------------------------------------------
+
+
 def stream_to_path(src: BinaryIO, dest: Path) -> int:
-    """Stream a binary source to dest, returning bytes written."""
+    """Stream a binary source to a local path, returning bytes written.
+
+    This always writes to the local filesystem (used for upload staging).
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     bytes_written = 0
     with dest.open("wb") as out:
@@ -43,15 +51,68 @@ def stream_to_path(src: BinaryIO, dest: Path) -> int:
     return bytes_written
 
 
-def canonical_blob_path(slug: str, version: int, filename: str) -> Path:
-    """Return /data/files/<slug>/v<version>/<filename>."""
-    return settings.data_dir / slug / f"v{version}" / filename
+def canonical_blob_path(slug: str, version: int, filename: str) -> str:
+    """Return the storage key for a blob at its canonical location."""
+    return get_backend().blob_key(slug, version, filename)
 
 
-def thumbnail_path_for(file_id: int) -> Path:
-    return settings.thumb_dir / f"{file_id}.png"
+def thumbnail_path_for(file_id: int) -> str:
+    """Return the storage key for a thumbnail (may be a path or S3 key)."""
+    return get_backend().thumbnail_key(file_id)
 
 
-def move_file(src: Path, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(src), str(dest))
+def move_file(src: Path, dest_key: str) -> None:
+    """Move a local staged file into the storage backend at *dest_key*."""
+    backend = get_backend()
+    if isinstance(backend, LocalStorageBackend):
+        backend.move(str(src), dest_key)
+    else:
+        backend.upload_file(src, dest_key)
+        try:
+            src.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def file_exists(key: str) -> bool:
+    return get_backend().exists(key)
+
+
+def write_bytes(key: str, data: bytes) -> int:
+    return get_backend().write_bytes(data, key)
+
+
+def stat_size(key: str) -> int:
+    return get_backend().stat_size(key)
+
+
+def read_bytes(key: str) -> bytes:
+    return get_backend().read_bytes(key)
+
+
+def stream_chunks(key: str, chunk_size: int = 1024 * 1024):
+    return get_backend().stream_chunks(key, chunk_size)
+
+
+def download_to_path(key: str, dest: Path) -> Path:
+    return get_backend().download_to_path(key, dest)
+
+
+def delete_key(key: str) -> None:
+    get_backend().delete(key)
+
+
+def list_keys(prefix: str = "") -> list[str]:
+    return get_backend().list_keys(prefix)
+
+
+def walk_keys(prefix: str = ""):
+    return get_backend().walk_keys(prefix)
+
+
+def as_local_path(key: str) -> Path | None:
+    """If the backend is local, return the key as a Path; else None."""
+    backend = get_backend()
+    if isinstance(backend, LocalStorageBackend):
+        return Path(key)
+    return None

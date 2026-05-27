@@ -69,15 +69,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     const token = await apiLogin({ username, password });
-    const me = await getMe();
-    const stored: StoredUser = {
-      id: me.id,
-      username: me.username,
-      email: me.email,
-      is_superuser: me.is_superuser,
-    };
-    storeLogin(token.access_token, stored);
-    setUser(stored);
+    window.localStorage.setItem("nexus3d.token", token.access_token);
+    try {
+      const me = await getMe();
+      const stored: StoredUser = {
+        id: me.id,
+        username: me.username,
+        email: me.email,
+        is_superuser: me.is_superuser,
+      };
+      storeLogin(token.access_token, stored);
+      setUser(stored);
+    } catch (e) {
+      window.localStorage.removeItem("nexus3d.token");
+      throw e;
+    }
   }, []);
 
   const logout = useCallback(() => {

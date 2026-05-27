@@ -258,8 +258,31 @@ class SystemConfig(SQLModel, table=True):
     __tablename__ = "system_config"
 
     id: Optional[int] = Field(default=1, primary_key=True)
+
+    # Local storage paths (overridden at runtime)
     data_dir: Optional[str] = Field(default=None, max_length=1024)
     thumb_dir: Optional[str] = Field(default=None, max_length=1024)
+
+    # Storage backend: "local" or "s3"
+    storage_backend: Optional[str] = Field(default=None, max_length=64)
+
+    # S3 / R2 settings
+    s3_bucket: Optional[str] = Field(default=None, max_length=256)
+    s3_endpoint_url: Optional[str] = Field(default=None, max_length=512)
+    s3_region: Optional[str] = Field(default=None, max_length=128)
+    s3_access_key: Optional[str] = Field(default=None, max_length=256)
+    s3_secret_key: Optional[str] = Field(default=None, max_length=512)
+
+    # Backup
+    backup_retention_days: Optional[int] = Field(default=None)
+
+    # Backup S3 destination (separate from vault S3 — allows local vault + cloud backups)
+    backup_s3_bucket: Optional[str] = Field(default=None, max_length=256)
+    backup_s3_endpoint_url: Optional[str] = Field(default=None, max_length=512)
+    backup_s3_region: Optional[str] = Field(default=None, max_length=128)
+    backup_s3_access_key: Optional[str] = Field(default=None, max_length=256)
+    backup_s3_secret_key: Optional[str] = Field(default=None, max_length=512)
+
     configured_at: Optional[datetime] = Field(default=None, index=True)
 
     created_at: datetime = Field(default_factory=utcnow)

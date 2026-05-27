@@ -220,7 +220,7 @@ export function ModelBrowser() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setUploadOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-[13px]"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-[13px]"
                 >
                   <Upload className="h-4 w-4" />
                   Upload
@@ -229,7 +229,7 @@ export function ModelBrowser() {
                 <div className="relative">
                   <button
                     onClick={() => setSortOpen(!sortOpen)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-[13px]"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-[13px]"
                   >
                     <SlidersHorizontal className="h-4 w-4" />
                     {SORT_LABELS[sortBy]}
@@ -423,7 +423,7 @@ function LoadMore({
       <button
         onClick={onClick}
         disabled={loading}
-        className="px-4 py-2 rounded border border-[var(--outline-variant)] bg-[var(--surface-container-lowest)] text-[var(--on-surface)] hover:bg-[var(--surface-container-low)] disabled:opacity-50 font-mono text-[13px] uppercase tracking-wider transition-colors"
+        className="px-4 py-2 rounded border border-[var(--outline-variant)] bg-[var(--surface-container-lowest)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] disabled:opacity-50 font-mono text-[13px] uppercase tracking-wider transition-colors"
       >
         {loading ? "Loading..." : "Load more"}
       </button>

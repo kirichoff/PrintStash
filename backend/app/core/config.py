@@ -16,9 +16,22 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Storage
+    # Storage backend selection: "local" (default) or "s3" (S3-compatible).
+    storage_backend: str = "local"
+
+    # Local storage paths (used when backend=local).
     data_dir: Path = Path("/data/files")
     thumb_dir: Path = Path("/data/thumbs")
+
+    # Staging directory for in-flight uploads (always local).
+    staging_dir: Path = Path("/data/staging")
+
+    # S3 / R2 config (used when backend=s3).
+    s3_bucket: str = ""
+    s3_endpoint_url: str = ""
+    s3_region: str = "auto"
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
 
     # Database
     db_url: str = "sqlite:////data/db/nexus3d.sqlite"
@@ -37,13 +50,24 @@ class Settings(BaseSettings):
     # Observability
     log_level: str = "INFO"
 
+    # Backup
+    backup_dir: Path = Path("/data/backups")
+    backup_retention_days: int = 30
+
+    # Backup S3 destination (optional — if set, backups are also uploaded to S3).
+    backup_s3_bucket: str = ""
+    backup_s3_endpoint_url: str = ""
+    backup_s3_region: str = "auto"
+    backup_s3_access_key: str = ""
+    backup_s3_secret_key: str = ""
+
     # App
     app_name: str = "PrintStash"
     app_version: str = "0.1.0"
 
     @property
     def incoming_dir(self) -> Path:
-        return self.data_dir / "_incoming"
+        return self.staging_dir / "_incoming"
 
     @property
     def max_upload_bytes(self) -> int:
@@ -64,10 +88,20 @@ def _sqlite_db_path(db_url: str) -> Path | None:
 
 
 def ensure_dirs() -> None:
-    """Create required storage directories at startup. Idempotent."""
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    settings.thumb_dir.mkdir(parents=True, exist_ok=True)
+    """Create required storage directories at startup. Idempotent.
+
+    For the local backend, creates data_dir, thumb_dir, incoming_dir,
+    staging_dir, and backup_dir. For the S3 backend, only creates the
+    local directories (staging, incoming, backup) since object storage
+    is managed by the S3 backend.
+    """
+    settings.staging_dir.mkdir(parents=True, exist_ok=True)
     settings.incoming_dir.mkdir(parents=True, exist_ok=True)
+    settings.backup_dir.mkdir(parents=True, exist_ok=True)
+
+    if settings.storage_backend == "local":
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        settings.thumb_dir.mkdir(parents=True, exist_ok=True)
 
     db_path = _sqlite_db_path(settings.db_url)
     if db_path is not None:

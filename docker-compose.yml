@@ -27,9 +27,23 @@ services:
     ports:
       - "8000:8000"
     environment:
+      VAULT_STORAGE_BACKEND: ${VAULT_STORAGE_BACKEND:-local}
       VAULT_DATA_DIR: /data/files
       VAULT_THUMB_DIR: /data/thumbs
+      VAULT_STAGING_DIR: /data/staging
       VAULT_DB_URL: sqlite:////data/db/nexus3d.sqlite
+      VAULT_BACKUP_DIR: /data/backups
+      VAULT_BACKUP_RETENTION_DAYS: ${VAULT_BACKUP_RETENTION_DAYS:-30}
+      VAULT_BACKUP_S3_BUCKET: ${VAULT_BACKUP_S3_BUCKET:-}
+      VAULT_BACKUP_S3_ENDPOINT_URL: ${VAULT_BACKUP_S3_ENDPOINT_URL:-}
+      VAULT_BACKUP_S3_REGION: ${VAULT_BACKUP_S3_REGION:-auto}
+      VAULT_BACKUP_S3_ACCESS_KEY: ${VAULT_BACKUP_S3_ACCESS_KEY:-}
+      VAULT_BACKUP_S3_SECRET_KEY: ${VAULT_BACKUP_S3_SECRET_KEY:-}
+      VAULT_S3_BUCKET: ${VAULT_S3_BUCKET:-}
+      VAULT_S3_ENDPOINT_URL: ${VAULT_S3_ENDPOINT_URL:-}
+      VAULT_S3_REGION: ${VAULT_S3_REGION:-auto}
+      VAULT_S3_ACCESS_KEY: ${VAULT_S3_ACCESS_KEY:-}
+      VAULT_S3_SECRET_KEY: ${VAULT_S3_SECRET_KEY:-}
       VAULT_API_KEY: ${VAULT_API_KEY:-changeme}
       VAULT_JWT_SECRET: ${VAULT_JWT_SECRET:-changeme_jwt_secret_please_change}
       VAULT_JWT_ALGORITHM: ${VAULT_JWT_ALGORITHM:-HS256}
@@ -41,6 +55,8 @@ services:
       - vault_data:/data/files
       - vault_thumbs:/data/thumbs
       - vault_db:/data/db
+      - vault_staging:/data/staging
+      - vault_backups:/data/backups
     networks:
       - nexus3d_net
     healthcheck:
@@ -58,3 +74,5 @@ volumes:
   vault_data:
   vault_thumbs:
   vault_db:
+  vault_staging:
+  vault_backups:

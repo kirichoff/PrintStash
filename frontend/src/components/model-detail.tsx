@@ -221,7 +221,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
             <>
               <button
                 onClick={cancelEdit}
-                className="px-4 py-2 rounded border border-[var(--outline)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider"
+                className="px-4 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider"
               >
                 Cancel
               </button>
@@ -243,7 +243,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
                 onClick={auth.isAuthenticated ? enterEdit : auth.showAuthRequiredToast}
                 disabled={!auth.isAuthenticated}
                 title={auth.blockReason ?? "Edit model"}
-                className="px-4 py-2 rounded border border-[var(--outline)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-4 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Pencil className="h-4 w-4" /> {auth.isAuthenticated ? "Edit" : "Sign in to edit"}
               </button>
@@ -251,7 +251,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
                 onClick={auth.isAuthenticated ? doDelete : auth.showAuthRequiredToast}
                 disabled={deleting || !auth.isAuthenticated}
                 title={auth.blockReason ?? "Delete model"}
-                className="px-4 py-2 rounded border border-[var(--outline)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-4 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {deleting ? (
                   <><Loader2 className="h-4 w-4 animate-spin" /> Deleting...</>
@@ -705,7 +705,7 @@ function SendToButtons({ modelId, gcodeFiles }: { modelId: number; gcodeFiles: {
             </div>
           )}
           <div className="flex gap-2">
-            <button onClick={() => setShowSend(false)} disabled={sending} className="flex-1 py-2 rounded border border-[var(--outline)] text-[var(--on-surface-variant)] font-mono text-xs uppercase tracking-wider hover:bg-[var(--surface-container-high)] transition-colors disabled:opacity-50">Cancel</button>
+            <button onClick={() => setShowSend(false)} disabled={sending} className="flex-1 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] font-mono text-xs uppercase tracking-wider hover:bg-[var(--surface-container-low)] transition-colors disabled:opacity-50">Cancel</button>
             <button onClick={send} disabled={sending || !printerId} className="flex-1 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-mono text-xs uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5">
               {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               {sending ? "Sending…" : startPrint ? "Send & Print" : "Send"}
@@ -714,7 +714,7 @@ function SendToButtons({ modelId, gcodeFiles }: { modelId: number; gcodeFiles: {
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          <Link href="/printers" className="w-full py-2 border border-[var(--outline)] text-[var(--on-surface-variant)] hover:border-[var(--on-surface)] transition-all rounded font-mono text-xs uppercase tracking-wider text-center">
+          <Link href="/printers" className="w-full py-2 border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors rounded font-mono text-xs uppercase tracking-wider text-center">
             {printers.length === 0 ? "Configure printers" : "Manage printers"}
           </Link>
           <button
@@ -723,7 +723,7 @@ function SendToButtons({ modelId, gcodeFiles }: { modelId: number; gcodeFiles: {
               setShowSend(true);
             }}
             disabled={printers.length === 0 || !auth.isAuthenticated}
-            className="w-full py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity rounded font-mono text-xs uppercase tracking-wider shadow-sm flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full py-2.5 bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity rounded font-mono text-xs uppercase tracking-wider shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {!auth.isAuthenticated ? (
               <><Send className="h-4 w-4" /> Sign in to send</>

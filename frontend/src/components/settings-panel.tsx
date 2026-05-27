@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Server, Database, HardDrive, Tag, Folder, User } from "lucide-react";
 import { TaxonomyManager } from "@/components/taxonomy-manager";
 import { ApiKeyCard } from "@/components/api-key-card";
+import { StorageConfigCard } from "@/components/storage-config-card";
 import { useAuth } from "@/lib/auth-context";
 
 interface HealthResponse {
@@ -90,6 +91,8 @@ export function SettingsPanel() {
       </div>
 
       <ApiKeyCard />
+
+      <StorageConfigCard />
 
       <TaxonomyManager />
 

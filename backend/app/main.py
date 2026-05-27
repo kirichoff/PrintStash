@@ -6,11 +6,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
-from app.core.config import ensure_dirs, settings
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import get_session_factory, init_db
 from app.services.printer_hub import PrinterHub
 from app.services.runtime_config import apply_overlay, is_configured
+from app.services.storage_backend import init_backend
 
 logger = get_logger(__name__)
 
@@ -23,14 +24,15 @@ async def lifespan(app: FastAPI):
     with get_session_factory()() as session:
         apply_overlay(session)
         configured = is_configured(session)
-    # ensure_dirs() runs against the (possibly overlaid) settings.
-    ensure_dirs()
+    # Initialise storage backend (creates dirs or validates S3 bucket).
+    _backend = init_backend()
     if not configured:
         logger.warning(
             "vault is unconfigured — open the web UI to run the first-run setup wizard"
         )
     logger.info(
-        "data_dir=%s thumb_dir=%s db=%s",
+        "backend=%s data_dir=%s thumb_dir=%s db=%s",
+        settings.storage_backend,
         settings.data_dir,
         settings.thumb_dir,
         settings.db_url,

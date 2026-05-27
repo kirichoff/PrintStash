@@ -34,6 +34,20 @@ _COLUMN_PATCHES: dict[str, list[tuple[str, str]]] = {
         ("category_id", "INTEGER"),
         ("thumbnail_file_id", "INTEGER"),
     ],
+    "system_config": [
+        ("storage_backend", "VARCHAR(64)"),
+        ("s3_bucket", "VARCHAR(256)"),
+        ("s3_endpoint_url", "VARCHAR(512)"),
+        ("s3_region", "VARCHAR(128)"),
+        ("s3_access_key", "VARCHAR(256)"),
+        ("s3_secret_key", "VARCHAR(512)"),
+        ("backup_retention_days", "INTEGER"),
+        ("backup_s3_bucket", "VARCHAR(256)"),
+        ("backup_s3_endpoint_url", "VARCHAR(512)"),
+        ("backup_s3_region", "VARCHAR(128)"),
+        ("backup_s3_access_key", "VARCHAR(256)"),
+        ("backup_s3_secret_key", "VARCHAR(512)"),
+    ],
 }
 
 

@@ -443,10 +443,10 @@ function ControlButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center gap-1.5 px-3 py-2 rounded font-mono text-xs uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+      className={`flex items-center gap-1.5 px-3 py-2 rounded font-mono text-xs uppercase tracking-wider transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
         destructive
-          ? "bg-[var(--error)] text-white hover:opacity-90"
-          : "border border-[var(--outline-variant)] text-[var(--on-surface)] hover:bg-[var(--surface-container-low)] hover:border-[var(--outline)]"
+          ? "bg-[var(--error)] text-[var(--primary-foreground)] hover:opacity-90"
+          : "border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)]"
       }`}
     >
       {busy ? (

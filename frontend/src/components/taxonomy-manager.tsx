@@ -119,7 +119,7 @@ export function TaxonomyManager() {
               onChange={(e) => setNewCat(e.target.value)}
               disabled={!auth.isAuthenticated}
               placeholder={auth.isAuthenticated ? "New category..." : "Sign in to add"}
-              className="bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] w-40 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent disabled:opacity-40"
+              className="bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] w-40 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent disabled:opacity-50"
             />
             <button
               type="submit"
@@ -199,7 +199,7 @@ export function TaxonomyManager() {
               onChange={(e) => setNewTag(e.target.value)}
               disabled={!auth.isAuthenticated}
               placeholder={auth.isAuthenticated ? "New tag..." : "Sign in to add"}
-              className="bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] w-40 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent disabled:opacity-40"
+              className="bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] w-40 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent disabled:opacity-50"
             />
             <button
               type="submit"

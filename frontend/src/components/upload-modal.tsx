@@ -294,7 +294,7 @@ export function UploadModal({
             <div className="flex gap-3 justify-center pt-2">
               <button
                 onClick={reset}
-                className="px-4 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider"
+                className="px-4 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-xs uppercase tracking-wider"
               >
                 Upload another
               </button>

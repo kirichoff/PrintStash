@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +16,7 @@ from app.core.security import require_auth
 from app.db.models import File, FileType, Model
 from app.db.session import get_session
 from app.services import storage
+from app.services.storage_backend import LocalStorageBackend, get_backend
 
 logger = get_logger(__name__)
 
@@ -23,33 +25,62 @@ router = APIRouter(prefix="/files", tags=["files"])
 _MESH_TYPES = {FileType.STL, FileType.THREE_MF, FileType.OBJ}
 
 
+def _serve_file(key: str, filename: str, media_type: str = "application/octet-stream"):
+    backend = get_backend()
+    if isinstance(backend, LocalStorageBackend):
+        path = Path(key)
+        if not path.exists():
+            raise HTTPException(status_code=410, detail="file_blob_missing")
+        return FileResponse(path=str(path), filename=filename, media_type=media_type)
+    chunks = backend.stream_chunks(key)
+    return StreamingResponse(
+        chunks,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _resolve_mesh_path(key: str) -> Path:
+    """Return a local Path for mesh operations, downloading from S3 if needed.
+
+    For S3, the returned path points to a temporary file that must be removed
+    by the caller when no longer needed.
+    """
+    backend = get_backend()
+    if isinstance(backend, LocalStorageBackend):
+        path = Path(key)
+        if not path.exists():
+            raise HTTPException(status_code=410, detail="file_blob_missing")
+        return path
+    ext = Path(key).suffix
+    tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+    tmp.close()
+    backend.download_to_path(key, Path(tmp.name))
+    return Path(tmp.name)
+
+
 @router.get(
     "/{file_id}/download",
     summary="Download the raw file blob",
-    description="Streams the underlying artifact (G-code/STL/3MF/OBJ) from disk.",
+    description="Streams the underlying artifact (G-code/STL/3MF/OBJ) from storage.",
 )
-def download_file(file_id: int, session: Session = Depends(get_session)) -> FileResponse:
+def download_file(file_id: int, session: Session = Depends(get_session)):
     f = get_or_404(session, File, file_id, "file_not_found")
-    path = Path(f.path)
-    if not path.exists():
+    if not storage.file_exists(f.path):
         raise HTTPException(status_code=410, detail="file_blob_missing")
-    return FileResponse(
-        path=str(path),
-        filename=f.original_filename,
-        media_type="application/octet-stream",
-    )
+    return _serve_file(f.path, f.original_filename)
 
 
 @router.get(
     "/{file_id}/thumbnail",
     summary="Get the PNG thumbnail extracted from the file (if any)",
 )
-def file_thumbnail(file_id: int, session: Session = Depends(get_session)) -> FileResponse:
-    get_or_404(session, File, file_id, "file_not_found")
-    thumb = storage.thumbnail_path_for(file_id)
-    if not thumb.exists():
+def file_thumbnail(file_id: int, session: Session = Depends(get_session)):
+    f = get_or_404(session, File, file_id, "file_not_found")
+    thumb_key = storage.thumbnail_path_for(file_id)
+    if not storage.file_exists(thumb_key):
         raise HTTPException(status_code=404, detail="thumbnail_not_found")
-    return FileResponse(path=str(thumb), media_type="image/png")
+    return _serve_file(thumb_key, f"{file_id}.png", "image/png")
 
 
 @router.get(
@@ -60,32 +91,40 @@ def file_thumbnail(file_id: int, session: Session = Depends(get_session)) -> Fil
         "converted to binary STL on the fly via trimesh."
     ),
 )
-def file_as_stl(file_id: int, session: Session = Depends(get_session)) -> StreamingResponse:
+def file_as_stl(file_id: int, session: Session = Depends(get_session)):
     # Lazy import: trimesh is heavy; pulling it in only for endpoints that need it.
     from app.services import mesh_processing
 
     f = get_or_404(session, File, file_id, "file_not_found")
-    path = Path(f.path)
-    if not path.exists():
-        raise HTTPException(status_code=410, detail="file_blob_missing")
+    path = _resolve_mesh_path(f.path)
+    is_temp = isinstance(get_backend(), LocalStorageBackend) is False
 
-    if path.suffix.lower() == ".stl":
-        return FileResponse(
-            path=str(path),
-            filename=f.original_filename,
+    try:
+        if path.suffix.lower() == ".stl":
+            data = path.read_bytes()
+            stem = Path(f.original_filename).stem
+            return StreamingResponse(
+                io.BytesIO(data),
+                media_type="application/sla",
+                headers={"Content-Disposition": f'attachment; filename="{stem}.stl"'},
+            )
+
+        stl_bytes = mesh_processing.to_stl_bytes(path)
+        if stl_bytes is None:
+            raise HTTPException(status_code=500, detail="stl_conversion_failed")
+
+        stem = Path(f.original_filename).stem
+        return StreamingResponse(
+            io.BytesIO(stl_bytes),
             media_type="application/sla",
+            headers={"Content-Disposition": f'attachment; filename="{stem}.stl"'},
         )
-
-    stl_bytes = mesh_processing.to_stl_bytes(path)
-    if stl_bytes is None:
-        raise HTTPException(status_code=500, detail="stl_conversion_failed")
-
-    stem = Path(f.original_filename).stem
-    return StreamingResponse(
-        io.BytesIO(stl_bytes),
-        media_type="application/sla",
-        headers={"Content-Disposition": f'attachment; filename="{stem}.stl"'},
-    )
+    finally:
+        if is_temp:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 @router.post(
@@ -127,26 +166,34 @@ def rebuild_missing_thumbnails(
             skipped.append(m.id)
             continue
 
-        path = Path(mesh_file.path)
-        if not path.exists():
+        if not storage.file_exists(mesh_file.path):
             skipped.append(m.id)
             continue
 
+        is_temp = False
+        path = None
         try:
+            path = _resolve_mesh_path(mesh_file.path)
+            is_temp = not isinstance(get_backend(), LocalStorageBackend)
             thumb_bytes = mesh_processing.render_thumbnail(path)
         except Exception:  # noqa: BLE001 — defensive, log and continue
             logger.exception("rebuild: render_thumbnail crashed for model %s", m.id)
             thumb_bytes = None
+        finally:
+            if is_temp and path is not None:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
         if not thumb_bytes:
             failed.append(m.id)
             continue
 
         assert mesh_file.id is not None
-        thumb_path = storage.thumbnail_path_for(mesh_file.id)
-        thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        thumb_path.write_bytes(thumb_bytes)
-        m.thumbnail_path = str(thumb_path)
+        thumb_key = storage.thumbnail_path_for(mesh_file.id)
+        storage.write_bytes(thumb_key, thumb_bytes)
+        m.thumbnail_path = thumb_key
         m.thumbnail_file_id = mesh_file.id
         session.add(m)
         session.commit()

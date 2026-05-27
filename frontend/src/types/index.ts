@@ -256,3 +256,44 @@ export interface SetupResponse {
   access_token: string;
   token_type: string;
 }
+
+// -- Vault Configuration ----------------------------------------------------
+
+export interface VaultConfigRead {
+  storage_backend: string;
+  data_dir: string;
+  thumb_dir: string;
+  s3_bucket: string;
+  s3_endpoint_url: string;
+  s3_region: string;
+  s3_access_key: string;
+  s3_secret_key: string;
+  has_s3_access_key: boolean;
+  has_s3_secret_key: boolean;
+  backup_retention_days: number;
+  backup_s3_bucket: string;
+  backup_s3_endpoint_url: string;
+  backup_s3_region: string;
+  backup_s3_access_key: string;
+  backup_s3_secret_key: string;
+  has_backup_s3_access_key: boolean;
+  has_backup_s3_secret_key: boolean;
+  has_backup_s3: boolean;
+}
+
+export interface VaultConfigUpdate {
+  storage_backend?: string;
+  data_dir?: string;
+  thumb_dir?: string;
+  s3_bucket?: string;
+  s3_endpoint_url?: string;
+  s3_region?: string;
+  s3_access_key?: string;
+  s3_secret_key?: string;
+  backup_retention_days?: number;
+  backup_s3_bucket?: string;
+  backup_s3_endpoint_url?: string;
+  backup_s3_region?: string;
+  backup_s3_access_key?: string;
+  backup_s3_secret_key?: string;
+}

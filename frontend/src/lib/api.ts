@@ -23,6 +23,8 @@ import {
   TagCreate,
   TagRead,
   UserRead,
+  VaultConfigRead,
+  VaultConfigUpdate,
 } from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -414,4 +416,25 @@ export async function completeSetup(body: SetupRequest): Promise<SetupResponse> 
     body: JSON.stringify(body),
   });
   return handleResponse<SetupResponse>(res);
+}
+
+// -- Vault configuration ----------------------------------------------------
+
+export async function getVaultConfig(): Promise<VaultConfigRead> {
+  const res = await fetch(getUrl("/api/v1/config"), {
+    cache: "no-store",
+  });
+  return handleResponse<VaultConfigRead>(res);
+}
+
+export async function updateVaultConfig(
+  body: VaultConfigUpdate,
+  apiKey?: string,
+): Promise<VaultConfigRead> {
+  const res = await fetch(getUrl("/api/v1/config"), {
+    method: "PUT",
+    headers: jsonHeaders(apiKey),
+    body: JSON.stringify(body),
+  });
+  return handleResponse<VaultConfigRead>(res);
 }

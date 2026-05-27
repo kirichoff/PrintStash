@@ -28,6 +28,7 @@ from app.schemas.printers import (
     PrintJobRead,
     SendToPrinter,
 )
+from app.services import storage
 from app.services.moonraker import MoonrakerClient, MoonrakerError
 from app.services.printer_hub import PrinterHub, get_hub, get_hub_from_ws
 
@@ -170,9 +171,12 @@ async def send_to_printer(
     f = get_or_404(session, File, payload.file_id, "file_not_found")
     if f.file_type != FileType.GCODE:
         raise HTTPException(status_code=400, detail="file_not_gcode")
-    local = Path(f.path)
-    if not local.exists():
+    if not storage.file_exists(f.path):
         raise HTTPException(status_code=410, detail="file_blob_missing")
+    local = storage.download_to_path(
+        f.path,
+        Path(f"/tmp/print-{f.id}{Path(f.original_filename).suffix}"),
+    )
 
     remote_name = (payload.remote_filename or f.original_filename).strip()
     if not remote_name.lower().endswith((".gcode", ".g", ".gco")):

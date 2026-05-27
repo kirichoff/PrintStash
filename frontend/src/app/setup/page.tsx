@@ -247,7 +247,7 @@ export default function SetupPage() {
                   setStep(1);
                 }}
                 disabled={busy}
-                className="h-10 px-4 rounded border border-[var(--outline-variant)] text-[var(--on-surface)] font-mono text-xs uppercase tracking-wider hover:bg-[var(--surface-container)] disabled:opacity-50 flex items-center gap-1.5"
+                className="h-10 px-4 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] font-mono text-xs uppercase tracking-wider hover:bg-[var(--surface-container)] disabled:opacity-50 flex items-center gap-1.5"
               >
                 <ChevronLeft className="h-4 w-4" />
                 Back
