@@ -70,11 +70,11 @@ export function ApiKeyCard() {
 
   return (
     <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
-      <div className="px-8 py-5 border-b border-[var(--outline-variant)] flex items-center gap-3">
-        <div className="w-9 h-9 rounded bg-[var(--surface-container)] flex items-center justify-center text-[var(--on-surface-variant)]">
+      <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-5 border-b border-[var(--outline-variant)] flex items-center gap-2 sm:gap-3">
+        <div className="w-9 h-9 rounded bg-[var(--surface-container)] flex items-center justify-center text-[var(--on-surface-variant)] flex-shrink-0">
           <KeyRound className="h-4 w-4" />
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold text-[var(--on-surface)]">
             Vault API key
           </h3>
@@ -85,16 +85,16 @@ export function ApiKeyCard() {
         </div>
       </div>
 
-      <div className="p-6 space-y-4">
+      <div className="p-3 sm:p-4 lg:p-6 space-y-4">
         {stored ? (
-          <div className="flex items-center justify-between gap-3 rounded border border-[var(--outline-variant)] bg-[var(--surface-container)] px-3 py-2">
+          <div className="flex items-center justify-between gap-2 rounded border border-[var(--outline-variant)] bg-[var(--surface-container)] px-3 py-2 flex-wrap">
             <div className="flex items-center gap-2 min-w-0">
               <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-              <span className="font-mono text-xs text-[var(--on-surface)] truncate">
+              <span className="font-mono text-xs text-[var(--on-surface)] truncate max-w-[180px] sm:max-w-none">
                 {reveal ? stored : masked}
               </span>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
               <button
                 type="button"
                 onClick={() => setReveal((r) => !r)}

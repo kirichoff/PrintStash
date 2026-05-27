@@ -20,7 +20,7 @@ export function SidebarNav() {
   const { user, logout } = useAuth();
 
   return (
-    <nav className="bg-[var(--surface-container-low)] border-r border-[var(--outline-variant)] h-screen w-64 fixed left-0 top-0 flex flex-col py-6 px-4 z-50">
+    <nav className="bg-[var(--surface-container-low)] border-r border-[var(--outline-variant)] h-screen w-64 fixed left-0 top-0 flex-col py-6 px-4 z-50 hidden md:flex">
       <div className="flex items-center gap-4 mb-10 px-1">
         <div className="w-10 h-10 rounded bg-[var(--primary-container)] flex items-center justify-center text-[var(--on-primary-container)] flex-shrink-0">
           <Box className="h-5 w-5" />

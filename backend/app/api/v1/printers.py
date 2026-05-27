@@ -1,14 +1,15 @@
-"""Printer management, send-to-print, and live WS status (Stage 3 / The Hub)."""
+"""Printer management, send-to-print, live WS status, and farm dashboard (Stage 3 / The Hub)."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     Response,
     WebSocket,
     WebSocketDisconnect,
@@ -44,6 +45,7 @@ def _to_read(p: Printer) -> PrinterRead:
         moonraker_url=p.moonraker_url,
         has_api_key=bool(p.api_key),
         notes=p.notes,
+        group=p.group,
         status=p.status,
         last_seen_at=p.last_seen_at,
         last_error=p.last_error,
@@ -58,11 +60,56 @@ def _to_read(p: Printer) -> PrinterRead:
 
 
 @router.get("", response_model=List[PrinterRead], summary="List printers")
-def list_printers(session: Session = Depends(get_session)) -> List[PrinterRead]:
-    return [
-        _to_read(p)
-        for p in session.exec(select(Printer).order_by(Printer.name)).all()
-    ]
+def list_printers(
+    group: Optional[str] = Query(default=None, description="Filter by printer group"),
+    session: Session = Depends(get_session),
+) -> List[PrinterRead]:
+    stmt = select(Printer).order_by(Printer.name)
+    if group is not None:
+        stmt = stmt.where(Printer.group == group)
+    return [_to_read(p) for p in session.exec(stmt).all()]
+
+
+@router.get(
+    "/dashboard",
+    summary="Aggregated farm health summary",
+    description=(
+        "Returns counts per PrinterStatus plus total printers, active print jobs, "
+        "and a per-group breakdown."
+    ),
+)
+def farm_dashboard(session: Session = Depends(get_session)) -> dict:
+    printers = session.exec(select(Printer)).all()
+    status_counts: dict[str, int] = {}
+    group_counts: dict[str, dict[str, int]] = {}
+
+    for p in printers:
+        s = p.status.value
+        status_counts[s] = status_counts.get(s, 0) + 1
+        g = p.group or "__ungrouped"
+        if g not in group_counts:
+            group_counts[g] = {}
+        group_counts[g][s] = group_counts[g].get(s, 0) + 1
+
+    active_jobs = session.exec(
+        select(PrintJob).where(
+            PrintJob.state.in_(
+                [PrintJobState.QUEUED, PrintJobState.STARTED,
+                 PrintJobState.PRINTING, PrintJobState.PAUSED,
+                 PrintJobState.UPLOADING]
+            )
+        )
+    ).all()
+
+    return {
+        "total_printers": len(printers),
+        "status_counts": status_counts,
+        "active_jobs": len(active_jobs),
+        "groups": [
+            {"name": name, "count": sum(counts.values()), "status_counts": counts}
+            for name, counts in sorted(group_counts.items())
+        ],
+    }
 
 
 @router.get("/{printer_id}", response_model=PrinterRead, summary="Get a printer")
@@ -89,6 +136,7 @@ async def create_printer(
         moonraker_url=payload.moonraker_url.strip().rstrip("/"),
         api_key=payload.api_key or None,
         notes=payload.notes,
+        group=payload.group.strip() if payload.group else None,
     )
     session.add(p)
     session.commit()
@@ -119,6 +167,8 @@ async def update_printer(
         p.api_key = payload.api_key or None
     if payload.notes is not None:
         p.notes = payload.notes
+    if payload.group is not None:
+        p.group = payload.group.strip() or None
     p.updated_at = utcnow()
     session.add(p)
     session.commit()

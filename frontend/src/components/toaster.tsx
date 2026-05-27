@@ -6,6 +6,7 @@ export function Toaster() {
   return (
     <SonnerToaster
       position="bottom-right"
+      className="!bottom-20 md:!bottom-4 group toast"
       toastOptions={{
         style: {
           fontFamily: "var(--font-mono), monospace",

@@ -124,3 +124,22 @@
     @apply bg-background text-foreground antialiased;
   }
 }
+
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@layer utilities {
+  .slide-in-left {
+    animation: slide-in-left 0.2s ease-out;
+  }
+
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 8px);
+  }
+}

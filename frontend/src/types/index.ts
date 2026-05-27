@@ -137,6 +137,7 @@ export interface PrinterRead {
   moonraker_url: string;
   has_api_key: boolean;
   notes: string | null;
+  group: string | null;
   status: PrinterStatus;
   last_seen_at: string | null;
   last_error: string | null;
@@ -149,6 +150,7 @@ export interface PrinterCreate {
   moonraker_url: string;
   api_key?: string;
   notes?: string;
+  group?: string;
 }
 
 export interface PrinterUpdate {
@@ -156,6 +158,7 @@ export interface PrinterUpdate {
   moonraker_url?: string;
   api_key?: string;
   notes?: string;
+  group?: string;
 }
 
 export interface PrintJobRead {
@@ -166,6 +169,7 @@ export interface PrintJobRead {
   remote_filename: string;
   state: PrintJobState;
   progress: number;
+  source: string;
   error: string | null;
   started_at: string | null;
   finished_at: string | null;
@@ -177,6 +181,20 @@ export interface SendToPrinter {
   file_id: number;
   start_print?: boolean;
   remote_filename?: string;
+}
+
+/** Aggregated farm health (GET /api/v1/printers/dashboard). */
+export interface Dashboard {
+  total_printers: number;
+  status_counts: Record<string, number>;
+  active_jobs: number;
+  groups: DashboardGroup[];
+}
+
+export interface DashboardGroup {
+  name: string;
+  count: number;
+  status_counts: Record<string, number>;
 }
 
 /** Loose typing for the Moonraker objects snapshot kept by the hub. */

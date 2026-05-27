@@ -30,8 +30,8 @@ _rasterise = None
 
 
 def rasterise(
-    tri: "numpy.ndarray",
-    shade: "numpy.ndarray",
+    tri: "numpy.ndarray",  # noqa: F821 — forward-reference for numpy
+    shade: "numpy.ndarray",  # noqa: F821
     width: int,
     height: int,
 ) -> Optional[bytes]:

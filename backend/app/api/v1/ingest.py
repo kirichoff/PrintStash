@@ -20,7 +20,7 @@ from fastapi import (
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.security import require_auth
-from app.db.models import SUFFIX_TO_FILE_TYPE, FileType
+from app.db.models import SUFFIX_TO_FILE_TYPE
 from app.db.session import SessionFactory, get_session_factory
 from app.schemas.ingest import IngestJobStatus, IngestResponse
 from app.services import storage

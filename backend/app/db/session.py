@@ -4,7 +4,7 @@ from typing import Callable, Iterator
 
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -33,6 +33,12 @@ _COLUMN_PATCHES: dict[str, list[tuple[str, str]]] = {
     "models": [
         ("category_id", "INTEGER"),
         ("thumbnail_file_id", "INTEGER"),
+    ],
+    "printers": [
+        ("group", "VARCHAR(128)"),
+    ],
+    "print_jobs": [
+        ("source", "VARCHAR(16) DEFAULT 'vault'"),
     ],
     "system_config": [
         ("storage_backend", "VARCHAR(64)"),
@@ -63,7 +69,7 @@ def _apply_column_patches() -> None:
             for name, ddl in cols:
                 if name not in existing:
                     logger.info("migrate: adding column %s.%s", table, name)
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                    conn.execute(text(f'ALTER TABLE {table} ADD COLUMN "{name}" {ddl}'))
 
 
 def init_db() -> None:
@@ -73,6 +79,42 @@ def init_db() -> None:
 
     SQLModel.metadata.create_all(engine)
     _apply_column_patches()
+    _ensure_sentinel_rows()
+
+
+def _ensure_sentinel_rows() -> None:
+    """Create sentinel Model + File rows used by external (non-vault) print jobs."""
+    from app.db.models import File, FileType, Model, SENTINEL_MODEL_HASH, SENTINEL_FILE_HASH
+
+    with Session(engine) as session:
+        sentinel_model = session.exec(
+            select(Model).where(Model.hash == SENTINEL_MODEL_HASH)
+        ).first()
+        if sentinel_model is None:
+            sentinel_model = Model(
+                name="__external__",
+                slug="__external__",
+                hash=SENTINEL_MODEL_HASH,
+            )
+            session.add(sentinel_model)
+            session.commit()
+            session.refresh(sentinel_model)
+
+        sentinel_file = session.exec(
+            select(File).where(File.sha256 == SENTINEL_FILE_HASH)
+        ).first()
+        if sentinel_file is None:
+            sentinel_file = File(
+                model_id=sentinel_model.id,
+                path="/dev/null",
+                original_filename="__external__",
+                file_type=FileType.GCODE,
+                version=1,
+                size_bytes=0,
+                sha256=SENTINEL_FILE_HASH,
+            )
+            session.add(sentinel_file)
+            session.commit()
 
 
 def get_session() -> Iterator[Session]:

@@ -6,6 +6,8 @@ import { ModelListItem } from "@/types";
 import { FileText, MoreVertical } from "lucide-react";
 import { getAssetUrl } from "@/lib/api";
 
+const MAX_VISIBLE_TAGS = 3;
+
 function timeAgo(dateStr: string): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -28,16 +30,20 @@ function ModelCardInner({ model }: { model: ModelListItem }) {
     ? getAssetUrl(model.thumbnail_url)
     : null;
 
+  const visibleTags = model.tags.slice(0, MAX_VISIBLE_TAGS);
+  const hiddenCount = model.tags.length - MAX_VISIBLE_TAGS;
+
   return (
     <Link
       href={`/models/${model.id}`}
-      className="block group"
+      className="block group active:scale-[0.98] transition-transform duration-150 h-full"
       style={{ contentVisibility: "auto", containIntrinsicSize: "320px" } as React.CSSProperties}
     >
       <article className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded hover:shadow-[0_4px_12px_rgba(0,0,0,0.05)] hover:border-[var(--primary)] transition-all duration-200 flex flex-col overflow-hidden h-full">
-        <div className="aspect-[4/3] bg-[var(--surface-container-low)] relative border-b border-[var(--outline-variant)] overflow-hidden flex items-center justify-center p-4">
+        {/* 1. Thumbnail — fixed aspect ratio, no padding */}
+        <div className="aspect-[16/9] bg-[var(--surface-container-low)] relative overflow-hidden flex-shrink-0">
           {model.file_count > 0 && (
-            <div className="absolute top-2 right-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] px-[6px] py-[2px] rounded flex items-center gap-1 z-10">
+            <div className="absolute top-2 right-2 bg-[var(--surface-container-lowest)]/90 backdrop-blur-sm border border-[var(--outline-variant)] px-[6px] py-[2px] rounded flex items-center gap-1 z-10">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
               <span className="font-mono text-[9px] text-[var(--on-surface)] uppercase tracking-wider leading-none">
                 {model.file_count} file{model.file_count !== 1 ? "s" : ""}
@@ -49,7 +55,7 @@ function ModelCardInner({ model }: { model: ModelListItem }) {
             <img
               src={thumb}
               alt={model.name}
-              className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
               loading="lazy"
               decoding="async"
             />
@@ -60,8 +66,10 @@ function ModelCardInner({ model }: { model: ModelListItem }) {
           )}
         </div>
 
-        <div className="p-4 flex flex-col gap-1 flex-1">
+        {/* 2. Body — flex-grows to consume empty space, pushes footer down */}
+        <div className="p-3 sm:p-4 flex flex-col gap-1 flex-1 min-h-0">
           <div className="flex items-start justify-between gap-2">
+            {/* 4. Strict single-line ellipsis */}
             <h3
               className="text-[15px] font-semibold text-[var(--on-surface)] truncate leading-tight"
               title={model.name}
@@ -71,23 +79,40 @@ function ModelCardInner({ model }: { model: ModelListItem }) {
             <MoreVertical className="h-[18px] w-[18px] text-[var(--on-surface-variant)] opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5" />
           </div>
 
-          <div className="mt-auto pt-2 flex items-center justify-between border-t border-[var(--surface-variant)]">
-            <div className="flex gap-1.5">
-              {model.category && (
-                <span className="bg-[var(--surface-container)] text-[var(--on-surface)] px-1.5 py-0.5 rounded font-mono text-[10px] uppercase tracking-wider">
-                  {model.category}
+          {/* 3. Footer — margin-top: auto anchors to card bottom */}
+          <div className="mt-auto pt-2 flex items-center justify-between gap-2 border-t border-[var(--surface-variant)] min-w-0">
+            {/* Scrollable tags + always-visible +N badge */}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <div
+                className="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto"
+                style={{
+                  scrollbarWidth: "none",
+                  msOverflowStyle: "none",
+                  WebkitMaskImage: "linear-gradient(to right, black 85%, transparent 100%)",
+                  maskImage: "linear-gradient(to right, black 85%, transparent 100%)",
+                }}
+              >
+                {model.category && (
+                  <span className="bg-[var(--surface-container)] text-[var(--on-surface)] px-1.5 py-0.5 rounded font-mono text-[10px] uppercase tracking-wider whitespace-nowrap flex-shrink-0">
+                    {model.category}
+                  </span>
+                )}
+                {visibleTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="bg-[var(--surface-container)] text-[var(--on-surface)] px-1.5 py-0.5 rounded font-mono text-[10px] uppercase tracking-wider whitespace-nowrap flex-shrink-0"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+              {hiddenCount > 0 && (
+                <span className="bg-[var(--secondary-container)] text-[var(--on-secondary-container)] px-1.5 py-0.5 rounded font-mono text-[10px] whitespace-nowrap flex-shrink-0">
+                  +{hiddenCount}
                 </span>
               )}
-              {model.tags.slice(0, 2).map((tag) => (
-                <span
-                  key={tag}
-                  className="bg-[var(--surface-container)] text-[var(--on-surface)] px-1.5 py-0.5 rounded font-mono text-[10px] uppercase tracking-wider"
-                >
-                  {tag}
-                </span>
-              ))}
             </div>
-            <span className="font-mono text-[11px] text-[var(--on-surface-variant)]">
+            <span className="font-mono text-[11px] text-[var(--on-surface-variant)] whitespace-nowrap flex-shrink-0">
               {timeAgo(model.updated_at)}
             </span>
           </div>
@@ -98,4 +123,3 @@ function ModelCardInner({ model }: { model: ModelListItem }) {
 }
 
 export const ModelCard = memo(ModelCardInner);
-

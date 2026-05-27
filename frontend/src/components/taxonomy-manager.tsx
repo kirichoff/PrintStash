@@ -91,7 +91,7 @@ export function TaxonomyManager() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-6 lg:space-y-8">
       {error && (
         <div className="rounded border border-[var(--error)]/30 bg-[var(--error-container)]/20 p-3 text-xs text-[var(--error)] font-mono">
           {error}
@@ -100,9 +100,9 @@ export function TaxonomyManager() {
 
       {/* Categories */}
       <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
-        <div className="px-6 py-4 border-b border-[var(--outline-variant)] flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--outline-variant)] flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
           <div className="flex items-center gap-2">
-            <FolderTree className="h-4 w-4 text-[var(--on-surface-variant)]" />
+            <FolderTree className="h-4 w-4 text-[var(--on-surface-variant)] flex-shrink-0" />
             <h3 className="text-sm font-semibold text-[var(--on-surface)]">
               Categories
             </h3>
@@ -119,19 +119,19 @@ export function TaxonomyManager() {
               onChange={(e) => setNewCat(e.target.value)}
               disabled={!auth.isAuthenticated}
               placeholder={auth.isAuthenticated ? "New category..." : "Sign in to add"}
-              className="bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] w-40 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent disabled:opacity-50"
+              className="flex-1 sm:flex-none sm:w-40 bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent disabled:opacity-50"
             />
             <button
               type="submit"
               disabled={!newCat.trim() || !auth.isAuthenticated}
-              className="p-1.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="p-1.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity disabled:opacity-50 flex-shrink-0"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
           </form>
         </div>
 
-        <div className="p-4">
+        <div className="p-3 sm:p-4">
           {loading ? (
             <p className="text-xs text-[var(--on-surface-variant)] font-mono">Loading...</p>
           ) : categories.length === 0 ? (
@@ -143,13 +143,13 @@ export function TaxonomyManager() {
               {categories.map((c) => (
                 <div
                   key={c.id}
-                  className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-[var(--surface-container-low)] group"
+                  className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-[var(--surface-container-low)] group gap-2"
                 >
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 overflow-hidden">
                     <span className="text-sm text-[var(--on-surface)] truncate">
                       {c.name}
                     </span>
-                    <span className="font-mono text-[10px] text-[var(--on-surface-variant)] truncate">
+                    <span className="font-mono text-[10px] text-[var(--on-surface-variant)] truncate hidden sm:inline">
                       {c.path}
                     </span>
                   </div>
@@ -180,9 +180,9 @@ export function TaxonomyManager() {
 
       {/* Tags */}
       <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
-        <div className="px-6 py-4 border-b border-[var(--outline-variant)] flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--outline-variant)] flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
           <div className="flex items-center gap-2">
-            <TagIcon className="h-4 w-4 text-[var(--on-surface-variant)]" />
+            <TagIcon className="h-4 w-4 text-[var(--on-surface-variant)] flex-shrink-0" />
             <h3 className="text-sm font-semibold text-[var(--on-surface)]">
               Tags
             </h3>
@@ -199,19 +199,19 @@ export function TaxonomyManager() {
               onChange={(e) => setNewTag(e.target.value)}
               disabled={!auth.isAuthenticated}
               placeholder={auth.isAuthenticated ? "New tag..." : "Sign in to add"}
-              className="bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] w-40 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent disabled:opacity-50"
+              className="flex-1 sm:flex-none sm:w-40 bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-3 py-[6px] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent disabled:opacity-50"
             />
             <button
               type="submit"
               disabled={!newTag.trim() || !auth.isAuthenticated}
-              className="p-1.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="p-1.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity disabled:opacity-50 flex-shrink-0"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
           </form>
         </div>
 
-        <div className="p-4">
+        <div className="p-3 sm:p-4">
           {loading ? (
             <p className="text-xs text-[var(--on-surface-variant)] font-mono">Loading...</p>
           ) : tags.length === 0 ? (

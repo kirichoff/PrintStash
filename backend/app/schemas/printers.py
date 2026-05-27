@@ -13,6 +13,7 @@ class PrinterCreate(BaseModel):
     moonraker_url: str
     api_key: Optional[str] = None
     notes: Optional[str] = None
+    group: Optional[str] = None
 
 
 class PrinterUpdate(BaseModel):
@@ -20,6 +21,7 @@ class PrinterUpdate(BaseModel):
     moonraker_url: Optional[str] = None
     api_key: Optional[str] = None
     notes: Optional[str] = None
+    group: Optional[str] = None
 
 
 class PrinterRead(BaseModel):
@@ -28,6 +30,7 @@ class PrinterRead(BaseModel):
     moonraker_url: str
     has_api_key: bool
     notes: Optional[str] = None
+    group: Optional[str] = None
     status: PrinterStatus
     last_seen_at: Optional[datetime] = None
     last_error: Optional[str] = None
@@ -49,6 +52,7 @@ class PrintJobRead(BaseModel):
     remote_filename: str
     state: PrintJobState
     progress: float
+    source: str = "vault"
     error: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None

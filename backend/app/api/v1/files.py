@@ -76,7 +76,7 @@ def download_file(file_id: int, session: Session = Depends(get_session)):
     summary="Get the PNG thumbnail extracted from the file (if any)",
 )
 def file_thumbnail(file_id: int, session: Session = Depends(get_session)):
-    f = get_or_404(session, File, file_id, "file_not_found")
+    f = get_or_404(session, File, file_id, "file_not_found")  # noqa: F841
     thumb_key = storage.thumbnail_path_for(file_id)
     if not storage.file_exists(thumb_key):
         raise HTTPException(status_code=404, detail="thumbnail_not_found")

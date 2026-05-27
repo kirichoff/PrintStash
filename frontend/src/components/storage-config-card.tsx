@@ -102,10 +102,10 @@ export function StorageConfigCard() {
   if (loading) {
     return (
       <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
-        <div className="px-8 py-5 border-b border-[var(--outline-variant)]">
+        <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-5 border-b border-[var(--outline-variant)]">
           <h3 className="text-sm font-semibold text-[var(--on-surface)]">Storage configuration</h3>
         </div>
-        <div className="p-6 text-sm text-[var(--on-surface-variant)]">Loading...</div>
+        <div className="p-3 sm:p-4 lg:p-6 text-sm text-[var(--on-surface-variant)]">Loading...</div>
       </div>
     );
   }
@@ -114,21 +114,21 @@ export function StorageConfigCard() {
 
   return (
     <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
-      <div className="px-8 py-5 border-b border-[var(--outline-variant)] flex items-center justify-between">
-        <div>
+      <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-5 border-b border-[var(--outline-variant)] flex items-center justify-between gap-2">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-[var(--on-surface)]">Storage configuration</h3>
           <p className="text-xs text-[var(--on-surface-variant)] mt-0.5">
             File storage backend, S3 credentials, and backup retention
           </p>
         </div>
         {cfg && (
-          <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded border text-[var(--on-surface-variant)] border-[var(--outline-variant)]">
+          <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded border text-[var(--on-surface-variant)] border-[var(--outline-variant)] flex-shrink-0">
             {cfg.storage_backend === "s3" ? "S3/R2" : "Local"}
           </span>
         )}
       </div>
 
-      <div className="p-6 space-y-5">
+      <div className="p-3 sm:p-4 lg:p-6 space-y-5">
         {/* Backend selector */}
         <div>
           <label className="block text-xs font-medium text-[var(--on-surface-variant)] mb-1.5">

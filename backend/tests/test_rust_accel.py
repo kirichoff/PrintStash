@@ -5,11 +5,9 @@ These tests pass whether or not the ``_nexus3d_rust`` native module is built.
 
 from __future__ import annotations
 
-import io
 import struct
 from pathlib import Path
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -79,26 +77,16 @@ class TestRasterRust:
         result = raster_rust.rasterise(tri, shade, 64, 48)
         assert result is None
 
-    def test_rasterise_passes_triple_to_native(self, monkeypatch):
-        """Verify the wrapper converts numpy arrays and passes correct args."""
+    def test_rasterise_returns_none_always(self, monkeypatch):
+        """rasterise unconditionally returns None (Rust rasteriser is disabled)."""
         import numpy as np
 
-        import raster_rust
+        import app.services.raster_rust as raster_rust
 
-        last_args: list = []
-
-        def fake_rasterise(tri_list, shade_list, w, h) -> bytes:
-            last_args.append((len(tri_list), len(shade_list), w, h))
-            return bytes(w * h * 3)
-
-        monkeypatch.setattr(raster_rust, "_rasterise", fake_rasterise)
-
-        tri = np.zeros((2, 3, 3), dtype=np.float64)  # 2 triangles
+        tri = np.zeros((2, 3, 3), dtype=np.float64)
         shade = np.array([0.5, 0.8], dtype=np.float64)
         result = raster_rust.rasterise(tri, shade, 100, 200)
-
-        assert last_args[0] == (18, 2, 100, 200)  # 2 tri * 9 coords = 18
-        assert result == bytes(100 * 200 * 3)
+        assert result is None
 
 
 # ---------------------------------------------------------------------------

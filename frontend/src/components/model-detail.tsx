@@ -190,7 +190,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
   return (
     <div className="flex flex-col h-full">
       {/* Detail Header */}
-      <header className="h-16 flex items-center justify-between px-6 border-b border-[var(--outline-variant)] bg-[var(--surface-container-lowest)] shrink-0">
+      <header className="h-auto md:h-16 flex flex-wrap items-center justify-between px-4 md:px-6 py-3 md:py-0 gap-2 border-b border-[var(--outline-variant)] bg-[var(--surface-container-lowest)] shrink-0">
         <div className="flex items-center gap-4">
           <Link
             href="/"
@@ -267,9 +267,9 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
       </header>
 
       {/* Two-Column Layout */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden md:overflow-hidden">
         {/* Left: 3D Model Preview */}
-        <div className="flex-1 bg-[var(--surface-container-low)] relative border-r border-[var(--outline-variant)] flex items-center justify-center m-4 rounded overflow-hidden"
+        <div className="flex-1 min-h-[250px] md:min-h-0 bg-[var(--surface-container-low)] relative border-b md:border-b-0 md:border-r border-[var(--outline-variant)] flex items-center justify-center m-2 md:m-4 rounded overflow-hidden"
           style={{ boxShadow: "inset 0 0 0 1px var(--surface-variant)" }}>
           {meshFile ? (
             <Suspense fallback={
@@ -335,8 +335,8 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
         </div>
 
         {/* Right: Settings & Files Panel */}
-        <div className="w-[400px] bg-[var(--surface-container-lowest)] border-l border-[var(--outline-variant)] flex flex-col h-full shrink-0 min-h-0">
-          <div className="flex-1 overflow-y-auto p-6 space-y-8">
+        <div className="md:w-[400px] bg-[var(--surface-container-lowest)] border-l-0 md:border-l border-t md:border-t-0 border-[var(--outline-variant)] flex flex-col h-auto md:h-full shrink-0 min-h-0">
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 md:space-y-8">
             {/* Print Settings */}
             <section>
               <h2 className="text-lg font-semibold text-[var(--on-surface)] mb-4 pb-1 border-b border-[var(--outline-variant)]">
@@ -561,7 +561,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
           </div>
 
           {/* Klipper Sync Panel */}
-          <div className="p-6 border-t border-[var(--outline-variant)] bg-[var(--surface-container-low)] shrink-0 space-y-3">
+          <div className="p-4 md:p-6 border-t border-[var(--outline-variant)] bg-[var(--surface-container-low)] shrink-0 space-y-3">
             {hasGcode && (
               <SendToButtons modelId={model.id} gcodeFiles={gcodeFiles} />
             )}

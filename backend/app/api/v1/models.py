@@ -10,7 +10,6 @@ from fastapi.responses import Response
 from sqlalchemy import func
 from sqlmodel import Session, delete, select
 
-from app.core.http import get_or_404
 from app.core.security import require_auth
 from app.core.time import utcnow
 from app.db.models import File, Metadata, Model, ModelTagLink, Tag

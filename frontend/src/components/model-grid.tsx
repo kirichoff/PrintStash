@@ -5,8 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CategoryRead, ModelListItem, TagRead } from "@/types";
 import { ModelCard } from "@/components/model-card";
 import { FilterSidebar } from "@/components/filter-sidebar";
+import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
 import { UploadModal } from "@/components/upload-modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useMobileFilterDrawer } from "@/lib/mobile-filter-context";
 import {
   SlidersHorizontal,
   Grid,
@@ -91,6 +93,7 @@ export function ModelBrowser() {
   const [facetsLoading, setFacetsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const { open: filterDrawerOpen, openDrawer, closeDrawer } = useMobileFilterDrawer();
 
   // Allow other parts of the app (sidebar "Upload") to deep-link the modal open.
   useEffect(() => {
@@ -190,6 +193,18 @@ export function ModelBrowser() {
         }}
       />
 
+      <MobileFilterDrawer
+        open={filterDrawerOpen}
+        onClose={closeDrawer}
+        categories={categories}
+        tags={tags}
+        selectedCategory={selectedCategory}
+        selectedTags={selectedTags}
+        onCategoryChange={setSelectedCategory}
+        onTagsChange={setSelectedTags}
+        loading={facetsLoading}
+      />
+
       <div className="flex flex-col h-full">
         {/* Filter sidebar + content split */}
         <div className="flex flex-1 min-h-0">
@@ -203,15 +218,22 @@ export function ModelBrowser() {
             loading={facetsLoading}
           />
 
-          <section className="flex-1 overflow-y-auto p-6">
+          <section className="flex-1 overflow-y-auto p-4 md:p-6">
             {/* Header + controls — left aligned */}
             <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                  <button
+                    onClick={openDrawer}
+                    className="md:hidden flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-[11px] uppercase tracking-wider active:scale-95"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Filters
+                </button>
                 <h2 className="text-lg font-semibold text-[var(--on-surface)]">
-                  All Models
+                  Vault
                   {!loading && (
                     <span className="ml-2 text-sm font-normal text-[var(--on-surface-variant)] font-mono">
-                      ({models.length} items)
+                      ({models.length} models)
                     </span>
                   )}
                 </h2>
@@ -220,7 +242,7 @@ export function ModelBrowser() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setUploadOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-[13px]"
+                  className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors font-mono text-[13px]"
                 >
                   <Upload className="h-4 w-4" />
                   Upload
@@ -314,7 +336,7 @@ export function ModelBrowser() {
               </div>
             ) : viewMode === "grid" ? (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
                   {sortedModels.map((model) => (
                     <ModelCard key={model.id} model={model} />
                   ))}
@@ -324,12 +346,12 @@ export function ModelBrowser() {
             ) : (
               <>
                 <div className="flex flex-col">
-                  <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--outline-variant)] text-xs font-mono text-[var(--on-surface-variant)] uppercase tracking-wider">
-                    <span className="w-10 flex-shrink-0">Thumb</span>
+                  <div className="flex items-center gap-3 px-2 md:px-4 py-2 border-b border-[var(--outline-variant)] text-xs font-mono text-[var(--on-surface-variant)] uppercase tracking-wider">
+                    <span className="w-8 md:w-10 flex-shrink-0">Thumb</span>
                     <span className="flex-1">Name</span>
                     <span className="w-24 text-right hidden sm:block">Category</span>
-                    <span className="w-20 text-right">Files</span>
-                    <span className="w-24 text-right hidden md:block">Updated</span>
+                    <span className="w-12 md:w-20 text-right">Files</span>
+                    <span className="w-20 md:w-24 text-right hidden md:block">Updated</span>
                     <span className="w-8" />
                   </div>
                   {sortedModels.map((model) => (
@@ -354,9 +376,9 @@ function ModelListRow({ model }: { model: ModelListItem }) {
   return (
     <Link
       href={`/models/${model.id}`}
-      className="flex items-center gap-3 px-4 py-3 border-b border-[var(--surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors group"
+      className="flex items-center gap-2 md:gap-3 px-2 md:px-4 py-3 border-b border-[var(--surface-variant)] hover:bg-[var(--surface-container-low)] transition-colors group active:bg-[var(--surface-container)]"
     >
-      <div className="w-10 h-10 rounded bg-[var(--surface-container)] flex-shrink-0 overflow-hidden border border-[var(--outline-variant)]">
+      <div className="w-8 h-8 md:w-10 md:h-10 rounded bg-[var(--surface-container)] flex-shrink-0 overflow-hidden border border-[var(--outline-variant)]">
         {thumb ? (
           <img
             src={thumb}
@@ -397,7 +419,7 @@ function ModelListRow({ model }: { model: ModelListItem }) {
         {model.file_count}
       </span>
 
-      <span className="w-24 text-right text-xs font-mono text-[var(--on-surface-variant)] hidden md:block">
+      <span className="w-20 md:w-24 text-right text-xs font-mono text-[var(--on-surface-variant)] hidden md:block">
         {timeAgo(model.updated_at)}
       </span>
 
@@ -433,13 +455,13 @@ function LoadMore({
 
 export function ModelGridSkeleton() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
       {Array.from({ length: 8 }).map((_, i) => (
         <div
           key={i}
           className="space-y-2 rounded border border-[var(--outline-variant)] p-2"
         >
-          <Skeleton className="aspect-[4/3] w-full rounded" />
+          <Skeleton className="aspect-[16/9] w-full rounded" />
           <Skeleton className="h-4 w-3/4" />
           <Skeleton className="h-3 w-1/2" />
         </div>

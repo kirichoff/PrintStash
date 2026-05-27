@@ -20,7 +20,7 @@ from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import PrintJob, PrintJobState, Printer, PrinterStatus
 from app.db.session import engine
-from app.services.moonraker import MoonrakerClient, MoonrakerError
+from app.services.moonraker import MoonrakerClient
 
 logger = get_logger(__name__)
 
@@ -212,7 +212,12 @@ class PrinterHub:
         progress: float,
         print_stats: Dict[str, Any],
     ) -> None:
-        """Reflect Moonraker state onto the most-recent matching PrintJob row."""
+        """Reflect Moonraker state onto the most-recent matching PrintJob row.
+
+        If no matching PrintJob exists and the printer is actively printing
+        or paused, a placeholder row with source="external" is created so
+        externally-initiated jobs are captured in the vault history.
+        """
         if not filename:
             return
         try:
@@ -225,8 +230,27 @@ class PrinterHub:
                     )
                     .order_by(PrintJob.created_at.desc())  # type: ignore[attr-defined]
                 ).first()
+
                 if job is None:
-                    return
+                    # No vault-created job — check if printer is actively printing.
+                    if ms_state in ("printing", "paused", "complete", "cancelled", "error"):
+                        sentinel_file_id, sentinel_model_id = _get_sentinel_ids(session)
+                        job = PrintJob(
+                            printer_id=printer_id,
+                            file_id=sentinel_file_id,
+                            model_id=sentinel_model_id,
+                            remote_filename=filename,
+                            source="external",
+                        )
+                        session.add(job)
+                        session.commit()
+                        session.refresh(job)
+                        logger.info(
+                            "captured external print job %s on printer %s (state=%s)",
+                            filename, printer_id, ms_state,
+                        )
+                    else:
+                        return
 
                 new_state: PrintJobState
                 if ms_state == "printing":
@@ -281,3 +305,20 @@ def get_hub(request: Request) -> PrinterHub:
 def get_hub_from_ws(websocket: WebSocket) -> PrinterHub:
     """FastAPI dependency (WebSocket variant): returns the PrinterHub."""
     return websocket.app.state.printer_hub
+
+
+def _get_sentinel_ids(session: Session) -> tuple[int, int]:
+    """Return (file_id, model_id) of the sentinel rows for external print jobs."""
+    from app.db.models import File, Model, SENTINEL_MODEL_HASH, SENTINEL_FILE_HASH
+
+    model = session.exec(
+        select(Model).where(Model.hash == SENTINEL_MODEL_HASH)
+    ).first()
+    model_id = model.id if model else 1
+
+    f = session.exec(
+        select(File).where(File.sha256 == SENTINEL_FILE_HASH)
+    ).first()
+    file_id = f.id if f else 1
+
+    return file_id, model_id

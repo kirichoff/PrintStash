@@ -13,13 +13,11 @@ from __future__ import annotations
 import gzip
 import io
 import json
-import sqlite3
 import tarfile
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
 
 from app.core.config import settings
 from app.core.logging import get_logger

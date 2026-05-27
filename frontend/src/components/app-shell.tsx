@@ -8,15 +8,18 @@
  *   - /setup  (first-run wizard — clean, focused experience)
  *   - /login  (centered sign-in card)
  *
- * Everything else gets the sidebar + topbar layout.
+ * Desktop: sidebar + topbar layout (left sidebar, right content area).
+ * Mobile:  topbar + bottom nav bar + mobile sidebar drawer.
  */
 
 import { usePathname } from "next/navigation";
 
 import { AuthBanner } from "@/components/auth-banner";
+import { BottomNavBar } from "@/components/bottom-nav-bar";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { Toaster } from "@/components/toaster";
 import { TopBar } from "@/components/top-bar";
+import { MobileFilterProvider } from "@/lib/mobile-filter-context";
 
 const CHROMELESS_PREFIXES = ["/setup", "/login"];
 
@@ -30,14 +33,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {chromeless ? (
         children
       ) : (
-        <div className="flex">
-          <SidebarNav />
-          <div className="ml-64 flex flex-col flex-1 min-h-screen max-h-screen">
-            <TopBar />
-            <AuthBanner />
-            <main className="flex-1 min-h-0 overflow-hidden">{children}</main>
+        <MobileFilterProvider>
+          <div className="flex flex-col min-h-screen">
+            <div className="flex flex-1">
+              <SidebarNav />
+              <div className="md:ml-64 flex flex-col flex-1 min-h-screen max-h-screen w-full">
+                <TopBar />
+                <AuthBanner />
+                <main className="flex-1 min-h-0 overflow-hidden pb-[72px] md:pb-0">
+                  {children}
+                </main>
+              </div>
+            </div>
+            <BottomNavBar />
           </div>
-        </div>
+        </MobileFilterProvider>
       )}
     </>
   );

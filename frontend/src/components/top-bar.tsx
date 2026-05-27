@@ -41,18 +41,21 @@ function TopBarSearch() {
 
 export function TopBar() {
   return (
-    <header className="bg-[var(--surface-container-lowest)] h-16 sticky top-0 z-40 border-b border-[var(--outline-variant)] flex items-center px-6 w-full gap-4">
+    <header className="bg-[var(--surface-container-lowest)] h-16 sticky top-0 z-40 border-b border-[var(--outline-variant)] flex items-center px-4 md:px-6 w-full gap-2 md:gap-4">
+      <span className="md:hidden font-headline-sm text-[18px] font-bold text-[var(--primary)] tracking-tight">
+        PrintStash
+      </span>
+
       <Suspense fallback={<span className="flex-1" />}>
         <TopBarSearch />
       </Suspense>
 
-      {/* Right actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 md:gap-3">
         <ThemeToggle />
-        <button className="text-[var(--on-surface-variant)] hover:text-[var(--primary)] transition-colors rounded p-1">
+        <button className="text-[var(--on-surface-variant)] hover:text-[var(--primary)] transition-colors rounded p-1 hidden sm:block">
           <Bell className="h-5 w-5" />
         </button>
-        <button className="text-[var(--on-surface-variant)] hover:text-[var(--primary)] transition-colors rounded p-1">
+        <button className="text-[var(--on-surface-variant)] hover:text-[var(--primary)] transition-colors rounded p-1 hidden sm:block">
           <HelpCircle className="h-5 w-5" />
         </button>
       </div>

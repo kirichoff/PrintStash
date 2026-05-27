@@ -3,6 +3,7 @@ import { ApiError } from "@/lib/errors";
 import {
   CategoryCreate,
   CategoryRead,
+  Dashboard,
   IngestJobStatus,
   IngestResponse,
   ListModelsParams,
@@ -275,9 +276,17 @@ export async function deleteTag(id: number, apiKey?: string): Promise<void> {
 
 // -- Printers -------------------------------------------------------------
 
-export async function listPrinters(): Promise<PrinterRead[]> {
-  const res = await fetch(getUrl("/api/v1/printers"), { cache: "no-store" });
+export async function listPrinters(group?: string): Promise<PrinterRead[]> {
+  const params = group ? `?group=${encodeURIComponent(group)}` : "";
+  const res = await fetch(getUrl(`/api/v1/printers${params}`), { cache: "no-store" });
   return handleResponse<PrinterRead[]>(res);
+}
+
+export async function getDashboard(): Promise<Dashboard> {
+  const res = await fetch(getUrl("/api/v1/printers/dashboard"), {
+    cache: "no-store",
+  });
+  return handleResponse<Dashboard>(res);
 }
 
 export async function getPrinter(id: number): Promise<PrinterRead> {

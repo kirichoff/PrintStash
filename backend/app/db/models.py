@@ -218,6 +218,7 @@ class Printer(SQLModel, table=True):
     moonraker_url: str = Field(max_length=512)
     api_key: Optional[str] = Field(default=None, max_length=128)
     notes: Optional[str] = None
+    group: Optional[str] = Field(default=None, max_length=128, index=True)
 
     # Cached liveness info (refreshed by the live-state worker).
     status: PrinterStatus = Field(default=PrinterStatus.UNKNOWN, index=True)
@@ -302,7 +303,15 @@ class PrintJob(SQLModel, table=True):
     progress: float = Field(default=0.0)  # 0.0–1.0
     error: Optional[str] = Field(default=None, max_length=1024)
 
+    # Distinguishes vault-initiated jobs from those detected on the printer.
+    source: str = Field(default="vault", max_length=16)  # "vault" or "external"
+
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+# Sentinel hashes for external (non-vault) print jobs.
+SENTINEL_MODEL_HASH = "ext-model-sentinel-000000000000000000000000000000000000000000"
+SENTINEL_FILE_HASH = "ext-file-sentinel-0000000000000000000000000000000000000000000"
