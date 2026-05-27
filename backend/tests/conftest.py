@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.core.config import settings
+from app.core.config import _overlay, settings
+from app.db.session import SQLiteSessionFactory, override_session_factory
 from app.services.printer_hub import PrinterHub
 
 TEST_DATA_DIR = Path(__file__).parent / "fixtures"
@@ -22,6 +23,8 @@ _test_engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+_test_factory = SQLiteSessionFactory(_test_engine)
 
 
 def _init_test_db() -> None:
@@ -89,11 +92,15 @@ def _ensure_test_sentinels() -> None:
 
 @pytest.fixture(autouse=True)
 def _patch_engine(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Override the module-level engine in app.db.session with the test engine."""
-    monkeypatch.setattr("app.db.session.engine", _test_engine)
-    monkeypatch.setattr("app.services.printer_hub.engine", _test_engine)
-    monkeypatch.setattr(settings, "db_url", TEST_DB_URL)
-    monkeypatch.setattr(settings, "api_key", "testkey")
+    """Override the session factory ContextVar to use the in-memory test engine.
+
+    Single override point — replaces the previous double-monkeypatch of
+    ``app.db.session.engine`` and ``app.services.printer_hub.engine``.
+    See ADR-0001.
+    """
+    override_session_factory(_test_factory)
+    _overlay["db_url"] = TEST_DB_URL
+    _overlay["api_key"] = "testkey"
     _truncate_all()
 
 
@@ -109,13 +116,9 @@ def db_session() -> Iterator[Session]:
 
 
 @pytest.fixture
-def db_factory(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Override get_session_factory to use in-memory engine."""
-    def _test_factory():
-        return lambda: Session(_test_engine)
-    monkeypatch.setattr(
-        "app.db.session.get_session_factory", _test_factory, raising=False
-    )
+def db_factory() -> None:
+    """Override the session factory ContextVar (alias — set by _patch_engine autouse)."""
+    override_session_factory(_test_factory)
 
 
 @pytest.fixture

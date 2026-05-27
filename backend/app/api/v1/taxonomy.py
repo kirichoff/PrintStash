@@ -29,10 +29,13 @@ router = APIRouter(tags=["taxonomy"])
 
 
 def _category_model_count(session: Session, path: str) -> int:
+    matching_cat_ids = select(Category.id).where(
+        (Category.path == path) | (Category.path.startswith(path + "/"))
+    )
     count = session.exec(
         select(func.count(Model.id)).where(
             Model.deleted_at.is_(None),
-            (Model.category == path) | (Model.category.startswith(path + "/")),
+            Model.category_id.in_(matching_cat_ids),
         )
     ).one()
     return int(count or 0)

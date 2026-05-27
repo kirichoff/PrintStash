@@ -1,4 +1,9 @@
-"""Filesystem layout helpers for the vault."""
+"""Filesystem layout helpers for the vault.
+
+Pure helpers only — no delegation to the StorageBackend. Callers that need
+read/write/move/delete use ``get_backend()`` directly from
+``app.services.storage_backend``.
+"""
 
 from __future__ import annotations
 
@@ -29,16 +34,8 @@ def ensure_unique_slug(base: str, exists: callable) -> str:
     return candidate
 
 
-# ---------------------------------------------------------------------------
-# Thin delegation to the active StorageBackend
-# ---------------------------------------------------------------------------
-
-
 def stream_to_path(src: BinaryIO, dest: Path) -> int:
-    """Stream a binary source to a local path, returning bytes written.
-
-    This always writes to the local filesystem (used for upload staging).
-    """
+    """Stream a binary source to a local path, returning bytes written."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     bytes_written = 0
     with dest.open("wb") as out:
@@ -57,7 +54,7 @@ def canonical_blob_path(slug: str, version: int, filename: str) -> str:
 
 
 def thumbnail_path_for(file_id: int) -> str:
-    """Return the storage key for a thumbnail (may be a path or S3 key)."""
+    """Return the storage key for a thumbnail."""
     return get_backend().thumbnail_key(file_id)
 
 
@@ -72,47 +69,3 @@ def move_file(src: Path, dest_key: str) -> None:
             src.unlink(missing_ok=True)
         except OSError:
             pass
-
-
-def file_exists(key: str) -> bool:
-    return get_backend().exists(key)
-
-
-def write_bytes(key: str, data: bytes) -> int:
-    return get_backend().write_bytes(data, key)
-
-
-def stat_size(key: str) -> int:
-    return get_backend().stat_size(key)
-
-
-def read_bytes(key: str) -> bytes:
-    return get_backend().read_bytes(key)
-
-
-def stream_chunks(key: str, chunk_size: int = 1024 * 1024):
-    return get_backend().stream_chunks(key, chunk_size)
-
-
-def download_to_path(key: str, dest: Path) -> Path:
-    return get_backend().download_to_path(key, dest)
-
-
-def delete_key(key: str) -> None:
-    get_backend().delete(key)
-
-
-def list_keys(prefix: str = "") -> list[str]:
-    return get_backend().list_keys(prefix)
-
-
-def walk_keys(prefix: str = ""):
-    return get_backend().walk_keys(prefix)
-
-
-def as_local_path(key: str) -> Path | None:
-    """If the backend is local, return the key as a Path; else None."""
-    backend = get_backend()
-    if isinstance(backend, LocalStorageBackend):
-        return Path(key)
-    return None

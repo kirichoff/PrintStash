@@ -1,10 +1,9 @@
 """Runtime overlay for all configurable settings.
 
-The Pydantic ``Settings`` object is built once at import time from environment
-variables. The first-run setup wizard and the Settings UI may persist overrides
-into the ``system_config`` table; on startup we *overlay* those DB values back
-onto the ``settings`` singleton so the rest of the codebase can keep reading
-``settings.xxx`` exactly as before.
+Writes overrides to the shared ``_overlay`` dict (defined in ``app.core.config``)
+instead of mutating the ``settings`` singleton. The ``ConfigResolver`` reads
+``_overlay`` on every attribute access, so all 16+ call sites see the effective
+value without code changes. See ADR-0002.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from app.core.config import ensure_dirs, settings
+from app.core.config import _overlay, _overlay_lock, ensure_dirs, settings
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import SystemConfig, User
@@ -51,7 +50,7 @@ def is_configured(session: Session) -> bool:
 
 
 def apply_overlay(session: Session) -> None:
-    """Copy persisted overrides from ``system_config`` into ``settings``.
+    """Copy persisted overrides from ``system_config`` into the shared overlay dict.
 
     Safe to call on every startup. If the row doesn't exist yet, we no-op
     rather than create one (the wizard will create it on completion).
@@ -60,34 +59,29 @@ def apply_overlay(session: Session) -> None:
     if config is None:
         return
 
+    _overlay.clear()
+
+    def _set(key: str, value) -> None:
+        if value is not None and value != "":
+            _overlay[key] = value
+
     if config.data_dir:
-        settings.data_dir = Path(config.data_dir)
+        _overlay["data_dir"] = Path(config.data_dir)
     if config.thumb_dir:
-        settings.thumb_dir = Path(config.thumb_dir)
-    if config.storage_backend:
-        settings.storage_backend = config.storage_backend
-    if config.s3_bucket:
-        settings.s3_bucket = config.s3_bucket
-    if config.s3_endpoint_url:
-        settings.s3_endpoint_url = config.s3_endpoint_url
-    if config.s3_region:
-        settings.s3_region = config.s3_region
-    if config.s3_access_key:
-        settings.s3_access_key = config.s3_access_key
-    if config.s3_secret_key:
-        settings.s3_secret_key = config.s3_secret_key
+        _overlay["thumb_dir"] = Path(config.thumb_dir)
+    _set("storage_backend", config.storage_backend)
+    _set("s3_bucket", config.s3_bucket)
+    _set("s3_endpoint_url", config.s3_endpoint_url)
+    _set("s3_region", config.s3_region)
+    _set("s3_access_key", config.s3_access_key)
+    _set("s3_secret_key", config.s3_secret_key)
     if config.backup_retention_days is not None:
-        settings.backup_retention_days = config.backup_retention_days
-    if config.backup_s3_bucket:
-        settings.backup_s3_bucket = config.backup_s3_bucket
-    if config.backup_s3_endpoint_url:
-        settings.backup_s3_endpoint_url = config.backup_s3_endpoint_url
-    if config.backup_s3_region:
-        settings.backup_s3_region = config.backup_s3_region
-    if config.backup_s3_access_key:
-        settings.backup_s3_access_key = config.backup_s3_access_key
-    if config.backup_s3_secret_key:
-        settings.backup_s3_secret_key = config.backup_s3_secret_key
+        _overlay["backup_retention_days"] = config.backup_retention_days
+    _set("backup_s3_bucket", config.backup_s3_bucket)
+    _set("backup_s3_endpoint_url", config.backup_s3_endpoint_url)
+    _set("backup_s3_region", config.backup_s3_region)
+    _set("backup_s3_access_key", config.backup_s3_access_key)
+    _set("backup_s3_secret_key", config.backup_s3_secret_key)
 
 
 def update_storage(
@@ -96,14 +90,14 @@ def update_storage(
     data_dir: Optional[str] = None,
     thumb_dir: Optional[str] = None,
 ) -> SystemConfig:
-    """Persist storage overrides, mutate the live ``settings``, and mkdir."""
+    """Persist storage overrides into DB + overlay dict, then mkdir."""
     config = get_or_create(session)
     if data_dir is not None:
         config.data_dir = data_dir
-        settings.data_dir = Path(data_dir)
+        _overlay["data_dir"] = Path(data_dir)
     if thumb_dir is not None:
         config.thumb_dir = thumb_dir
-        settings.thumb_dir = Path(thumb_dir)
+        _overlay["thumb_dir"] = Path(thumb_dir)
     config.updated_at = utcnow()
     session.add(config)
     session.commit()
@@ -151,7 +145,7 @@ def update_config(
     backup_s3_access_key: Optional[str] = None,
     backup_s3_secret_key: Optional[str] = None,
 ) -> SystemConfig:
-    """Persist config overrides and mutate ``settings`` in-place.
+    """Persist config overrides into DB + overlay dict.
 
     Pass ``None`` for a field to leave it unchanged. Pass an empty string to
     clear the override (fall back to env/default). Pass a value to set.
@@ -166,7 +160,7 @@ def update_config(
         effective: object = db_val if db_val is not None else _env_or_default(field_name)
         if field_name in ("data_dir", "thumb_dir") and effective:
             effective = Path(str(effective))
-        setattr(settings, field_name, effective)
+        _overlay[field_name] = effective
 
     def _apply_int(field_name: str, value: Optional[int]) -> None:
         if value is None:
@@ -174,13 +168,13 @@ def update_config(
         db_val = value if value != -1 else None
         setattr(config, field_name, db_val)
         if db_val is not None:
-            setattr(settings, field_name, db_val)
+            _overlay[field_name] = db_val
         else:
             fallback = _env_or_default(field_name)
             try:
-                setattr(settings, field_name, int(fallback or 0))
+                _overlay[field_name] = int(fallback or 0)
             except (ValueError, TypeError):
-                setattr(settings, field_name, 30)
+                _overlay[field_name] = 30
 
     _apply_str("storage_backend", storage_backend)
     _apply_str("data_dir", data_dir)
@@ -218,51 +212,31 @@ def mark_configured(session: Session) -> SystemConfig:
 
 
 def get_effective_config(session: Session) -> dict:
-    """Return the current effective config (env + DB overlay merged)."""
-    config = session.get(SystemConfig, 1)
+    """Return the current effective config (env + DB overlay merged).
 
+    ``settings`` is now a ConfigResolver — attribute reads already resolve
+    overlay-preferred values. No manual merge needed.
+    """
     return {
-        "storage_backend": config.storage_backend if config and config.storage_backend else settings.storage_backend,
+        "storage_backend": str(settings.storage_backend),
         "data_dir": str(settings.data_dir),
         "thumb_dir": str(settings.thumb_dir),
-        "s3_bucket": config.s3_bucket if config and config.s3_bucket else settings.s3_bucket,
-        "s3_endpoint_url": config.s3_endpoint_url if config and config.s3_endpoint_url else settings.s3_endpoint_url,
-        "s3_region": config.s3_region if config and config.s3_region else settings.s3_region,
-        "s3_access_key": _mask_secret(
-            config.s3_access_key if config and config.s3_access_key else settings.s3_access_key
-        ),
-        "s3_secret_key": _mask_secret(
-            config.s3_secret_key if config and config.s3_secret_key else settings.s3_secret_key
-        ),
-        "has_s3_access_key": bool(
-            (config and config.s3_access_key) or settings.s3_access_key
-        ),
-        "has_s3_secret_key": bool(
-            (config and config.s3_secret_key) or settings.s3_secret_key
-        ),
-        "backup_retention_days": (
-            config.backup_retention_days
-            if config and config.backup_retention_days is not None
-            else settings.backup_retention_days
-        ),
-        "backup_s3_bucket": config.backup_s3_bucket if config and config.backup_s3_bucket else settings.backup_s3_bucket,
-        "backup_s3_endpoint_url": config.backup_s3_endpoint_url if config and config.backup_s3_endpoint_url else settings.backup_s3_endpoint_url,
-        "backup_s3_region": config.backup_s3_region if config and config.backup_s3_region else settings.backup_s3_region,
-        "backup_s3_access_key": _mask_secret(
-            config.backup_s3_access_key if config and config.backup_s3_access_key else settings.backup_s3_access_key
-        ),
-        "backup_s3_secret_key": _mask_secret(
-            config.backup_s3_secret_key if config and config.backup_s3_secret_key else settings.backup_s3_secret_key
-        ),
-        "has_backup_s3_access_key": bool(
-            (config and config.backup_s3_access_key) or settings.backup_s3_access_key
-        ),
-        "has_backup_s3_secret_key": bool(
-            (config and config.backup_s3_secret_key) or settings.backup_s3_secret_key
-        ),
-        "has_backup_s3": bool(
-            (config and config.backup_s3_bucket) or settings.backup_s3_bucket
-        ),
+        "s3_bucket": str(settings.s3_bucket),
+        "s3_endpoint_url": str(settings.s3_endpoint_url),
+        "s3_region": str(settings.s3_region),
+        "s3_access_key": _mask_secret(str(settings.s3_access_key)),
+        "s3_secret_key": _mask_secret(str(settings.s3_secret_key)),
+        "has_s3_access_key": bool(settings.s3_access_key),
+        "has_s3_secret_key": bool(settings.s3_secret_key),
+        "backup_retention_days": int(settings.backup_retention_days),
+        "backup_s3_bucket": str(settings.backup_s3_bucket),
+        "backup_s3_endpoint_url": str(settings.backup_s3_endpoint_url),
+        "backup_s3_region": str(settings.backup_s3_region),
+        "backup_s3_access_key": _mask_secret(str(settings.backup_s3_access_key)),
+        "backup_s3_secret_key": _mask_secret(str(settings.backup_s3_secret_key)),
+        "has_backup_s3_access_key": bool(settings.backup_s3_access_key),
+        "has_backup_s3_secret_key": bool(settings.backup_s3_secret_key),
+        "has_backup_s3": bool(settings.backup_s3_bucket),
     }
 
 

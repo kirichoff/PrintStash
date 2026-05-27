@@ -175,15 +175,10 @@ class Model(SQLModel, table=True):
     slug: str = Field(index=True, unique=True, max_length=255)
     hash: str = Field(index=True, unique=True, max_length=64)
 
-    # Legacy free-form category string — retained for backwards compat & the
-    # OrcaSlicer push --category flag. New code should use category_id.
-    category: Optional[str] = Field(default=None, index=True, max_length=128)
     category_id: Optional[int] = Field(
         default=None, foreign_key="categories.id", index=True
     )
-
     description: Optional[str] = None
-    tags_csv: Optional[str] = Field(default=None, max_length=512)  # legacy
     thumbnail_path: Optional[str] = Field(default=None, max_length=512)
     thumbnail_file_id: Optional[int] = Field(default=None, foreign_key="files.id")
 
@@ -201,6 +196,12 @@ class Model(SQLModel, table=True):
     tags: List[Tag] = Relationship(
         link_model=ModelTagLink,
         sa_relationship_kwargs={"lazy": "selectin"},
+    )
+    category_rel: Optional["Category"] = Relationship(
+        sa_relationship_kwargs={
+            "primaryjoin": "Model.category_id == Category.id",
+            "lazy": "selectin",
+        },
     )
 
 

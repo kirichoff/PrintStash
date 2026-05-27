@@ -19,7 +19,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
-from app.core.config import settings
+from app.core.config import FrozenSettings, settings
 from app.core.logging import get_logger
 from app.db.models import User
 from app.db.session import get_session
@@ -35,8 +35,8 @@ router = APIRouter(prefix="/setup", tags=["setup"])
 # Pydantic Settings exposes its defaults via ``model_fields``. We pull the
 # *original* env-time defaults so the wizard can show the user what they'd
 # get if they left the field blank, even after a later edit mutates them.
-_DEFAULT_DATA_DIR = str(type(settings).model_fields["data_dir"].default)
-_DEFAULT_THUMB_DIR = str(type(settings).model_fields["thumb_dir"].default)
+_DEFAULT_DATA_DIR = str(FrozenSettings.model_fields["data_dir"].default)
+_DEFAULT_THUMB_DIR = str(FrozenSettings.model_fields["thumb_dir"].default)
 
 
 def _validate_writable_dir(path_str: str, label: str) -> Path:

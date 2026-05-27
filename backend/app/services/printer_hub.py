@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import PrintJob, PrintJobState, Printer, PrinterStatus
-from app.db.session import engine
+from app.db.session import get_session_factory
 from app.services.moonraker import MoonrakerClient
 
 logger = get_logger(__name__)
@@ -119,7 +119,7 @@ class PrinterHub:
         await self.add_printer(printer_id)
 
     async def start_all(self) -> None:
-        with Session(engine) as session:
+        with get_session_factory().session() as session:
             ids = [p.id for p in session.exec(select(Printer)).all() if p.id]
         for pid in ids:
             await self.add_printer(pid)
@@ -135,7 +135,7 @@ class PrinterHub:
     async def _run_printer(self, printer_id: int, stop: asyncio.Event) -> None:
         # Load the printer row (re-load on each reconnect to pick up edits).
         while not stop.is_set():
-            with Session(engine) as session:
+            with get_session_factory().session() as session:
                 printer = session.get(Printer, printer_id)
                 if printer is None:
                     logger.info("printer worker[%s] gone; exiting", printer_id)
@@ -191,7 +191,7 @@ class PrinterHub:
         self, printer_id: int, status: PrinterStatus, *, error: str | None
     ) -> None:
         try:
-            with Session(engine) as session:
+            with get_session_factory().session() as session:
                 p = session.get(Printer, printer_id)
                 if p is None:
                     return
@@ -221,7 +221,7 @@ class PrinterHub:
         if not filename:
             return
         try:
-            with Session(engine) as session:
+            with get_session_factory().session() as session:
                 job = session.exec(
                     select(PrintJob)
                     .where(

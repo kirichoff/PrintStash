@@ -23,7 +23,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import File as FileModel
-from app.db.session import engine
+from app.db.session import get_engine, get_session_factory
 from app.services import storage
 from app.services.storage_backend import LocalStorageBackend, get_backend
 
@@ -113,10 +113,10 @@ def _backup_sqlite_copy() -> bytes:
 def _find_blob_keys() -> list[str]:
     from sqlmodel import Session, select
 
-    with Session(engine) as session:
+    with get_session_factory().session() as session:
         rows = session.exec(select(FileModel.path)).all()
     keys = list(dict.fromkeys(rows))
-    valid = [k for k in keys if storage.file_exists(k)]
+    valid = [k for k in keys if get_backend().exists(k)]
     return valid
 
 
@@ -125,7 +125,7 @@ def _add_file_to_tar(tar: tarfile.TarFile, key: str, arcname: str) -> int:
     if isinstance(backend, LocalStorageBackend):
         tar.add(key, arcname=arcname)
         return Path(key).stat().st_size
-    data = storage.read_bytes(key)
+    data = get_backend().read_bytes(key)
     info = tarfile.TarInfo(name=arcname)
     info.size = len(data)
     tar.addfile(info, io.BytesIO(data))
@@ -431,7 +431,7 @@ def restore_backup(backup_id: str) -> dict:
                     _restore_database(data)
                 elif member.name.startswith("files/") and member.name != "files/":
                     key = member.name[len("files/"):]
-                    storage.write_bytes(key, data)
+                    get_backend().write_bytes(data, key)
                     restored_files += 1
 
     logger.info("backup %s restored: %d files", backup_id, restored_files)
@@ -447,8 +447,9 @@ def _restore_database(db_data: bytes) -> None:
     if db_path is None:
         raise RuntimeError("cannot restore to non-file database")
     db_path.write_bytes(db_data)
-    if hasattr(engine, "dispose"):
-        engine.dispose()
+    _eng = get_engine()
+    if hasattr(_eng, "dispose"):
+        _eng.dispose()
 
 
 # ---------------------------------------------------------------------------

@@ -4,16 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
-from sqlmodel import Session, select
+from sqlmodel import select
 
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import File, FileType, Metadata, Model, ModelTagLink
+from app.db.session import SessionFactory
 from app.services import gcode_parser, gcode_rust, storage, taxonomy, thumbnail
 from app.services.hashing import sha256_file
 from app.services.jobs import registry
+from app.services.storage_backend import get_backend
 
 logger = get_logger(__name__)
 
@@ -54,8 +56,6 @@ def _apply_taxonomy(
         if cat is not None:
             if overwrite_category or model.category_id is None:
                 model.category_id = cat.id
-            if overwrite_category or not model.category:
-                model.category = cat.path
             session.add(model)
             session.commit()
 
@@ -71,11 +71,6 @@ def _apply_taxonomy(
         for tag in new_tags:
             if tag.id not in existing_ids:
                 session.add(ModelTagLink(model_id=model.id, tag_id=tag.id))
-        # Mirror into legacy tags_csv for any older consumers.
-        all_tag_names = sorted(
-            {t.name for t in new_tags} | set(taxonomy.parse_tag_input(model.tags_csv))
-        )
-        model.tags_csv = ",".join(all_tag_names) if all_tag_names else None
         session.add(model)
         session.commit()
 
@@ -90,7 +85,7 @@ def run_ingestion_pipeline(
     tags: Optional[str],
     source_hash: Optional[str],
     strategy: IngestionStrategy,
-    session_factory: Callable[[], Session] | None = None,
+    session_factory: SessionFactory | None = None,
 ) -> None:
     """Full ingestion pipeline.
 
@@ -104,12 +99,9 @@ def run_ingestion_pipeline(
     registry.update(job_id, state="running")
 
     if session_factory is None:
-        from app.db.session import engine
+        from app.db.session import get_session_factory
 
-        def _default_factory() -> Session:
-            return Session(engine)
-
-        session_factory = _default_factory
+        session_factory = get_session_factory()
 
     try:
         blob_hash = sha256_file(staged_path)
@@ -125,7 +117,7 @@ def run_ingestion_pipeline(
 
         dedup_hash = (source_hash or blob_hash).lower()
 
-        with session_factory() as session:
+        with session_factory.scoped_session() as session:
             existing = session.exec(
                 select(Model).where(Model.hash == dedup_hash)
             ).first()
@@ -158,7 +150,7 @@ def run_ingestion_pipeline(
             dest_key = storage.canonical_blob_path(model.slug, version, original_filename)
 
             storage.move_file(staged_path, dest_key)
-            size_bytes = storage.stat_size(dest_key)
+            size_bytes = get_backend().stat_size(dest_key)
 
             file_row = File(
                 model_id=model.id,
@@ -176,7 +168,7 @@ def run_ingestion_pipeline(
 
             if thumb_bytes:
                 thumb_key = storage.thumbnail_path_for(file_row.id)
-                storage.write_bytes(thumb_key, thumb_bytes)
+                get_backend().write_bytes(thumb_bytes, thumb_key)
                 if strategy.overwrite_thumbnail or not model.thumbnail_path:
                     model.thumbnail_path = thumb_key
                     model.thumbnail_file_id = file_row.id
@@ -262,7 +254,7 @@ def ingest_orca_gcode(
     category: Optional[str],
     tags: Optional[str],
     source_hash: Optional[str],
-    session_factory: Callable[[], Session] | None = None,
+    session_factory: SessionFactory | None = None,
 ) -> None:
     """Public entry point for G-code ingestion (called from the OrcaSlicer router)."""
     run_ingestion_pipeline(
@@ -288,7 +280,7 @@ def ingest_mesh(
     tags: Optional[str],
     file_type: FileType,
     source_hash: Optional[str],
-    session_factory: Callable[[], Session] | None = None,
+    session_factory: SessionFactory | None = None,
 ) -> None:
     """Public entry point for mesh ingestion (called from the model upload router)."""
     run_ingestion_pipeline(

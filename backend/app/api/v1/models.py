@@ -12,7 +12,7 @@ from sqlmodel import Session, delete, select
 
 from app.core.security import require_auth
 from app.core.time import utcnow
-from app.db.models import File, Metadata, Model, ModelTagLink, Tag
+from app.db.models import Category, File, Metadata, Model, ModelTagLink, Tag
 from app.db.session import get_session
 from app.schemas.models import (
     FileRead,
@@ -34,6 +34,11 @@ def _tag_names_for(session: Session, model_id: int) -> List[str]:
         .order_by(Tag.name)
     )
     return list(session.exec(stmt).all())
+
+
+def _category_name_for(model: Model) -> Optional[str]:
+    """Resolve the category name from the FK-joined relationship."""
+    return model.category_rel.path if model.category_rel else None
 
 
 def _thumb_url(model: Model) -> Optional[str]:
@@ -85,11 +90,12 @@ def list_models(
 
     if category:
         cat_path = category.strip().strip("/").lower()
-        # Match the category path or any descendant ("foo/bar" matches "foo/bar/baz").
-        stmt = stmt.where(
-            (Model.category == cat_path)
-            | (Model.category.startswith(cat_path + "/"))  # type: ignore[attr-defined]
+        # Match the category path or any descendant via FK join on Categories.
+        matching_cat_ids = select(Category.id).where(
+            (Category.path == cat_path)
+            | (Category.path.startswith(cat_path + "/"))
         )
+        stmt = stmt.where(Model.category_id.in_(matching_cat_ids))  # type: ignore[union-attr]
 
     if q:
         stmt = stmt.where(Model.name.contains(q))  # type: ignore[attr-defined]
@@ -118,7 +124,7 @@ def list_models(
                 id=m.id,  # type: ignore[arg-type]
                 name=m.name,
                 slug=m.slug,
-                category=m.category,
+                category=_category_name_for(m),
                 category_id=m.category_id,
                 tags=_tag_names_for(session, m.id),  # type: ignore[arg-type]
                 thumbnail_url=_thumb_url(m),
@@ -157,7 +163,7 @@ def _build_model_read(session: Session, model_id: int) -> ModelRead:
         name=m.name,
         slug=m.slug,
         hash=m.hash,
-        category=m.category,
+        category=_category_name_for(m),
         category_id=m.category_id,
         description=m.description,
         tags=_tag_names_for(session, m.id),  # type: ignore[arg-type]
@@ -197,24 +203,18 @@ def update_model(
 
     if payload.category is not None:
         if payload.category.strip() == "":
-            m.category = None
             m.category_id = None
         else:
             cat = taxonomy.resolve_or_create_category(session, payload.category)
             if cat is not None:
-                m.category = cat.path
                 m.category_id = cat.id
 
     if payload.tags is not None:
-        # Replace the tag set atomically in a single transaction.
         session.exec(delete(ModelTagLink).where(ModelTagLink.model_id == model_id))  # type: ignore[call-overload]
         if payload.tags:
             new_tags = taxonomy.resolve_or_create_tags(session, payload.tags)
             for t in new_tags:
                 session.add(ModelTagLink(model_id=model_id, tag_id=t.id))
-            m.tags_csv = ",".join(sorted({t.name for t in new_tags}))
-        else:
-            m.tags_csv = None
 
     m.updated_at = utcnow()
     session.add(m)

@@ -16,6 +16,7 @@ from app.core.security import require_auth
 from app.db.models import File, FileType, Model
 from app.db.session import get_session
 from app.services import storage
+from app.services.storage_backend import get_backend
 from app.services.storage_backend import LocalStorageBackend, get_backend
 
 logger = get_logger(__name__)
@@ -66,7 +67,7 @@ def _resolve_mesh_path(key: str) -> Path:
 )
 def download_file(file_id: int, session: Session = Depends(get_session)):
     f = get_or_404(session, File, file_id, "file_not_found")
-    if not storage.file_exists(f.path):
+    if not get_backend().exists(f.path):
         raise HTTPException(status_code=410, detail="file_blob_missing")
     return _serve_file(f.path, f.original_filename)
 
@@ -192,7 +193,7 @@ def rebuild_missing_thumbnails(
 
         assert mesh_file.id is not None
         thumb_key = storage.thumbnail_path_for(mesh_file.id)
-        storage.write_bytes(thumb_key, thumb_bytes)
+        get_backend().write_bytes(thumb_bytes, thumb_key)
         m.thumbnail_path = thumb_key
         m.thumbnail_file_id = mesh_file.id
         session.add(m)

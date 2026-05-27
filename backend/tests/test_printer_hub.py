@@ -227,8 +227,8 @@ class TestPrinterHubSyncActiveJob:
 
         asyncio.run(_sync())
         # Verify the external job was created
-        from app.db.session import engine
-        with Session(engine) as session:
+        from app.db.session import get_session_factory
+        with get_session_factory().session() as session:
             job = session.exec(
                 select(PrintJob).where(
                     PrintJob.printer_id == 1,
@@ -248,8 +248,8 @@ class TestPrinterHubSyncActiveJob:
             await hub._sync_active_job(1, "standby", "standby.gcode", 0.0, {"state": "standby"})
 
         asyncio.run(_sync())
-        from app.db.session import engine
-        with Session(engine) as session:
+        from app.db.session import get_session_factory
+        with get_session_factory().session() as session:
             job = session.exec(
                 select(PrintJob).where(PrintJob.remote_filename == "standby.gcode")
             ).first()

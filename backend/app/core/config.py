@@ -1,14 +1,34 @@
-"""Process-wide configuration, sourced from ``VAULT_*`` environment variables."""
+"""Process-wide configuration, sourced from ``VAULT_*`` environment variables.
+
+Frozen env-only settings are wrapped by ``ConfigResolver`` which layers
+runtime overrides (DB-backed) on top. See ADR-0002.
+"""
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine.url import make_url
 
+# ---------------------------------------------------------------------------
+# Shared overlay dict — written by runtime_config, read by ConfigResolver.
+# Protected by _overlay_lock for writes; reads are GIL-safe dict lookups.
+# ---------------------------------------------------------------------------
+
+_overlay: dict[str, Any] = {}
+_overlay_lock = asyncio.Lock()
+
 
 class Settings(BaseSettings):
+    """Frozen env-only settings. Never mutated after import.
+
+    Runtime overrides live in the ``_overlay`` dict; the ``ConfigResolver``
+    exposes the effective value (overlay wins, frozen falls back).
+    """
+
     model_config = SettingsConfigDict(
         env_prefix="VAULT_",
         env_file=".env",
@@ -16,52 +36,36 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Storage backend selection: "local" (default) or "s3" (S3-compatible).
     storage_backend: str = "local"
-
-    # Local storage paths (used when backend=local).
     data_dir: Path = Path("/data/files")
     thumb_dir: Path = Path("/data/thumbs")
-
-    # Staging directory for in-flight uploads (always local).
     staging_dir: Path = Path("/data/staging")
 
-    # S3 / R2 config (used when backend=s3).
     s3_bucket: str = ""
     s3_endpoint_url: str = ""
     s3_region: str = "auto"
     s3_access_key: str = ""
     s3_secret_key: str = ""
 
-    # Database
     db_url: str = "sqlite:////data/db/nexus3d.sqlite"
 
-    # Auth — Stage 1 uses a shared API key on writes; Stage 3+ adds JWT login.
-    # The very first user is created by the web-based setup wizard
-    # (POST /api/v1/setup) — there is no env-driven default admin.
     api_key: str = "changeme"
     jwt_secret: str = "changeme_jwt_secret_please_change"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
-    # Limits
     max_upload_mb: int = 512
-
-    # Observability
     log_level: str = "INFO"
 
-    # Backup
     backup_dir: Path = Path("/data/backups")
     backup_retention_days: int = 30
 
-    # Backup S3 destination (optional — if set, backups are also uploaded to S3).
     backup_s3_bucket: str = ""
     backup_s3_endpoint_url: str = ""
     backup_s3_region: str = "auto"
     backup_s3_access_key: str = ""
     backup_s3_secret_key: str = ""
 
-    # App
     app_name: str = "PrintStash"
     app_version: str = "0.1.0"
 
@@ -74,7 +78,50 @@ class Settings(BaseSettings):
         return self.max_upload_mb * 1024 * 1024
 
 
-settings = Settings()
+class ConfigResolver:
+    """Single read-path for effective configuration: overlay wins, frozen falls back.
+
+    Wraps the frozen ``Settings`` and the shared ``_overlay`` dict so callers
+    keep writing ``settings.data_dir`` — no migration churn at 16+ call sites.
+    """
+
+    __slots__ = ("_frozen",)
+
+    def __init__(self, frozen: Settings) -> None:
+        object.__setattr__(self, "_frozen", frozen)
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        overlay_val = _overlay.get(name)
+        if overlay_val is not None:
+            return overlay_val
+        return getattr(self._frozen, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise TypeError("ConfigResolver is read-only — use overlay dict for mutations")
+
+    @property
+    def incoming_dir(self) -> Path:
+        staging = _overlay.get("staging_dir", self._frozen.staging_dir)
+        return staging / "_incoming"
+
+    @property
+    def max_upload_bytes(self) -> int:
+        max_mb = _overlay.get("max_upload_mb", self._frozen.max_upload_mb)
+        return max_mb * 1024 * 1024
+
+
+# Public: same name, new type — transparent to all existing call sites.
+settings = ConfigResolver(Settings())
+
+# Expose frozen Settings class for introspection (defaults, model_fields).
+FrozenSettings = Settings
+
+
+def get_config() -> ConfigResolver:
+    """Explicit accessor for the effective config resolver (alias for ``settings``)."""
+    return settings
 
 
 def _sqlite_db_path(db_url: str) -> Path | None:
@@ -88,13 +135,7 @@ def _sqlite_db_path(db_url: str) -> Path | None:
 
 
 def ensure_dirs() -> None:
-    """Create required storage directories at startup. Idempotent.
-
-    For the local backend, creates data_dir, thumb_dir, incoming_dir,
-    staging_dir, and backup_dir. For the S3 backend, only creates the
-    local directories (staging, incoming, backup) since object storage
-    is managed by the S3 backend.
-    """
+    """Create required storage directories at startup. Idempotent."""
     settings.staging_dir.mkdir(parents=True, exist_ok=True)
     settings.incoming_dir.mkdir(parents=True, exist_ok=True)
     settings.backup_dir.mkdir(parents=True, exist_ok=True)

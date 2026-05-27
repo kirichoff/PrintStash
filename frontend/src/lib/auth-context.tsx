@@ -8,14 +8,14 @@ import {
   useState,
 } from "react";
 import {
-  getStoredToken,
-  getStoredUser,
+  getToken,
+  getUser,
   isLoggedIn,
   storeLogin,
   clearLogin,
   onAuthChange,
   type StoredUser,
-} from "@/lib/auth";
+} from "@/lib/auth-store";
 import { login as apiLogin, getMe } from "@/lib/api";
 
 interface AuthState {
@@ -51,25 +51,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: u.email,
           is_superuser: u.is_superuser,
         };
+        storeLogin(getToken()!, stored);
         setUser(stored);
-        window.localStorage.setItem(
-          "nexus3d.user",
-          JSON.stringify(stored),
-        );
       })
       .catch(() => {
         clearLogin();
       })
       .finally(() => setLoading(false));
     const off = onAuthChange(() => {
-      setUser(getStoredUser());
+      setUser(getUser());
     });
     return off;
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     const token = await apiLogin({ username, password });
-    window.localStorage.setItem("nexus3d.token", token.access_token);
+    storeLogin(token.access_token, { id: 0, username, email: null, is_superuser: false });
     try {
       const me = await getMe();
       const stored: StoredUser = {
@@ -81,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       storeLogin(token.access_token, stored);
       setUser(stored);
     } catch (e) {
-      window.localStorage.removeItem("nexus3d.token");
+      clearLogin();
       throw e;
     }
   }, []);
@@ -101,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: me.email,
         is_superuser: me.is_superuser,
       };
-      storeLogin(getStoredToken()!, stored);
+      storeLogin(getToken()!, stored);
       setUser(stored);
     } catch {
       clearLogin();

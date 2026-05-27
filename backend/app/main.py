@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     logger.info("starting %s v%s", settings.app_name, settings.app_version)
     # DB must exist before we can read the runtime overlay.
     init_db()
-    with get_session_factory()() as session:
+    with get_session_factory().scoped_session() as session:
         apply_overlay(session)
         configured = is_configured(session)
     # Initialise storage backend (creates dirs or validates S3 bucket).
