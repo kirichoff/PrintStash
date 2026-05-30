@@ -109,6 +109,7 @@ def _patch_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     See ADR-0001.
     """
     override_session_factory(_test_factory)
+    _overlay.clear()
     _overlay["db_url"] = TEST_DB_URL
     _overlay["api_key"] = "testkey"
     _truncate_all()

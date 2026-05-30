@@ -197,6 +197,7 @@ def update_config(
     session.add(config)
     session.commit()
     session.refresh(config)
+    ensure_dirs()
 
     logger.info("runtime config updated")
     return config

@@ -334,13 +334,39 @@ def get_hub_from_ws(websocket: WebSocket) -> PrinterHub:
 
 
 def _get_sentinel_ids(session: Session) -> tuple[int, int]:
-    """Return (file_id, model_id) of the sentinel rows for external print jobs."""
-    from app.db.models import File, Model, SENTINEL_MODEL_HASH, SENTINEL_FILE_HASH
+    """Return (file_id, model_id) of lazily-created external job sentinel rows."""
+    from app.db.models import (
+        File,
+        FileType,
+        Model,
+        SENTINEL_FILE_HASH,
+        SENTINEL_MODEL_HASH,
+    )
 
     model = session.exec(select(Model).where(Model.hash == SENTINEL_MODEL_HASH)).first()
-    model_id = model.id if model else 1
+    if model is None:
+        model = Model(
+            name="__external__",
+            slug="__external__",
+            hash=SENTINEL_MODEL_HASH,
+        )
+        session.add(model)
+        session.commit()
+        session.refresh(model)
 
     f = session.exec(select(File).where(File.sha256 == SENTINEL_FILE_HASH)).first()
-    file_id = f.id if f else 1
+    if f is None:
+        f = File(
+            model_id=model.id,
+            path="/dev/null",
+            original_filename="__external__",
+            file_type=FileType.GCODE,
+            version=1,
+            size_bytes=0,
+            sha256=SENTINEL_FILE_HASH,
+        )
+        session.add(f)
+        session.commit()
+        session.refresh(f)
 
-    return file_id, model_id
+    return int(f.id), int(model.id)

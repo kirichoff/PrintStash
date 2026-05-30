@@ -27,6 +27,8 @@ Stage 4 is now active. See AGENTS.md roadmap and `docs/stage4.md` for the execut
 - **Storage pass-through collapsed** — routers call `get_backend()` directly; only pure layout helpers remain in `storage.py`.
 - **Frontend auth consolidated** — single `auth-store.ts` owns all localStorage; React context is a thin consumer.
 - **Frontend types split** — domain files under `types/`; `index.ts` is a barrel re-export.
+- **First-run setup expanded** — setup now captures local vs S3/R2 storage plus backup retention/off-site backup settings.
+- **External print sentinel rows are lazy** — `__external__` model/file rows are created only when the printer hub captures a non-vault print job.
 
 ---
 
@@ -115,8 +117,9 @@ reconnect (supports provider + credentials updates).
 `PrinterHub` receives a status update with a `print_stats.filename`, it looks up the
 most recent `PrintJob` row with that `remote_filename` + `printer_id` and syncs its state.
 
-Jobs started **outside** the vault (directly on Klipper) are not captured because no
-matching `PrintJob` row exists. This is a known gap (see `docs/stage3.md`).
+Jobs started **outside** the vault (directly on Klipper) create an external
+`PrintJob` row on first matching live-state update. The sentinel `__external__`
+model/file rows are created lazily at that moment, not during first startup.
 
 ---
 

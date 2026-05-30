@@ -134,7 +134,7 @@ def get_engine() -> Engine:
 
 
 def init_db() -> None:
-    """Bootstrap a fresh database and ensure sentinel rows exist.
+    """Bootstrap a fresh database.
 
     Schema upgrades now belong to Alembic. ``create_all()`` remains here only
     so a brand-new self-hosted SQLite install can come up without a separate
@@ -143,7 +143,6 @@ def init_db() -> None:
     from app.db import models  # noqa: F401
 
     SQLModel.metadata.create_all(_engine)
-    _ensure_sentinel_rows()
 
 
 def _ensure_sentinel_rows() -> None:

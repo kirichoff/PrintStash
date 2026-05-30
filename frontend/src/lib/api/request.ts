@@ -96,7 +96,10 @@ export function jsonHeaders(apiKey?: string): Record<string, string> {
 }
 
 export async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(getUrl(path), { cache: "no-store" });
+  const res = await fetch(getUrl(path), {
+    headers: authHeaders(),
+    cache: "no-store",
+  });
   return handleResponse<T>(res);
 }
 

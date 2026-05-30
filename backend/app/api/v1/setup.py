@@ -89,6 +89,14 @@ def get_status(session: Session = Depends(get_session)) -> SetupStatus:
         default_thumb_dir=_DEFAULT_THUMB_DIR,
         current_data_dir=str(settings.data_dir),
         current_thumb_dir=str(settings.thumb_dir),
+        current_storage_backend=str(settings.storage_backend),
+        current_s3_bucket=str(settings.s3_bucket),
+        current_s3_endpoint_url=str(settings.s3_endpoint_url),
+        current_s3_region=str(settings.s3_region),
+        current_backup_retention_days=int(settings.backup_retention_days),
+        current_backup_s3_bucket=str(settings.backup_s3_bucket),
+        current_backup_s3_endpoint_url=str(settings.backup_s3_endpoint_url),
+        current_backup_s3_region=str(settings.backup_s3_region),
         configured_at=config.configured_at,
     )
 
@@ -119,19 +127,44 @@ def complete_setup(
             detail="users_already_exist",
         )
 
-    # 1. Validate storage paths first — fail fast before mutating anything.
-    if body.data_dir:
+    storage_backend = body.storage_backend or str(settings.storage_backend)
+    if storage_backend not in ("local", "s3"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid_storage_backend",
+        )
+    if storage_backend == "s3" and not (
+        (body.s3_bucket or "").strip() or str(settings.s3_bucket)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="s3_bucket_required",
+        )
+
+    # 1. Validate local storage paths first — fail fast before mutating anything.
+    if storage_backend == "local" and body.data_dir:
         _validate_writable_dir(body.data_dir, "data_dir")
-    if body.thumb_dir:
+    if storage_backend == "local" and body.thumb_dir:
         _validate_writable_dir(body.thumb_dir, "thumb_dir")
 
-    # 2. Persist storage overrides (mutates ``settings`` in-place + mkdir).
-    if body.data_dir or body.thumb_dir:
-        runtime_config.update_storage(
-            session,
-            data_dir=body.data_dir,
-            thumb_dir=body.thumb_dir,
-        )
+    # 2. Persist storage and backup overrides into the runtime overlay.
+    runtime_config.update_config(
+        session,
+        storage_backend=storage_backend,
+        data_dir=body.data_dir,
+        thumb_dir=body.thumb_dir,
+        s3_bucket=body.s3_bucket,
+        s3_endpoint_url=body.s3_endpoint_url,
+        s3_region=body.s3_region,
+        s3_access_key=body.s3_access_key,
+        s3_secret_key=body.s3_secret_key,
+        backup_retention_days=body.backup_retention_days,
+        backup_s3_bucket=body.backup_s3_bucket,
+        backup_s3_endpoint_url=body.backup_s3_endpoint_url,
+        backup_s3_region=body.backup_s3_region,
+        backup_s3_access_key=body.backup_s3_access_key,
+        backup_s3_secret_key=body.backup_s3_secret_key,
+    )
 
     # 3. Create the superuser.
     user = User(
@@ -160,6 +193,7 @@ def complete_setup(
         configured=True,
         user_id=user.id,
         username=user.username,
+        storage_backend=str(settings.storage_backend),
         data_dir=str(settings.data_dir),
         thumb_dir=str(settings.thumb_dir),
         access_token=token,

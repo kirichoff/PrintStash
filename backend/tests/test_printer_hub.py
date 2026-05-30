@@ -259,6 +259,37 @@ class TestPrinterHubSyncActiveJob:
             assert job.source == "external"
             assert job.state == PrintJobState.PRINTING
 
+    def test_sentinel_rows_are_created_lazily(self, db_session):
+        from app.db.models import (
+            File,
+            Model,
+            SENTINEL_FILE_HASH,
+            SENTINEL_MODEL_HASH,
+        )
+        from app.services.printer_hub import _get_sentinel_ids
+        from sqlmodel import select
+
+        sentinel_file = db_session.exec(
+            select(File).where(File.sha256 == SENTINEL_FILE_HASH)
+        ).first()
+        if sentinel_file is not None:
+            db_session.delete(sentinel_file)
+            db_session.commit()
+
+        sentinel_model = db_session.exec(
+            select(Model).where(Model.hash == SENTINEL_MODEL_HASH)
+        ).first()
+        if sentinel_model is not None:
+            db_session.delete(sentinel_model)
+            db_session.commit()
+
+        file_id, model_id = _get_sentinel_ids(db_session)
+
+        assert file_id is not None
+        assert model_id is not None
+        assert db_session.get(File, file_id) is not None
+        assert db_session.get(Model, model_id) is not None
+
     def test_sync_no_matching_row_standby_ignored(self, hub):
         """Standby state with no matching row should NOT create a job."""
         from app.db.models import PrintJob

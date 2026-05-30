@@ -19,8 +19,11 @@ import {
   Box,
   ChevronLeft,
   ChevronRight,
+  Cloud,
   HardDrive,
+  Key,
   Loader2,
+  RefreshCw,
   ShieldCheck,
   UserPlus,
 } from "lucide-react";
@@ -45,6 +48,8 @@ const SETUP_ERROR_MESSAGES: Record<string, string> = {
     "The backend could not create the thumbnail directory. Check the path and container permissions.",
   thumb_dir_not_writable:
     "The backend cannot write to the thumbnail directory. Check filesystem permissions.",
+  invalid_storage_backend: "Choose either local disk or S3/R2 storage.",
+  s3_bucket_required: "S3/R2 storage needs a bucket name.",
 };
 
 function humanizeError(raw: string): string {
@@ -71,8 +76,20 @@ export default function SetupPage() {
   const [confirm, setConfirm] = useState("");
 
   // Step 2 — storage
+  const [storageBackend, setStorageBackend] = useState("local");
   const [dataDir, setDataDir] = useState("");
   const [thumbDir, setThumbDir] = useState("");
+  const [s3Bucket, setS3Bucket] = useState("");
+  const [s3Endpoint, setS3Endpoint] = useState("");
+  const [s3Region, setS3Region] = useState("auto");
+  const [s3AccessKey, setS3AccessKey] = useState("");
+  const [s3SecretKey, setS3SecretKey] = useState("");
+  const [backupDays, setBackupDays] = useState(30);
+  const [backupS3Bucket, setBackupS3Bucket] = useState("");
+  const [backupS3Endpoint, setBackupS3Endpoint] = useState("");
+  const [backupS3Region, setBackupS3Region] = useState("auto");
+  const [backupS3AccessKey, setBackupS3AccessKey] = useState("");
+  const [backupS3SecretKey, setBackupS3SecretKey] = useState("");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,8 +104,16 @@ export default function SetupPage() {
           return;
         }
         setStatus(s);
+        setStorageBackend(s.current_storage_backend || "local");
         setDataDir(s.current_data_dir);
         setThumbDir(s.current_thumb_dir);
+        setS3Bucket(s.current_s3_bucket);
+        setS3Endpoint(s.current_s3_endpoint_url);
+        setS3Region(s.current_s3_region || "auto");
+        setBackupDays(s.current_backup_retention_days ?? 30);
+        setBackupS3Bucket(s.current_backup_s3_bucket);
+        setBackupS3Endpoint(s.current_backup_s3_endpoint_url);
+        setBackupS3Region(s.current_backup_s3_region || "auto");
       })
       .catch((err) => {
         if (cancelled) return;
@@ -122,8 +147,26 @@ export default function SetupPage() {
     setStep(2);
   }
 
+  function validateStep2(): string | null {
+    if (storageBackend === "s3" && !s3Bucket.trim()) {
+      return "S3/R2 storage needs a bucket name.";
+    }
+    if (storageBackend === "local" && (!dataDir.trim() || !thumbDir.trim())) {
+      return "Local storage needs both data and thumbnail directories.";
+    }
+    if (!Number.isFinite(backupDays) || backupDays < 0) {
+      return "Backup retention must be 0 or more days.";
+    }
+    return null;
+  }
+
   async function handleSubmit() {
     setError(null);
+    const v = validateStep2();
+    if (v) {
+      setError(v);
+      return;
+    }
     setBusy(true);
     try {
       const trimmedData = dataDir.trim();
@@ -132,15 +175,31 @@ export default function SetupPage() {
         username: username.trim(),
         password,
         email: email.trim() || undefined,
-        // Only send overrides if the user actually changed the value.
+        storage_backend: storageBackend,
+        // Only send path overrides if the user actually changed the value.
         data_dir:
-          trimmedData && trimmedData !== status?.current_data_dir
+          storageBackend === "local" &&
+          trimmedData &&
+          trimmedData !== status?.current_data_dir
             ? trimmedData
             : undefined,
         thumb_dir:
-          trimmedThumb && trimmedThumb !== status?.current_thumb_dir
+          storageBackend === "local" &&
+          trimmedThumb &&
+          trimmedThumb !== status?.current_thumb_dir
             ? trimmedThumb
             : undefined,
+        s3_bucket: s3Bucket.trim() || undefined,
+        s3_endpoint_url: s3Endpoint.trim() || undefined,
+        s3_region: s3Region.trim() || "auto",
+        s3_access_key: s3AccessKey.trim() || undefined,
+        s3_secret_key: s3SecretKey || undefined,
+        backup_retention_days: backupDays,
+        backup_s3_bucket: backupS3Bucket.trim() || undefined,
+        backup_s3_endpoint_url: backupS3Endpoint.trim() || undefined,
+        backup_s3_region: backupS3Region.trim() || "auto",
+        backup_s3_access_key: backupS3AccessKey.trim() || undefined,
+        backup_s3_secret_key: backupS3SecretKey || undefined,
       });
       const stored: StoredUser = {
         id: res.user_id,
@@ -225,12 +284,36 @@ export default function SetupPage() {
             />
           ) : (
             <StorageStep
+              storageBackend={storageBackend}
+              setStorageBackend={setStorageBackend}
               dataDir={dataDir}
               setDataDir={setDataDir}
               thumbDir={thumbDir}
               setThumbDir={setThumbDir}
               defaultDataDir={status.default_data_dir}
               defaultThumbDir={status.default_thumb_dir}
+              s3Bucket={s3Bucket}
+              setS3Bucket={setS3Bucket}
+              s3Endpoint={s3Endpoint}
+              setS3Endpoint={setS3Endpoint}
+              s3Region={s3Region}
+              setS3Region={setS3Region}
+              s3AccessKey={s3AccessKey}
+              setS3AccessKey={setS3AccessKey}
+              s3SecretKey={s3SecretKey}
+              setS3SecretKey={setS3SecretKey}
+              backupDays={backupDays}
+              setBackupDays={setBackupDays}
+              backupS3Bucket={backupS3Bucket}
+              setBackupS3Bucket={setBackupS3Bucket}
+              backupS3Endpoint={backupS3Endpoint}
+              setBackupS3Endpoint={setBackupS3Endpoint}
+              backupS3Region={backupS3Region}
+              setBackupS3Region={setBackupS3Region}
+              backupS3AccessKey={backupS3AccessKey}
+              setBackupS3AccessKey={setBackupS3AccessKey}
+              backupS3SecretKey={backupS3SecretKey}
+              setBackupS3SecretKey={setBackupS3SecretKey}
             />
           )}
 
@@ -351,43 +434,216 @@ function AccountStep(props: {
 }
 
 function StorageStep(props: {
+  storageBackend: string;
+  setStorageBackend: (v: string) => void;
   dataDir: string;
   setDataDir: (v: string) => void;
   thumbDir: string;
   setThumbDir: (v: string) => void;
   defaultDataDir: string;
   defaultThumbDir: string;
+  s3Bucket: string;
+  setS3Bucket: (v: string) => void;
+  s3Endpoint: string;
+  setS3Endpoint: (v: string) => void;
+  s3Region: string;
+  setS3Region: (v: string) => void;
+  s3AccessKey: string;
+  setS3AccessKey: (v: string) => void;
+  s3SecretKey: string;
+  setS3SecretKey: (v: string) => void;
+  backupDays: number;
+  setBackupDays: (v: number) => void;
+  backupS3Bucket: string;
+  setBackupS3Bucket: (v: string) => void;
+  backupS3Endpoint: string;
+  setBackupS3Endpoint: (v: string) => void;
+  backupS3Region: string;
+  setBackupS3Region: (v: string) => void;
+  backupS3AccessKey: string;
+  setBackupS3AccessKey: (v: string) => void;
+  backupS3SecretKey: string;
+  setBackupS3SecretKey: (v: string) => void;
 }) {
   return (
     <>
       <p className="text-sm text-[var(--on-surface-variant)]">
-        Confirm where the vault should store ingested files and generated
-        thumbnails. These paths are inside the backend container — make sure
-        they live on a persistent Docker volume.
+        Choose where the vault stores files and how long local backups should
+        be retained.
       </p>
-      <Field
-        label="Data directory"
-        id="setup-data-dir"
-        value={props.dataDir}
-        onChange={props.setDataDir}
-        required
-        hint={`Default: ${props.defaultDataDir}`}
-        mono
-      />
-      <Field
-        label="Thumbnail directory"
-        id="setup-thumb-dir"
-        value={props.thumbDir}
-        onChange={props.setThumbDir}
-        required
-        hint={`Default: ${props.defaultThumbDir}`}
-        mono
-      />
-      <div className="text-xs text-[var(--on-surface-variant)] font-mono bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded p-3">
-        The backend will attempt to create these directories and probe them
-        for writability before completing setup.
+
+      <div>
+        <label className="block text-xs font-mono uppercase tracking-wider text-[var(--on-surface-variant)] mb-1.5">
+          Storage backend
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <ChoiceButton
+            active={props.storageBackend === "local"}
+            icon={HardDrive}
+            label="Local disk"
+            onClick={() => props.setStorageBackend("local")}
+          />
+          <ChoiceButton
+            active={props.storageBackend === "s3"}
+            icon={Cloud}
+            label="S3 / R2"
+            onClick={() => props.setStorageBackend("s3")}
+          />
+        </div>
+      </div>
+
+      {props.storageBackend === "local" ? (
+        <div className="space-y-3">
+          <Field
+            label="Data directory"
+            id="setup-data-dir"
+            value={props.dataDir}
+            onChange={props.setDataDir}
+            required
+            hint={`Default: ${props.defaultDataDir}`}
+            mono
+          />
+          <Field
+            label="Thumbnail directory"
+            id="setup-thumb-dir"
+            value={props.thumbDir}
+            onChange={props.setThumbDir}
+            required
+            hint={`Default: ${props.defaultThumbDir}`}
+            mono
+          />
+          <div className="text-xs text-[var(--on-surface-variant)] font-mono bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded p-3">
+            The backend will create these directories and probe them for
+            writability before completing setup.
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <Field
+            label="Bucket"
+            id="setup-s3-bucket"
+            value={props.s3Bucket}
+            onChange={props.setS3Bucket}
+            required
+            mono
+          />
+          <Field
+            label="Endpoint URL"
+            id="setup-s3-endpoint"
+            value={props.s3Endpoint}
+            onChange={props.setS3Endpoint}
+            hint="Leave empty for AWS S3."
+            mono
+          />
+          <Field
+            label="Region"
+            id="setup-s3-region"
+            value={props.s3Region}
+            onChange={props.setS3Region}
+            mono
+          />
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Field
+              label="Access key"
+              id="setup-s3-access-key"
+              value={props.s3AccessKey}
+              onChange={props.setS3AccessKey}
+              mono
+            />
+            <Field
+              label="Secret key"
+              id="setup-s3-secret-key"
+              value={props.s3SecretKey}
+              onChange={props.setS3SecretKey}
+              type="password"
+              mono
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3 pt-2 border-t border-[var(--outline-variant)]">
+        <p className="text-xs font-mono uppercase tracking-wider text-[var(--on-surface-variant)] flex items-center gap-1.5">
+          <RefreshCw className="h-3.5 w-3.5" />
+          Backups
+        </p>
+        <Field
+          label="Retention days"
+          id="setup-backup-days"
+          value={String(props.backupDays)}
+          onChange={(v) => props.setBackupDays(Number(v))}
+          type="number"
+          hint="Use 0 to keep backups forever."
+          mono
+        />
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field
+            label="Backup bucket"
+            id="setup-backup-bucket"
+            value={props.backupS3Bucket}
+            onChange={props.setBackupS3Bucket}
+            hint="Optional off-site S3/R2 copy."
+            mono
+          />
+          <Field
+            label="Backup endpoint"
+            id="setup-backup-endpoint"
+            value={props.backupS3Endpoint}
+            onChange={props.setBackupS3Endpoint}
+            mono
+          />
+          <Field
+            label="Backup region"
+            id="setup-backup-region"
+            value={props.backupS3Region}
+            onChange={props.setBackupS3Region}
+            mono
+          />
+          <div className="flex items-end text-[10px] text-[var(--on-surface-variant)] font-mono gap-1.5 pb-1">
+            <Key className="h-3.5 w-3.5" />
+            Credentials are optional when the runtime provides them.
+          </div>
+          <Field
+            label="Backup access key"
+            id="setup-backup-access-key"
+            value={props.backupS3AccessKey}
+            onChange={props.setBackupS3AccessKey}
+            mono
+          />
+          <Field
+            label="Backup secret key"
+            id="setup-backup-secret-key"
+            value={props.backupS3SecretKey}
+            onChange={props.setBackupS3SecretKey}
+            type="password"
+            mono
+          />
+        </div>
       </div>
     </>
+  );
+}
+
+function ChoiceButton(props: {
+  active: boolean;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick: () => void;
+}) {
+  const Icon = props.icon;
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      className={`h-10 rounded border px-3 text-sm flex items-center justify-center gap-2 transition-colors ${
+        props.active
+          ? "bg-[var(--primary)]/10 border-[var(--primary)] text-[var(--primary)]"
+          : "border-[var(--outline-variant)] text-[var(--on-surface-variant)] hover:border-[var(--outline)]"
+      }`}
+    >
+      <Icon className="h-4 w-4" />
+      {props.label}
+    </button>
   );
 }
 

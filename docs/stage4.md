@@ -64,6 +64,9 @@ default path; Postgres and S3 stay optional adapters for larger installs.
 - [x] Implement pre-signed URL generation for direct downloads
 - [x] Add MinIO service to `docker-compose.yml` for local dev/test
 - [x] Implement bucket lifecycle policy configuration (expiration, tiering)
+- [x] Expand first-run setup to choose local/S3 storage and backup settings
+- [x] Lazy-create external print sentinel rows only when an external job is captured
+- [x] Fix authenticated frontend GET requests so admin pages do not falsely report expired tokens
 
 ### Phase 4f — Provider abstraction (printer backends)
 
