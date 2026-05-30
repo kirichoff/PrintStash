@@ -46,6 +46,11 @@ class PrinterStatus(str, Enum):
     ERROR = "error"
 
 
+class PrinterProvider(str, Enum):
+    MOONRAKER = "moonraker"
+    BAMBU_LAN = "bambu_lan"
+
+
 class PrintJobState(str, Enum):
     QUEUED = "queued"
     UPLOADING = "uploading"
@@ -228,9 +233,16 @@ class Printer(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(max_length=128)
+    provider: PrinterProvider = Field(
+        default=PrinterProvider.MOONRAKER,
+        index=True,
+    )
     # Base URL of Moonraker, e.g. "http://mainsailos.local" or "http://10.0.0.42:7125".
-    moonraker_url: str = Field(max_length=512)
+    moonraker_url: str = Field(default="", max_length=512)
     api_key: Optional[str] = Field(default=None, max_length=128)
+    bambu_host: Optional[str] = Field(default=None, max_length=255)
+    bambu_serial: Optional[str] = Field(default=None, max_length=128)
+    bambu_access_code: Optional[str] = Field(default=None, max_length=128)
     notes: Optional[str] = None
     group: Optional[str] = Field(default=None, max_length=128, index=True)
 

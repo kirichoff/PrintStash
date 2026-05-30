@@ -164,7 +164,8 @@ class TestPrinterControl:
         db_session.refresh(p)
 
         with patch(
-            "app.api.v1.printers.MoonrakerClient.pause_print", new_callable=AsyncMock
+            "app.services.printer_provider.MoonrakerProvider.pause",
+            new_callable=AsyncMock,
         ) as mock_pause:
             mock_pause.return_value = {"result": "ok"}
             resp = client.post(f"/api/v1/printers/{p.id}/pause", headers=auth_headers)
@@ -181,7 +182,8 @@ class TestPrinterControl:
         db_session.refresh(p)
 
         with patch(
-            "app.api.v1.printers.MoonrakerClient.resume_print", new_callable=AsyncMock
+            "app.services.printer_provider.MoonrakerProvider.resume",
+            new_callable=AsyncMock,
         ) as mock_resume:
             mock_resume.return_value = {"result": "ok"}
             resp = client.post(f"/api/v1/printers/{p.id}/resume", headers=auth_headers)
@@ -197,10 +199,103 @@ class TestPrinterControl:
         db_session.refresh(p)
 
         with patch(
-            "app.api.v1.printers.MoonrakerClient.cancel_print", new_callable=AsyncMock
+            "app.services.printer_provider.MoonrakerProvider.cancel",
+            new_callable=AsyncMock,
         ) as mock_cancel:
             mock_cancel.return_value = {"result": "ok"}
             resp = client.post(f"/api/v1/printers/{p.id}/cancel", headers=auth_headers)
+            assert resp.status_code == 200
+            assert resp.json() == {"ok": True}
+
+
+class TestBambuPrinter:
+    def test_create_bambu_with_required_fields(self, client: TestClient, auth_headers):
+        resp = client.post(
+            "/api/v1/printers",
+            json={
+                "name": "Bambu P1S",
+                "provider": "bambu_lan",
+                "bambu_host": "192.168.1.50",
+                "bambu_serial": "SN123",
+                "bambu_access_code": "access",
+            },
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["provider"] == "bambu_lan"
+        assert body["capabilities"]["can_upload"] is False
+        assert body["capabilities"]["can_pause"] is True
+
+    def test_create_bambu_missing_fields_422(self, client: TestClient, auth_headers):
+        resp = client.post(
+            "/api/v1/printers",
+            json={"name": "Bambu", "provider": "bambu_lan"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 422
+
+    def test_bambu_send_rejected(self, client: TestClient, db_session: Session, auth_headers):
+        from app.db.models import File, Model
+
+        m = Model(name="Model", slug="model-bambu", hash="x" * 64)
+        db_session.add(m)
+        db_session.commit()
+        db_session.refresh(m)
+
+        f = File(
+            model_id=m.id,
+            path="/data/model.gcode",
+            original_filename="model.gcode",
+            file_type="gcode",
+            version=1,
+            size_bytes=100,
+            sha256="y" * 64,
+        )
+        db_session.add(f)
+        db_session.commit()
+        db_session.refresh(f)
+
+        p = Printer(
+            name="Bambu",
+            provider="bambu_lan",
+            moonraker_url="",
+            bambu_host="192.168.1.50",
+            bambu_serial="SN123",
+            bambu_access_code="access",
+        )
+        db_session.add(p)
+        db_session.commit()
+        db_session.refresh(p)
+
+        resp = client.post(
+            f"/api/v1/printers/{p.id}/send",
+            json={"file_id": f.id, "start_print": False},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "operation_not_supported_for_provider"
+
+    def test_bambu_pause_calls_provider(
+        self, client: TestClient, db_session: Session, auth_headers
+    ):
+        p = Printer(
+            name="Bambu",
+            provider="bambu_lan",
+            moonraker_url="",
+            bambu_host="192.168.1.50",
+            bambu_serial="SN123",
+            bambu_access_code="access",
+        )
+        db_session.add(p)
+        db_session.commit()
+        db_session.refresh(p)
+        with patch(
+            "app.services.printer_provider.BambuLanProvider.pause",
+            new_callable=AsyncMock,
+        ) as mock_pause:
+            mock_pause.return_value = {"ok": True}
+            resp = client.post(f"/api/v1/printers/{p.id}/pause", headers=auth_headers)
             assert resp.status_code == 200
             assert resp.json() == {"ok": True}
 

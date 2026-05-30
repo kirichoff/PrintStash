@@ -151,6 +151,8 @@ class TestStateMapping:
         assert _STATE_MAP["shutdown"] == PrinterStatus.OFFLINE
         assert _STATE_MAP["complete"] == PrinterStatus.READY
         assert _STATE_MAP["cancelled"] == PrinterStatus.READY
+        assert _STATE_MAP["running"] == PrinterStatus.PRINTING
+        assert _STATE_MAP["idle"] == PrinterStatus.READY
 
 
 class TestPrinterHubSyncActiveJob:

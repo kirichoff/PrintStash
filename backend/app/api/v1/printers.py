@@ -20,17 +20,22 @@ from app.core.http import get_or_404
 from app.core.logging import get_logger
 from app.core.security import require_auth
 from app.core.time import utcnow
-from app.db.models import File, FileType, PrintJob, PrintJobState, Printer
+from app.db.models import File, FileType, PrintJob, PrintJobState, Printer, PrinterProvider
 from app.db.session import get_session
 from app.schemas.printers import (
+    PrinterCapabilities,
     PrinterCreate,
     PrinterRead,
     PrinterUpdate,
     PrintJobRead,
     SendToPrinter,
 )
-from app.services.moonraker import MoonrakerClient, MoonrakerError
 from app.services.printer_hub import PrinterHub, get_hub, get_hub_from_ws
+from app.services.printer_provider import (
+    ProviderError,
+    capabilities_for_provider,
+    get_provider_client,
+)
 from app.services.storage_backend import get_backend
 
 logger = get_logger(__name__)
@@ -38,12 +43,30 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/printers", tags=["printers"])
 
 
+def _validate_provider_config(p: Printer) -> None:
+    if p.provider == PrinterProvider.MOONRAKER and not p.moonraker_url:
+        raise HTTPException(status_code=400, detail="moonraker_url_required")
+    if p.provider == PrinterProvider.BAMBU_LAN:
+        if not p.bambu_host:
+            raise HTTPException(status_code=400, detail="bambu_host_required")
+        if not p.bambu_serial:
+            raise HTTPException(status_code=400, detail="bambu_serial_required")
+        if not p.bambu_access_code:
+            raise HTTPException(status_code=400, detail="bambu_access_code_required")
+
+
 def _to_read(p: Printer) -> PrinterRead:
+    caps = capabilities_for_provider(p.provider)
     return PrinterRead(
         id=p.id,  # type: ignore[arg-type]
         name=p.name,
+        provider=p.provider,
         moonraker_url=p.moonraker_url,
         has_api_key=bool(p.api_key),
+        bambu_host=p.bambu_host,
+        bambu_serial=p.bambu_serial,
+        has_bambu_access_code=bool(p.bambu_access_code),
+        capabilities=PrinterCapabilities(**caps.__dict__),
         notes=p.notes,
         group=p.group,
         status=p.status,
@@ -141,11 +164,16 @@ async def create_printer(
 ) -> PrinterRead:
     p = Printer(
         name=payload.name.strip(),
-        moonraker_url=payload.moonraker_url.strip().rstrip("/"),
+        provider=payload.provider,
+        moonraker_url=(payload.moonraker_url or "").strip().rstrip("/"),
         api_key=payload.api_key or None,
+        bambu_host=payload.bambu_host,
+        bambu_serial=payload.bambu_serial,
+        bambu_access_code=payload.bambu_access_code,
         notes=payload.notes,
         group=payload.group.strip() if payload.group else None,
     )
+    _validate_provider_config(p)
     session.add(p)
     session.commit()
     session.refresh(p)
@@ -167,16 +195,25 @@ async def update_printer(
     hub: PrinterHub = Depends(get_hub),
 ) -> PrinterRead:
     p = get_or_404(session, Printer, printer_id, "printer_not_found")
+    if payload.provider is not None:
+        p.provider = payload.provider
     if payload.name is not None:
         p.name = payload.name.strip() or p.name
     if payload.moonraker_url is not None:
         p.moonraker_url = payload.moonraker_url.strip().rstrip("/")
     if payload.api_key is not None:
         p.api_key = payload.api_key or None
+    if payload.bambu_host is not None:
+        p.bambu_host = payload.bambu_host or None
+    if payload.bambu_serial is not None:
+        p.bambu_serial = payload.bambu_serial or None
+    if payload.bambu_access_code is not None:
+        p.bambu_access_code = payload.bambu_access_code or None
     if payload.notes is not None:
         p.notes = payload.notes
     if payload.group is not None:
         p.group = payload.group.strip() or None
+    _validate_provider_config(p)
     p.updated_at = utcnow()
     session.add(p)
     session.commit()
@@ -227,6 +264,12 @@ async def send_to_printer(
     session: Session = Depends(get_session),
 ) -> PrintJobRead:
     p = get_or_404(session, Printer, printer_id, "printer_not_found")
+    provider = get_provider_client(p)
+    if not provider.capabilities.can_upload:
+        raise HTTPException(
+            status_code=409,
+            detail="operation_not_supported_for_provider",
+        )
     f = get_or_404(session, File, payload.file_id, "file_not_found")
     if f.file_type != FileType.GCODE:
         raise HTTPException(status_code=400, detail="file_not_gcode")
@@ -252,16 +295,35 @@ async def send_to_printer(
     session.commit()
     session.refresh(job)
 
-    client = MoonrakerClient(p.moonraker_url, p.api_key)
     try:
-        await client.upload_gcode(local, remote_name, start_print=payload.start_print)
-    except MoonrakerError as exc:
+        moonraker_provider = provider
+        # Upload is only supported by Moonraker provider at this stage.
+        from app.services.printer_provider import MoonrakerProvider
+
+        if not isinstance(moonraker_provider, MoonrakerProvider):
+            raise HTTPException(
+                status_code=409,
+                detail="operation_not_supported_for_provider",
+            )
+        await moonraker_provider.client.upload_gcode(
+            local, remote_name, start_print=payload.start_print
+        )
+    except ProviderError as exc:
         job.state = PrintJobState.FAILED
         job.error = str(exc)
         job.finished_at = utcnow()
         session.add(job)
         session.commit()
-        raise HTTPException(status_code=502, detail=f"moonraker_error: {exc}")
+        raise HTTPException(status_code=502, detail=f"provider_error: {exc}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        job.state = PrintJobState.FAILED
+        job.error = str(exc)
+        job.finished_at = utcnow()
+        session.add(job)
+        session.commit()
+        raise HTTPException(status_code=502, detail=f"provider_error: {exc}")
 
     # Moonraker accepts print=true on upload but returns immediately; the
     # print_stats subscription will move the job into PRINTING. We mark
@@ -276,10 +338,23 @@ async def send_to_printer(
 
 async def _printer_control(printer_id: int, session: Session, action: str) -> dict:
     p = get_or_404(session, Printer, printer_id, "printer_not_found")
-    client = MoonrakerClient(p.moonraker_url, p.api_key)
+    client = get_provider_client(p)
+    cap_map = {
+        "start": client.capabilities.can_start,
+        "pause": client.capabilities.can_pause,
+        "resume": client.capabilities.can_resume,
+        "cancel": client.capabilities.can_cancel,
+    }
+    if action in cap_map and not cap_map[action]:
+        raise HTTPException(
+            status_code=409,
+            detail="operation_not_supported_for_provider",
+        )
     try:
         await getattr(client, action)()
-    except MoonrakerError as exc:
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=exc.code)
+    except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return {"ok": True}
 
@@ -292,7 +367,7 @@ async def _printer_control(printer_id: int, session: Session, action: str) -> di
 async def pause_printer(
     printer_id: int, session: Session = Depends(get_session)
 ) -> dict:
-    return await _printer_control(printer_id, session, "pause_print")
+    return await _printer_control(printer_id, session, "pause")
 
 
 @router.post(
@@ -303,7 +378,7 @@ async def pause_printer(
 async def resume_printer(
     printer_id: int, session: Session = Depends(get_session)
 ) -> dict:
-    return await _printer_control(printer_id, session, "resume_print")
+    return await _printer_control(printer_id, session, "resume")
 
 
 @router.post(
@@ -314,7 +389,7 @@ async def resume_printer(
 async def cancel_printer(
     printer_id: int, session: Session = Depends(get_session)
 ) -> dict:
-    return await _printer_control(printer_id, session, "cancel_print")
+    return await _printer_control(printer_id, session, "cancel")
 
 
 # ---------------------------------------------------------------------------

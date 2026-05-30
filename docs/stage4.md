@@ -65,6 +65,15 @@ default path; Postgres and S3 stay optional adapters for larger installs.
 - [x] Add MinIO service to `docker-compose.yml` for local dev/test
 - [x] Implement bucket lifecycle policy configuration (expiration, tiering)
 
+### Phase 4f — Provider abstraction (printer backends)
+
+- [x] Add provider architecture (`moonraker`, `bambu_lan`) with shared interface
+- [x] Keep existing `/api/v1/printers/*` API paths stable while dispatching by provider
+- [x] Add per-printer capability exposure in `PrinterRead`
+- [x] Add Bambu LAN local credentials fields + additive DB migration
+- [x] Add Bambu LAN status + pause/resume/cancel support (send/upload deferred)
+- [x] Add provider-focused unit/API coverage and preserve Moonraker regressions green
+
 ---
 
 ## Deferred beyond first stable release

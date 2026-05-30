@@ -66,7 +66,7 @@ backend/app/
 └── api/v1/              # versioned routers
 ```
 
-### Data Flow — Stage 3 (The Hub)
+### Data Flow — Stage 4f (Provider Hub)
 
 ```
 OrcaSlicer ──POST──► /api/v1/ingest/orca ──► DB (File, Model, Metadata)
@@ -74,9 +74,9 @@ OrcaSlicer ──POST──► /api/v1/ingest/orca ──► DB (File, Model, Me
                              Frontend ──POST──► /api/v1/printers/{id}/send
                                                  │
                                                  ▼
-                          MoonrakerClient.upload_gcode() ──► Klipper/Moonraker
+                       Provider (Moonraker/BambuLAN) dispatch layer
                                                  │
-              PrinterHub (background WS) ◄────────┘  (live status push)
+                        PrinterHub (background live-state workers)
                  │
                  ├──► DB: Printer.status, PrintJob.state
                  └──► Frontend WS: live status fan-out
@@ -86,29 +86,28 @@ OrcaSlicer ──POST──► /api/v1/ingest/orca ──► DB (File, Model, Me
 
 ## Key Design Decisions
 
-### Stage 3 — Printer Hub Architecture
+### Stage 4f — Printer Hub + Provider Architecture
 
 The `PrinterHub` is a singleton stored on `app.state.printer_hub` (FastAPI lifespan).
-It maintains one persistent WebSocket connection per printer to Moonraker via
-`MoonrakerClient.subscribe()`. Status updates flow:
+It maintains one persistent live-state worker per printer and resolves provider
+at runtime (`moonraker` or `bambu_lan`) via the provider factory. Status updates flow:
 
-1. Moonraker WS push → `PrinterHub._handle_status()`
+1. Provider status stream/poll → `PrinterHub._handle_status()`
 2. Hub merges into in-memory snapshots (`printer_id → {object: {field: value}}`)
 3. Hub writes coarse status + `last_seen_at` to DB
 4. Hub syncs active `PrintJob` rows (state, progress, timestamps)
 5. Hub fans out to vault WebSocket subscribers (frontend UI)
 
 **Reconnection**: exponential backoff (1s → 30s max), re-reads printer config on each
-reconnect (supports live edits to moonraker_url/api_key).
+reconnect (supports provider + credentials updates).
 
 **Stop**: `asyncio.Event` per printer — setting it terminates the WS loop gracefully.
 
-### MoonrakerClient
+### Provider clients
 
-- HTTP: `httpx.AsyncClient` with per-request timeout. API key via `X-Api-Key` header.
-- WS: `websockets.connect` with JSON-RPC subscribe to `printer.objects.subscribe`.
-- Subscribed objects: `print_stats`, `virtual_sdcard`, `heater_bed`, `extruder`,
-  `toolhead`, `webhooks`.
+- `MoonrakerProvider`: thin adapter over `MoonrakerClient`; full upload + control support.
+- `BambuLanProvider`: LAN-first local control path (status + pause/resume/cancel);
+  upload/send parity intentionally deferred.
 
 ### Printer-to-print_job mapping
 
@@ -171,13 +170,11 @@ cd backend && uv run pytest tests/ -v
 
 ---
 
-## What's Left for Stage 3
+## Current Focus
 
-1. **Tests** — zero test coverage for all Stage 3 code
-2. **Printer-to-vault ingestion** — capture external (Klipper-initiated) print jobs
-3. **Farm dashboard** — aggregated multi-printer health endpoint
-4. **Printer grouping/tags** — organize printers by group or tag
-5. **Auto-archival** — capture print statistics after job completion
+1. Stabilize provider reliability and error taxonomy under mixed fleets.
+2. Extend Bambu support to upload/send parity in a later phase.
+3. Keep API path compatibility for existing Moonraker-based consumers.
 
 ---
 

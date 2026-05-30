@@ -20,7 +20,7 @@ from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import PrintJob, PrintJobState, Printer, PrinterStatus
 from app.db.session import get_session_factory
-from app.services.moonraker import MoonrakerClient
+from app.services.printer_provider import ProviderError, get_provider_client
 
 logger = get_logger(__name__)
 
@@ -40,6 +40,10 @@ _STATE_MAP: Dict[str, PrinterStatus] = {
     "cancelled": PrinterStatus.READY,
     "error": PrinterStatus.ERROR,
     "shutdown": PrinterStatus.OFFLINE,
+    "running": PrinterStatus.PRINTING,
+    "idle": PrinterStatus.READY,
+    "prepare": PrinterStatus.READY,
+    "failed": PrinterStatus.ERROR,
 }
 
 
@@ -120,7 +124,13 @@ class PrinterHub:
 
     async def start_all(self) -> None:
         with get_session_factory().session() as session:
-            ids = [p.id for p in session.exec(select(Printer)).all() if p.id]
+            ids = [
+                p.id
+                for p in session.exec(
+                    select(Printer).where(Printer.deleted_at.is_(None))  # type: ignore[union-attr]
+                ).all()
+                if p.id
+            ]
         for pid in ids:
             await self.add_printer(pid)
 
@@ -140,16 +150,22 @@ class PrinterHub:
                 if printer is None:
                     logger.info("printer worker[%s] gone; exiting", printer_id)
                     return
-                base_url = printer.moonraker_url
-                api_key = printer.api_key
-
-            client = MoonrakerClient(base_url, api_key)
+                try:
+                    client = get_provider_client(printer)
+                except ProviderError as exc:
+                    self._mark_status(
+                        printer_id,
+                        PrinterStatus.ERROR,
+                        error=f"{exc.code}: {exc.detail}",
+                    )
+                    await asyncio.sleep(5.0)
+                    continue
 
             async def on_status(status: Dict[str, Any]) -> None:
                 await self._handle_status(printer_id, status)
 
             try:
-                await client.subscribe(on_status, stop_event=stop)
+                await client.subscribe_status(on_status, stop_event=stop)
             except Exception as exc:  # noqa: BLE001 — last-ditch
                 logger.exception(
                     "printer worker[%s] subscribe crash: %s", printer_id, exc
@@ -270,6 +286,8 @@ class PrinterHub:
                 elif ms_state == "cancelled":
                     new_state = PrintJobState.CANCELLED
                 elif ms_state == "error":
+                    new_state = PrintJobState.FAILED
+                elif ms_state == "failed":
                     new_state = PrintJobState.FAILED
                 else:
                     new_state = job.state
