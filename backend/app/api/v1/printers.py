@@ -29,10 +29,9 @@ from app.schemas.printers import (
     PrintJobRead,
     SendToPrinter,
 )
-from app.services import storage
-from app.services.storage_backend import get_backend
 from app.services.moonraker import MoonrakerClient, MoonrakerError
 from app.services.printer_hub import PrinterHub, get_hub, get_hub_from_ws
+from app.services.storage_backend import get_backend
 
 logger = get_logger(__name__)
 
@@ -95,9 +94,13 @@ def farm_dashboard(session: Session = Depends(get_session)) -> dict:
     active_jobs = session.exec(
         select(PrintJob).where(
             PrintJob.state.in_(
-                [PrintJobState.QUEUED, PrintJobState.STARTED,
-                 PrintJobState.PRINTING, PrintJobState.PAUSED,
-                 PrintJobState.UPLOADING]
+                [
+                    PrintJobState.QUEUED,
+                    PrintJobState.STARTED,
+                    PrintJobState.PRINTING,
+                    PrintJobState.PAUSED,
+                    PrintJobState.UPLOADING,
+                ]
             )
         )
     ).all()
@@ -266,9 +269,7 @@ async def send_to_printer(
     return PrintJobRead(**job.model_dump())
 
 
-async def _printer_control(
-    printer_id: int, session: Session, action: str
-) -> dict:
+async def _printer_control(printer_id: int, session: Session, action: str) -> dict:
     p = get_or_404(session, Printer, printer_id, "printer_not_found")
     client = MoonrakerClient(p.moonraker_url, p.api_key)
     try:

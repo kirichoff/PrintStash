@@ -37,9 +37,7 @@ def _load_mesh(path: Path):
 
     if isinstance(loaded, trimesh.Scene):
         # Flatten all geometry in the scene into a single mesh.
-        meshes = [
-            g for g in loaded.geometry.values() if isinstance(g, trimesh.Trimesh)
-        ]
+        meshes = [g for g in loaded.geometry.values() if isinstance(g, trimesh.Trimesh)]
         if not meshes:
             return None
         if len(meshes) == 1:

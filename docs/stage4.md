@@ -27,6 +27,7 @@ S3 storage for production use.
 
 ### Phase 4b — OAuth2/JWT hardening
 
+- [x] Refactor frontend API client into domain modules behind a stable `@/lib/api` barrel
 - [ ] Add `RefreshToken` model (token hash, user_id, expires_at, revoked)
 - [ ] Implement `POST /auth/refresh` and `POST /auth/logout` endpoints
 - [ ] Replace raw `Header` auth with FastAPI's `OAuth2PasswordBearer`

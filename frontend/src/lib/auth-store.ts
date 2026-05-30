@@ -3,9 +3,8 @@
 /**
  * Single module that owns all localStorage reads and writes for auth state.
  *
- * The React AuthContext is a thin consumer that calls these functions —
- * it never touches localStorage directly.  api.ts reads the token through
- * ``getToken()``.  Events drive cross-component sync.
+ * The React AuthContext and API client consume this module instead of
+ * touching localStorage directly. Events drive cross-component sync.
  */
 
 const TOKEN_KEY = "nexus3d.token";
@@ -14,20 +13,12 @@ const API_KEY_KEY = "nexus3d.apiKey";
 const AUTH_EVENT = "nexus3d:auth-changed";
 const UNAUTH_EVENT = "nexus3d:unauthorized";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export interface StoredUser {
   id: number;
   username: string;
   email: string | null;
   is_superuser: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 function isBrowser(): boolean {
   return typeof window !== "undefined";
@@ -36,10 +27,6 @@ function isBrowser(): boolean {
 function emit() {
   if (isBrowser()) window.dispatchEvent(new Event(AUTH_EVENT));
 }
-
-// ---------------------------------------------------------------------------
-// Token
-// ---------------------------------------------------------------------------
 
 export function getToken(): string | null {
   if (!isBrowser()) return null;
@@ -64,10 +51,6 @@ export function isLoggedIn(): boolean {
   return !!getToken();
 }
 
-// ---------------------------------------------------------------------------
-// API key (legacy, OrcaSlicer hook compat)
-// ---------------------------------------------------------------------------
-
 export function getApiKey(): string | null {
   if (!isBrowser()) return null;
   try {
@@ -89,10 +72,6 @@ export function setApiKey(key: string | null): void {
   } catch { /* ignore */ }
 }
 
-// ---------------------------------------------------------------------------
-// Login / logout (token + user stored atomically)
-// ---------------------------------------------------------------------------
-
 export function storeLogin(token: string, user: StoredUser): void {
   if (!isBrowser()) return;
   try {
@@ -110,10 +89,6 @@ export function clearLogin(): void {
     emit();
   } catch { /* ignore */ }
 }
-
-// ---------------------------------------------------------------------------
-// Events
-// ---------------------------------------------------------------------------
 
 export function onAuthChange(cb: () => void): () => void {
   if (!isBrowser()) return () => {};

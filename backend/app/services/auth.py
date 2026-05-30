@@ -36,7 +36,9 @@ def create_access_token(user_id: int, username: str) -> str:
 
 def verify_access_token(token: str) -> Optional[dict]:
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        return jwt.decode(
+            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+        )
     except JWTError as exc:
         logger.debug("jwt verification failed: %s", exc)
         return None

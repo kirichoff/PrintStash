@@ -21,66 +21,51 @@ class StorageBackend(ABC):
     """
 
     @abstractmethod
-    def blob_key(self, slug: str, version: int, filename: str) -> str:
-        ...
+    def blob_key(self, slug: str, version: int, filename: str) -> str: ...
 
     @abstractmethod
-    def thumbnail_key(self, file_id: int) -> str:
-        ...
+    def thumbnail_key(self, file_id: int) -> str: ...
 
     @abstractmethod
-    def exists(self, key: str) -> bool:
-        ...
+    def exists(self, key: str) -> bool: ...
 
     @abstractmethod
-    def write_stream(self, src: BinaryIO, key: str) -> int:
-        ...
+    def write_stream(self, src: BinaryIO, key: str) -> int: ...
 
     @abstractmethod
-    def write_bytes(self, data: bytes, key: str) -> int:
-        ...
+    def write_bytes(self, data: bytes, key: str) -> int: ...
 
     @abstractmethod
-    def move(self, src_key: str, dest_key: str) -> None:
-        ...
+    def move(self, src_key: str, dest_key: str) -> None: ...
 
     @abstractmethod
-    def stat_size(self, key: str) -> int:
-        ...
+    def stat_size(self, key: str) -> int: ...
 
     @abstractmethod
-    def read_bytes(self, key: str) -> bytes:
-        ...
+    def read_bytes(self, key: str) -> bytes: ...
 
     @abstractmethod
     def stream_chunks(
         self, key: str, chunk_size: int = 1024 * 1024
-    ) -> Iterator[bytes]:
-        ...
+    ) -> Iterator[bytes]: ...
 
     @abstractmethod
-    def download_to_path(self, key: str, dest: Path) -> Path:
-        ...
+    def download_to_path(self, key: str, dest: Path) -> Path: ...
 
     @abstractmethod
-    def upload_file(self, src: Path, key: str) -> None:
-        ...
+    def upload_file(self, src: Path, key: str) -> None: ...
 
     @abstractmethod
-    def ensure_setup(self) -> None:
-        ...
+    def ensure_setup(self) -> None: ...
 
     @abstractmethod
-    def delete(self, key: str) -> None:
-        ...
+    def delete(self, key: str) -> None: ...
 
     @abstractmethod
-    def list_keys(self, prefix: str = "") -> list[str]:
-        ...
+    def list_keys(self, prefix: str = "") -> list[str]: ...
 
     @abstractmethod
-    def walk_keys(self, prefix: str = "") -> Iterator[str]:
-        ...
+    def walk_keys(self, prefix: str = "") -> Iterator[str]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -128,9 +113,7 @@ class LocalStorageBackend(StorageBackend):
     def read_bytes(self, key: str) -> bytes:
         return Path(key).read_bytes()
 
-    def stream_chunks(
-        self, key: str, chunk_size: int = 1024 * 1024
-    ) -> Iterator[bytes]:
+    def stream_chunks(self, key: str, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
         with Path(key).open("rb") as fh:
             while True:
                 chunk = fh.read(chunk_size)
@@ -184,9 +167,7 @@ class S3StorageBackend(StorageBackend):
         from botocore.config import Config as BotoConfig
 
         if not settings.s3_bucket:
-            raise RuntimeError(
-                "VAULT_S3_BUCKET is required when storage_backend=s3"
-            )
+            raise RuntimeError("VAULT_S3_BUCKET is required when storage_backend=s3")
 
         client_kwargs: dict = {
             "service_name": "s3",
@@ -268,9 +249,7 @@ class S3StorageBackend(StorageBackend):
         resp = self._client.get_object(Bucket=self._bucket, Key=key)
         return resp["Body"].read()
 
-    def stream_chunks(
-        self, key: str, chunk_size: int = 1024 * 1024
-    ) -> Iterator[bytes]:
+    def stream_chunks(self, key: str, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
         resp = self._client.get_object(Bucket=self._bucket, Key=key)
         body = resp["Body"]
         while True:
@@ -324,7 +303,9 @@ def get_backend() -> StorageBackend:
     global _backend
     if _backend is None:
         if settings.storage_backend == "s3":
-            logger.info("initialising S3 storage backend (bucket=%s)", settings.s3_bucket)
+            logger.info(
+                "initialising S3 storage backend (bucket=%s)", settings.s3_bucket
+            )
             _backend = S3StorageBackend()
         else:
             logger.info("initialising local storage backend")

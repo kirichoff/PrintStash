@@ -153,7 +153,13 @@ def init_db() -> None:
 
 def _ensure_sentinel_rows() -> None:
     """Create sentinel Model + File rows used by external (non-vault) print jobs."""
-    from app.db.models import File, FileType, Model, SENTINEL_MODEL_HASH, SENTINEL_FILE_HASH
+    from app.db.models import (
+        File,
+        FileType,
+        Model,
+        SENTINEL_MODEL_HASH,
+        SENTINEL_FILE_HASH,
+    )
 
     with Session(_engine) as session:
         sentinel_model = session.exec(

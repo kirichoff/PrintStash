@@ -1,4 +1,5 @@
 """Category (hierarchical) + Tag (flat) services."""
+
 from __future__ import annotations
 
 from typing import Iterable, List, Optional
@@ -57,9 +58,7 @@ def category_descendant_paths(session: Session, root_path: str) -> List[str]:
     return list(session.exec(stmt).all())
 
 
-def resolve_or_create_tags(
-    session: Session, names: Iterable[str]
-) -> List[Tag]:
+def resolve_or_create_tags(session: Session, names: Iterable[str]) -> List[Tag]:
     """Map a list of tag names to Tag rows, creating any that don't exist."""
     out: List[Tag] = []
     seen: set[str] = set()

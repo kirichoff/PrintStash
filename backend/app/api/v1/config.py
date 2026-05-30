@@ -86,7 +86,11 @@ def update_config(
     body: VaultConfigUpdate,
     session: Session = Depends(get_session),
 ) -> VaultConfigRead:
-    if body.storage_backend is not None and body.storage_backend not in ("", "local", "s3"):
+    if body.storage_backend is not None and body.storage_backend not in (
+        "",
+        "local",
+        "s3",
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="storage_backend must be 'local' or 's3'",

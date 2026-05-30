@@ -1,4 +1,5 @@
 """Unit tests for embedded thumbnail extraction."""
+
 from __future__ import annotations
 
 from pathlib import Path

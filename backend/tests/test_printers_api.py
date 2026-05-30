@@ -1,4 +1,5 @@
 """Tests for Printers API router (FastAPI TestClient)."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -90,9 +91,7 @@ class TestUpdatePrinter:
         db_session.commit()
         db_session.refresh(p)
 
-        resp = client.patch(
-            f"/api/v1/printers/{p.id}", json={"name": "Ender 3 Pro"}
-        )
+        resp = client.patch(f"/api/v1/printers/{p.id}", json={"name": "Ender 3 Pro"})
         assert resp.status_code == 401
 
     def test_update_name(self, client: TestClient, auth_headers, db_session: Session):
@@ -128,7 +127,9 @@ class TestDeletePrinter:
         resp = client.delete(f"/api/v1/printers/{p.id}")
         assert resp.status_code == 401
 
-    def test_delete_removes_printer(self, client: TestClient, auth_headers, db_session: Session):
+    def test_delete_removes_printer(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
         p = Printer(name="Ender 3", moonraker_url="http://10.0.0.1:7125")
         db_session.add(p)
         db_session.commit()
@@ -154,7 +155,9 @@ class TestPrinterControl:
         resp = client.post(f"/api/v1/printers/{p.id}/pause")
         assert resp.status_code == 401
 
-    def test_pause_sends_to_moonraker(self, client: TestClient, auth_headers, db_session: Session):
+    def test_pause_sends_to_moonraker(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
         p = Printer(name="Ender 3", moonraker_url="http://10.0.0.1:7125")
         db_session.add(p)
         db_session.commit()
@@ -164,14 +167,14 @@ class TestPrinterControl:
             "app.api.v1.printers.MoonrakerClient.pause_print", new_callable=AsyncMock
         ) as mock_pause:
             mock_pause.return_value = {"result": "ok"}
-            resp = client.post(
-                f"/api/v1/printers/{p.id}/pause", headers=auth_headers
-            )
+            resp = client.post(f"/api/v1/printers/{p.id}/pause", headers=auth_headers)
             assert resp.status_code == 200
             assert resp.json() == {"ok": True}
             mock_pause.assert_called_once()
 
-    def test_resume_sends_to_moonraker(self, client: TestClient, auth_headers, db_session: Session):
+    def test_resume_sends_to_moonraker(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
         p = Printer(name="Ender 3", moonraker_url="http://10.0.0.1:7125")
         db_session.add(p)
         db_session.commit()
@@ -181,13 +184,13 @@ class TestPrinterControl:
             "app.api.v1.printers.MoonrakerClient.resume_print", new_callable=AsyncMock
         ) as mock_resume:
             mock_resume.return_value = {"result": "ok"}
-            resp = client.post(
-                f"/api/v1/printers/{p.id}/resume", headers=auth_headers
-            )
+            resp = client.post(f"/api/v1/printers/{p.id}/resume", headers=auth_headers)
             assert resp.status_code == 200
             assert resp.json() == {"ok": True}
 
-    def test_cancel_sends_to_moonraker(self, client: TestClient, auth_headers, db_session: Session):
+    def test_cancel_sends_to_moonraker(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
         p = Printer(name="Ender 3", moonraker_url="http://10.0.0.1:7125")
         db_session.add(p)
         db_session.commit()
@@ -197,15 +200,15 @@ class TestPrinterControl:
             "app.api.v1.printers.MoonrakerClient.cancel_print", new_callable=AsyncMock
         ) as mock_cancel:
             mock_cancel.return_value = {"result": "ok"}
-            resp = client.post(
-                f"/api/v1/printers/{p.id}/cancel", headers=auth_headers
-            )
+            resp = client.post(f"/api/v1/printers/{p.id}/cancel", headers=auth_headers)
             assert resp.status_code == 200
             assert resp.json() == {"ok": True}
 
 
 class TestPrinterStatus:
-    def test_status_returns_printer_and_snapshot(self, client: TestClient, db_session: Session):
+    def test_status_returns_printer_and_snapshot(
+        self, client: TestClient, db_session: Session
+    ):
         p = Printer(name="Ender 3", moonraker_url="http://10.0.0.1:7125")
         db_session.add(p)
         db_session.commit()
@@ -291,7 +294,9 @@ class TestSendToPrinter:
         )
         assert resp.status_code == 401
 
-    def test_send_non_gcode_rejected(self, client: TestClient, auth_headers, db_session: Session):
+    def test_send_non_gcode_rejected(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
         from app.db.models import File, Model
 
         m = Model(name="Model", slug="model-stl", hash="k" * 64)
@@ -368,6 +373,7 @@ class TestDashboard:
         db_session.refresh(p3)
 
         from app.services.printer_hub import PrinterHub
+
         hub = PrinterHub()
         hub._mark_status(p1.id, status="printing", error=None)
         hub._mark_status(p2.id, status="ready", error=None)
@@ -387,7 +393,9 @@ class TestDashboard:
 class TestGroupFilter:
     def test_filter_by_group(self, client: TestClient, db_session: Session):
         p1 = Printer(name="Prusa", moonraker_url="http://10.0.0.1:7125", group="garage")
-        p2 = Printer(name="Ender", moonraker_url="http://10.0.0.2:7125", group="workshop")
+        p2 = Printer(
+            name="Ender", moonraker_url="http://10.0.0.2:7125", group="workshop"
+        )
         db_session.add_all([p1, p2])
         db_session.commit()
 

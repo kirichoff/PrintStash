@@ -8,6 +8,7 @@ Tight, dependency-light wrapper around the subset of Moonraker we need:
 
 Reference: https://moonraker.readthedocs.io/en/latest/web_api/
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,8 +28,7 @@ class MoonrakerError(RuntimeError):
     """Raised when a Moonraker request fails."""
 
 
-# Objects we subscribe to for live state.  Keys are object names, values are
-# the field lists we care about (None == all fields).
+# Objects and fields required for live printer state.
 SUBSCRIPTIONS: Dict[str, Optional[list[str]]] = {
     "print_stats": ["state", "filename", "print_duration", "total_duration", "message"],
     "virtual_sdcard": ["progress", "file_position", "file_size"],
@@ -40,12 +40,12 @@ SUBSCRIPTIONS: Dict[str, Optional[list[str]]] = {
 
 
 class MoonrakerClient:
-    def __init__(self, base_url: str, api_key: Optional[str] = None, *, timeout: float = 30.0):
+    def __init__(
+        self, base_url: str, api_key: Optional[str] = None, *, timeout: float = 30.0
+    ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
-
-    # -- HTTP helpers ------------------------------------------------------
 
     def _headers(self) -> Dict[str, str]:
         h: Dict[str, str] = {}
@@ -53,13 +53,13 @@ class MoonrakerClient:
             h["X-Api-Key"] = self.api_key
         return h
 
-    async def _request(
-        self, method: str, path: str, **kwargs: Any
-    ) -> Dict[str, Any]:
+    async def _request(self, method: str, path: str, **kwargs: Any) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
-                resp = await client.request(method, url, headers=self._headers(), **kwargs)
+                resp = await client.request(
+                    method, url, headers=self._headers(), **kwargs
+                )
             except httpx.HTTPError as exc:
                 raise MoonrakerError(f"transport error: {exc}") from exc
         if resp.status_code >= 400:
@@ -68,8 +68,6 @@ class MoonrakerClient:
             return resp.json()
         except ValueError:
             return {"raw": resp.text}
-
-    # -- Public API --------------------------------------------------------
 
     async def info(self) -> Dict[str, Any]:
         return await self._request("GET", "/printer/info")
@@ -81,12 +79,13 @@ class MoonrakerClient:
         )
         return await self._request("GET", f"/printer/objects/query?{params}")
 
-    async def upload_gcode(self, local_path: Path, remote_filename: str, *, start_print: bool = False) -> Dict[str, Any]:
+    async def upload_gcode(
+        self, local_path: Path, remote_filename: str, *, start_print: bool = False
+    ) -> Dict[str, Any]:
         """Upload a g-code file to Moonraker. Streams from disk."""
         url = f"{self.base_url}/server/files/upload"
         data = {"root": "gcodes", "print": "true" if start_print else "false"}
         async with httpx.AsyncClient(timeout=None) as client:
-            # Use sync open + read into memory? G-code can be huge — use streaming.
             with local_path.open("rb") as fh:
                 files = {"file": (remote_filename, fh, "application/octet-stream")}
                 try:
@@ -112,8 +111,6 @@ class MoonrakerClient:
 
     async def cancel_print(self) -> Dict[str, Any]:
         return await self._request("POST", "/printer/print/cancel")
-
-    # -- WebSocket subscription -------------------------------------------
 
     def _ws_url(self) -> str:
         if self.base_url.startswith("https://"):
@@ -143,7 +140,6 @@ class MoonrakerClient:
             try:
                 logger.info("moonraker ws connect %s", url)
                 async with websockets.connect(url, max_size=8 * 1024 * 1024) as ws:
-                    # Subscribe.
                     request_id += 1
                     sub_payload = {
                         "jsonrpc": "2.0",
@@ -152,7 +148,7 @@ class MoonrakerClient:
                         "id": request_id,
                     }
                     await ws.send(json.dumps(sub_payload))
-                    backoff = 1.0  # reset after a successful connect
+                    backoff = 1.0
 
                     while True:
                         if stop_event is not None and stop_event.is_set():
@@ -160,7 +156,6 @@ class MoonrakerClient:
                         try:
                             raw = await asyncio.wait_for(ws.recv(), timeout=60.0)
                         except asyncio.TimeoutError:
-                            # Ping to keep connection alive.
                             await ws.ping()
                             continue
                         try:
@@ -168,21 +163,21 @@ class MoonrakerClient:
                         except ValueError:
                             continue
 
-                        # Initial reply to subscribe carries status under result.status
                         if msg.get("id") == request_id and "result" in msg:
                             status = msg["result"].get("status", {})
                             if status:
                                 await on_status(status)
                             continue
 
-                        # Push notifications.
                         if msg.get("method") == "notify_status_update":
                             params = msg.get("params") or []
                             if params:
                                 await on_status(params[0])
                             continue
             except (websockets.WebSocketException, OSError) as exc:
-                logger.warning("moonraker ws error (%s); reconnect in %.1fs", exc, backoff)
+                logger.warning(
+                    "moonraker ws error (%s); reconnect in %.1fs", exc, backoff
+                )
                 try:
                     await asyncio.wait_for(
                         (stop_event.wait() if stop_event else asyncio.sleep(backoff)),

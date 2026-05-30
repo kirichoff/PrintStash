@@ -13,7 +13,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from app.core.config import _overlay, _overlay_lock, ensure_dirs, settings
+from app.core.config import _overlay, ensure_dirs, settings
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import SystemConfig, User
@@ -157,7 +157,9 @@ def update_config(
             return
         db_val = value if value != "" else None
         setattr(config, field_name, db_val)
-        effective: object = db_val if db_val is not None else _env_or_default(field_name)
+        effective: object = (
+            db_val if db_val is not None else _env_or_default(field_name)
+        )
         if field_name in ("data_dir", "thumb_dir") and effective:
             effective = Path(str(effective))
         _overlay[field_name] = effective

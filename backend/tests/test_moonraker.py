@@ -1,4 +1,5 @@
 """Tests for MoonrakerClient HTTP + WebSocket wrapper."""
+
 from __future__ import annotations
 
 import asyncio
@@ -49,7 +50,9 @@ class TestMoonrakerClientHTTP:
                 return_value=mock_resp
             )
             result = asyncio.run(client.query_status())
-            call_args = MockClient.return_value.__aenter__.return_value.request.call_args
+            call_args = (
+                MockClient.return_value.__aenter__.return_value.request.call_args
+            )
             url = call_args[0][1]
             assert "/printer/objects/query?" in url
             assert "print_stats=" in url
@@ -68,7 +71,9 @@ class TestMoonrakerClientHTTP:
             MockClient.return_value.__aenter__.return_value.post = AsyncMock(
                 return_value=mock_resp
             )
-            result = asyncio.run(client.upload_gcode(gcode_path, "test.gcode", start_print=True))
+            result = asyncio.run(
+                client.upload_gcode(gcode_path, "test.gcode", start_print=True)
+            )
             assert result == {"result": "ok"}
 
     def test_upload_gcode_handles_error(self, tmp_path: Path):
@@ -126,7 +131,9 @@ class TestMoonrakerClientHTTP:
                 return_value=mock_resp
             )
             asyncio.run(client.info())
-            call_kwargs = MockClient.return_value.__aenter__.return_value.request.call_args
+            call_kwargs = (
+                MockClient.return_value.__aenter__.return_value.request.call_args
+            )
             headers = call_kwargs[1].get("headers", {})
             assert headers.get("X-Api-Key") == "secret123"
 

@@ -1,4 +1,5 @@
 """Shared test fixtures: in-memory SQLite, FastAPI TestClient, DB session."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.core.config import _overlay, settings
+from app.core.config import _overlay
 from app.db.session import SQLiteSessionFactory, override_session_factory
 from app.services.printer_hub import PrinterHub
 
@@ -29,6 +30,7 @@ _test_factory = SQLiteSessionFactory(_test_engine)
 
 def _init_test_db() -> None:
     import app.db.models  # noqa: F401 — register all tables
+
     SQLModel.metadata.create_all(_test_engine)
 
 
@@ -63,19 +65,26 @@ def _truncate_all() -> None:
 
 def _ensure_test_sentinels() -> None:
     """Create sentinel rows needed for external print job tests."""
-    from app.db.models import File, FileType, Model, SENTINEL_MODEL_HASH, SENTINEL_FILE_HASH
+    from app.db.models import (
+        File,
+        FileType,
+        Model,
+        SENTINEL_MODEL_HASH,
+        SENTINEL_FILE_HASH,
+    )
+
     with Session(_test_engine) as session:
         sm = session.exec(
             select(Model).where(Model.hash == SENTINEL_MODEL_HASH)
         ).first()
         if sm is None:
-            sm = Model(name="__external__", slug="__external__", hash=SENTINEL_MODEL_HASH)
+            sm = Model(
+                name="__external__", slug="__external__", hash=SENTINEL_MODEL_HASH
+            )
             session.add(sm)
             session.commit()
             session.refresh(sm)
-        sf = session.exec(
-            select(File).where(File.sha256 == SENTINEL_FILE_HASH)
-        ).first()
+        sf = session.exec(select(File).where(File.sha256 == SENTINEL_FILE_HASH)).first()
         if sf is None:
             sf = File(
                 model_id=sm.id,

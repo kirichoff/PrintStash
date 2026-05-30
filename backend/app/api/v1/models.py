@@ -92,8 +92,7 @@ def list_models(
         cat_path = category.strip().strip("/").lower()
         # Match the category path or any descendant via FK join on Categories.
         matching_cat_ids = select(Category.id).where(
-            (Category.path == cat_path)
-            | (Category.path.startswith(cat_path + "/"))
+            (Category.path == cat_path) | (Category.path.startswith(cat_path + "/"))
         )
         stmt = stmt.where(Model.category_id.in_(matching_cat_ids))  # type: ignore[union-attr]
 

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from app.core.logging import get_logger
 from app.core.time import utcnow
@@ -147,7 +147,9 @@ def run_ingestion_pipeline(
             _apply_taxonomy(session, model, category, tags)
 
             version = _next_version_for_model(session, model.id)
-            dest_key = storage.canonical_blob_path(model.slug, version, original_filename)
+            dest_key = storage.canonical_blob_path(
+                model.slug, version, original_filename
+            )
 
             storage.move_file(staged_path, dest_key)
             size_bytes = get_backend().stat_size(dest_key)

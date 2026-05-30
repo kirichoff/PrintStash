@@ -1,10 +1,10 @@
 """Tests for PrinterHub background worker."""
+
 from __future__ import annotations
 
 import asyncio
 
 import pytest
-from sqlmodel import Session
 
 from app.db.models import PrintJob, PrintJobState, Printer, PrinterStatus
 
@@ -78,7 +78,9 @@ class TestPrinterHubMarkStatus:
         assert p.status == PrinterStatus.PRINTING
 
     def test_mark_status_clears_error(self, hub, db_session):
-        p = Printer(name="Test", moonraker_url="http://10.0.0.1:7125", last_error="old error")
+        p = Printer(
+            name="Test", moonraker_url="http://10.0.0.1:7125", last_error="old error"
+        )
         db_session.add(p)
         db_session.commit()
         db_session.refresh(p)
@@ -99,6 +101,7 @@ class TestPrinterHubHandleStatus:
             "print_stats": {"state": "printing", "filename": "test.gcode"},
             "virtual_sdcard": {"progress": 0.25, "file_size": 1234},
         }
+
         async def _run():
             await hub._handle_status(1, status)
 
@@ -113,6 +116,7 @@ class TestPrinterHubHandleStatus:
             "virtual_sdcard": {"progress": 0.10},
         }
         status = {"virtual_sdcard": {"progress": 0.50}}
+
         async def _run():
             await hub._handle_status(1, status)
 
@@ -126,6 +130,7 @@ class TestPrinterHubHandleStatus:
             "print_stats": "not a dict",
             "virtual_sdcard": {"progress": 0.99},
         }
+
         async def _run():
             await hub._handle_status(1, status)
 
@@ -138,6 +143,7 @@ class TestPrinterHubHandleStatus:
 class TestStateMapping:
     def test_state_map_values(self):
         from app.services.printer_hub import _STATE_MAP
+
         assert _STATE_MAP["standby"] == PrinterStatus.READY
         assert _STATE_MAP["printing"] == PrinterStatus.PRINTING
         assert _STATE_MAP["paused"] == PrinterStatus.PAUSED
@@ -191,7 +197,10 @@ class TestPrinterHubSyncActiveJob:
 
         async def _sync():
             await hub._sync_active_job(
-                pid, "printing", "sync.gcode", 0.45,
+                pid,
+                "printing",
+                "sync.gcode",
+                0.45,
                 {"state": "printing", "filename": "sync.gcode"},
             )
 
@@ -202,11 +211,16 @@ class TestPrinterHubSyncActiveJob:
 
     def test_sync_complete_sets_finished_at(self, hub, db_session):
         pid, job = self._setup_job(db_session)
+
         async def _sync():
             await hub._sync_active_job(
-                pid, "complete", "sync.gcode", 1.0,
+                pid,
+                "complete",
+                "sync.gcode",
+                1.0,
                 {"state": "complete", "filename": "sync.gcode"},
             )
+
         asyncio.run(_sync())
         db_session.refresh(job)
         assert job.state == PrintJobState.COMPLETED
@@ -215,6 +229,7 @@ class TestPrinterHubSyncActiveJob:
     def test_sync_no_filename_returns_early(self, hub):
         async def _sync():
             await hub._sync_active_job(1, "printing", None, 0.0, {})
+
         asyncio.run(_sync())
 
     def test_sync_no_matching_row(self, hub):
@@ -223,11 +238,14 @@ class TestPrinterHubSyncActiveJob:
         from sqlmodel import select
 
         async def _sync():
-            await hub._sync_active_job(1, "printing", "ext-test.gcode", 0.5, {"state": "printing"})
+            await hub._sync_active_job(
+                1, "printing", "ext-test.gcode", 0.5, {"state": "printing"}
+            )
 
         asyncio.run(_sync())
         # Verify the external job was created
         from app.db.session import get_session_factory
+
         with get_session_factory().session() as session:
             job = session.exec(
                 select(PrintJob).where(
@@ -245,10 +263,13 @@ class TestPrinterHubSyncActiveJob:
         from sqlmodel import select
 
         async def _sync():
-            await hub._sync_active_job(1, "standby", "standby.gcode", 0.0, {"state": "standby"})
+            await hub._sync_active_job(
+                1, "standby", "standby.gcode", 0.0, {"state": "standby"}
+            )
 
         asyncio.run(_sync())
         from app.db.session import get_session_factory
+
         with get_session_factory().session() as session:
             job = session.exec(
                 select(PrintJob).where(PrintJob.remote_filename == "standby.gcode")
@@ -257,11 +278,20 @@ class TestPrinterHubSyncActiveJob:
 
     def test_sync_sets_error_on_failure(self, hub, db_session):
         pid, job = self._setup_job(db_session)
+
         async def _sync():
             await hub._sync_active_job(
-                pid, "error", "sync.gcode", 0.10,
-                {"state": "error", "filename": "sync.gcode", "message": "thermal runaway"},
+                pid,
+                "error",
+                "sync.gcode",
+                0.10,
+                {
+                    "state": "error",
+                    "filename": "sync.gcode",
+                    "message": "thermal runaway",
+                },
             )
+
         asyncio.run(_sync())
         db_session.refresh(job)
         assert job.state == PrintJobState.FAILED

@@ -1,4 +1,5 @@
 """Unit tests for taxonomy resolution services."""
+
 from __future__ import annotations
 
 from app.services.taxonomy import parse_tag_input
@@ -6,10 +7,18 @@ from app.services.taxonomy import parse_tag_input
 
 class TestParseTagInput:
     def test_parse_simple(self) -> None:
-        assert parse_tag_input("bracket, functional, PLA") == ["bracket", "functional", "PLA"]
+        assert parse_tag_input("bracket, functional, PLA") == [
+            "bracket",
+            "functional",
+            "PLA",
+        ]
 
     def test_parse_with_whitespace(self) -> None:
-        assert parse_tag_input("  bracket , functional ,  PLA  ") == ["bracket", "functional", "PLA"]
+        assert parse_tag_input("  bracket , functional ,  PLA  ") == [
+            "bracket",
+            "functional",
+            "PLA",
+        ]
 
     def test_parse_empty(self) -> None:
         assert parse_tag_input("") == []

@@ -1,4 +1,5 @@
 """Extract base64-encoded PNG thumbnails embedded in OrcaSlicer/PrusaSlicer G-code."""
+
 from __future__ import annotations
 
 import base64

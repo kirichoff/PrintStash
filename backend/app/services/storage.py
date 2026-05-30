@@ -19,7 +19,9 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 def slugify(name: str) -> str:
     """Produce a filesystem-safe, kebab-case slug."""
-    normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    normalized = (
+        unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    )
     slug = _SLUG_RE.sub("-", normalized.lower()).strip("-")
     return slug or "model"
 

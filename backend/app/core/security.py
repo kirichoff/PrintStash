@@ -38,7 +38,7 @@ def get_current_user(
     """
     if not authorization or not authorization.startswith("Bearer "):
         return None
-    token = authorization[len("Bearer "):]
+    token = authorization[len("Bearer ") :]
     payload = verify_access_token(token)
     if not payload:
         return None

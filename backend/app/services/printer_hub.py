@@ -233,7 +233,13 @@ class PrinterHub:
 
                 if job is None:
                     # No vault-created job — check if printer is actively printing.
-                    if ms_state in ("printing", "paused", "complete", "cancelled", "error"):
+                    if ms_state in (
+                        "printing",
+                        "paused",
+                        "complete",
+                        "cancelled",
+                        "error",
+                    ):
                         sentinel_file_id, sentinel_model_id = _get_sentinel_ids(session)
                         job = PrintJob(
                             printer_id=printer_id,
@@ -247,7 +253,9 @@ class PrinterHub:
                         session.refresh(job)
                         logger.info(
                             "captured external print job %s on printer %s (state=%s)",
-                            filename, printer_id, ms_state,
+                            filename,
+                            printer_id,
+                            ms_state,
                         )
                     else:
                         return
@@ -311,14 +319,10 @@ def _get_sentinel_ids(session: Session) -> tuple[int, int]:
     """Return (file_id, model_id) of the sentinel rows for external print jobs."""
     from app.db.models import File, Model, SENTINEL_MODEL_HASH, SENTINEL_FILE_HASH
 
-    model = session.exec(
-        select(Model).where(Model.hash == SENTINEL_MODEL_HASH)
-    ).first()
+    model = session.exec(select(Model).where(Model.hash == SENTINEL_MODEL_HASH)).first()
     model_id = model.id if model else 1
 
-    f = session.exec(
-        select(File).where(File.sha256 == SENTINEL_FILE_HASH)
-    ).first()
+    f = session.exec(select(File).where(File.sha256 == SENTINEL_FILE_HASH)).first()
     file_id = f.id if f else 1
 
     return file_id, model_id

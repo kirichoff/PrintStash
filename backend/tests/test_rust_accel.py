@@ -9,10 +9,10 @@ import struct
 from pathlib import Path
 
 
-
 # ---------------------------------------------------------------------------
 # gcode_rust — wrapper + fallback
 # ---------------------------------------------------------------------------
+
 
 class TestGcodeRust:
     def test_wrapper_imports_without_native(self):
@@ -61,6 +61,7 @@ class TestGcodeRust:
 # raster_rust — wrapper + fallback
 # ---------------------------------------------------------------------------
 
+
 class TestRasterRust:
     def test_wrapper_imports_without_native(self):
         from app.services import raster_rust
@@ -92,6 +93,7 @@ class TestRasterRust:
 # ---------------------------------------------------------------------------
 # ingestion — gcode_strategy fallback
 # ---------------------------------------------------------------------------
+
 
 class TestIngestionGcodeStrategy:
     def test_falls_back_to_pure_python(self, monkeypatch, tmp_path: Path):
@@ -131,6 +133,7 @@ class TestIngestionGcodeStrategy:
 # mesh_render — thumbnail rendering (raster_rust fallback)
 # ---------------------------------------------------------------------------
 
+
 class TestMeshRenderThumbnail:
     def test_render_thumbnail_falls_back_to_pure_numpy(self, tmp_path: Path):
         """render_thumbnail should produce valid PNG even without Rust rasteriser."""
@@ -145,7 +148,7 @@ class TestMeshRenderThumbnail:
 
         png = render_thumbnail(_load_mesh, stl_path, width=64, height=48)
         assert png is not None
-        assert len(png) > 100      # reasonable PNG overhead
+        assert len(png) > 100  # reasonable PNG overhead
         assert png[:4] == b"\x89PNG"  # PNG magic
 
     def test_render_thumbnail_handles_missing_file(self, tmp_path: Path):
@@ -160,6 +163,7 @@ class TestMeshRenderThumbnail:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_minimal_stl_bytes() -> bytes:
     """Create a minimal binary STL with a single triangle."""

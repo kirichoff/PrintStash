@@ -24,7 +24,6 @@ from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import File as FileModel
 from app.db.session import get_engine, get_session_factory
-from app.services import storage
 from app.services.storage_backend import LocalStorageBackend, get_backend
 
 logger = get_logger(__name__)
@@ -80,7 +79,9 @@ def _get_backup_s3():
             kwargs["endpoint_url"] = settings.backup_s3_endpoint_url
 
         _backup_s3 = boto3.client(**kwargs)
-        logger.info("backup: S3 client initialised for bucket %s", settings.backup_s3_bucket)
+        logger.info(
+            "backup: S3 client initialised for bucket %s", settings.backup_s3_bucket
+        )
         return _backup_s3
     except Exception:
         logger.warning("backup: failed to initialise S3 client", exc_info=True)
@@ -111,7 +112,7 @@ def _backup_sqlite_copy() -> bytes:
 
 
 def _find_blob_keys() -> list[str]:
-    from sqlmodel import Session, select
+    from sqlmodel import select
 
     with get_session_factory().session() as session:
         rows = session.exec(select(FileModel.path)).all()
@@ -158,7 +159,9 @@ def create_backup() -> BackupMeta:
         "storage_backend": backend_name,
     }
 
-    archive_name = f"nexus3d-backup-{timestamp.strftime('%Y%m%d-%H%M%S')}-{backup_id}.tar.gz"
+    archive_name = (
+        f"nexus3d-backup-{timestamp.strftime('%Y%m%d-%H%M%S')}-{backup_id}.tar.gz"
+    )
     archive_path = settings.backup_dir / archive_name
 
     total_size = 0
@@ -270,17 +273,27 @@ def _list_s3_backups() -> list[BackupMeta]:
                                     f = tar.extractfile(member)
                                     if f:
                                         manifest = json.loads(f.read().decode("utf-8"))
-                                        backup_id = archive_name.rsplit("-", 1)[-1].replace(".tar.gz", "")
-                                        results.append(BackupMeta(
-                                            id=backup_id,
-                                            created_at=manifest["created_at"],
-                                            size_bytes=obj.get("Size", 0),
-                                            storage_backend=manifest.get("storage_backend", "local"),
-                                            file_count=manifest.get("file_count", 0),
-                                            app_version=manifest.get("app_version", "unknown"),
-                                            path=key,
-                                            location="s3",
-                                        ))
+                                        backup_id = archive_name.rsplit("-", 1)[
+                                            -1
+                                        ].replace(".tar.gz", "")
+                                        results.append(
+                                            BackupMeta(
+                                                id=backup_id,
+                                                created_at=manifest["created_at"],
+                                                size_bytes=obj.get("Size", 0),
+                                                storage_backend=manifest.get(
+                                                    "storage_backend", "local"
+                                                ),
+                                                file_count=manifest.get(
+                                                    "file_count", 0
+                                                ),
+                                                app_version=manifest.get(
+                                                    "app_version", "unknown"
+                                                ),
+                                                path=key,
+                                                location="s3",
+                                            )
+                                        )
                                         break
                 except Exception:
                     logger.warning("backup: cannot read S3 manifest for %s", key)
@@ -430,7 +443,7 @@ def restore_backup(backup_id: str) -> dict:
                 if member.name == "db.sqlite3":
                     _restore_database(data)
                 elif member.name.startswith("files/") and member.name != "files/":
-                    key = member.name[len("files/"):]
+                    key = member.name[len("files/") :]
                     get_backend().write_bytes(data, key)
                     restored_files += 1
 

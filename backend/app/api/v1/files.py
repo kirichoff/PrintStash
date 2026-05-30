@@ -16,7 +16,6 @@ from app.core.security import require_auth
 from app.db.models import File, FileType, Model
 from app.db.session import get_session
 from app.services import storage
-from app.services.storage_backend import get_backend
 from app.services.storage_backend import LocalStorageBackend, get_backend
 
 logger = get_logger(__name__)

@@ -80,10 +80,10 @@ def render_thumbnail(
         extent_y = max(y_max - y_min, 1e-6)
         margin = 0.10
         scale = min(
-            (width  * (1 - 2 * margin)) / extent_x,
+            (width * (1 - 2 * margin)) / extent_x,
             (height * (1 - 2 * margin)) / extent_y,
         )
-        px = (xs - (x_min + x_max) * 0.5) * scale + width  * 0.5
+        px = (xs - (x_min + x_max) * 0.5) * scale + width * 0.5
         py = height * 0.5 - (ys - (y_min + y_max) * 0.5) * scale  # flip Y
         pz = view[:, 2]
         screen = np.stack([px, py, pz], axis=1)  # (N, 3)
@@ -93,15 +93,15 @@ def render_thumbnail(
         #    Back-face cull: visible normals have z < 0 (they face the camera
         #    which sits at -Z).
         # ------------------------------------------------------------------
-        tri      = screen[faces]      # (F, 3, 3) screen-space
-        view_tri = view[faces]        # (F, 3, 3) view-space
+        tri = screen[faces]  # (F, 3, 3) screen-space
+        view_tri = view[faces]  # (F, 3, 3) view-space
 
         edge1 = view_tri[:, 1] - view_tri[:, 0]
         edge2 = view_tri[:, 2] - view_tri[:, 0]
-        normals  = np.cross(edge1, edge2)                             # (F, 3)
+        normals = np.cross(edge1, edge2)  # (F, 3)
         norm_len = np.linalg.norm(normals, axis=1, keepdims=True)
         norm_len = np.where(norm_len == 0, 1.0, norm_len)
-        normals  = normals / norm_len                                 # unit normals
+        normals = normals / norm_len  # unit normals
 
         # Flip normals so they consistently point toward the camera (-Z direction).
         # After this, every valid visible normal has z > 0 (pointing at camera).
@@ -118,34 +118,34 @@ def render_thumbnail(
             return v / np.linalg.norm(v)
 
         # Key light: upper-left, slightly in front of camera
-        key_dir   = _normalise(np.array([-0.6,  0.8, 0.8]))
-        key_color = np.array([1.00, 0.97, 0.92])   # warm white
-        key_str   = 0.70
+        key_dir = _normalise(np.array([-0.6, 0.8, 0.8]))
+        key_color = np.array([1.00, 0.97, 0.92])  # warm white
+        key_str = 0.70
 
         # Fill light: lower-right, softer and cooler
-        fill_dir   = _normalise(np.array([ 0.5, -0.4, 0.6]))
+        fill_dir = _normalise(np.array([0.5, -0.4, 0.6]))
         fill_color = np.array([0.60, 0.65, 0.80])  # cool blue-grey
-        fill_str   = 0.30
+        fill_str = 0.30
 
         # Rim / back-edge light: grazing from above-right-back
-        rim_dir   = _normalise(np.array([ 0.8,  0.6, -0.2]))
-        rim_color = np.array([0.90, 0.95, 1.00])   # near-white, slightly cool
-        rim_str   = 0.20
+        rim_dir = _normalise(np.array([0.8, 0.6, -0.2]))
+        rim_color = np.array([0.90, 0.95, 1.00])  # near-white, slightly cool
+        rim_str = 0.20
 
         # Ambient: constant soft blue-grey floor
         ambient_color = np.array([0.18, 0.20, 0.24])
 
-        key_diff  = np.clip(normals @ key_dir,  0.0, 1.0)[:, None]   # (F,1)
+        key_diff = np.clip(normals @ key_dir, 0.0, 1.0)[:, None]  # (F,1)
         fill_diff = np.clip(normals @ fill_dir, 0.0, 1.0)[:, None]
-        rim_diff  = np.clip(normals @ rim_dir,  0.0, 1.0)[:, None]
+        rim_diff = np.clip(normals @ rim_dir, 0.0, 1.0)[:, None]
 
         # Per-face RGB multiplier in [0,1]³
         shade_rgb = (
             ambient_color
-            + key_str  * key_diff  * key_color
+            + key_str * key_diff * key_color
             + fill_str * fill_diff * fill_color
-            + rim_str  * rim_diff  * rim_color
-        )                                                   # (F, 3)
+            + rim_str * rim_diff * rim_color
+        )  # (F, 3)
         shade_rgb = np.clip(shade_rgb, 0.0, 1.0)
 
         # Back-face cull: after normal-flipping, valid faces had original z<0.
@@ -154,12 +154,14 @@ def render_thumbnail(
         front = raw_normals[:, 2] < 0.0
         valid = front & (norm_len.squeeze() > 1e-8)
 
-        tri       = tri[valid]
+        tri = tri[valid]
         shade_rgb = shade_rgb[valid]
 
         if tri.shape[0] == 0:
-            logger.warning("mesh_render: no visible triangles for %s — using silhouette", path.name)
-            tri       = screen[faces]
+            logger.warning(
+                "mesh_render: no visible triangles for %s — using silhouette", path.name
+            )
+            tri = screen[faces]
             shade_rgb = np.tile(ambient_color + 0.4, (faces.shape[0], 1))
 
         # ------------------------------------------------------------------
@@ -167,8 +169,8 @@ def render_thumbnail(
         # ------------------------------------------------------------------
         avg_z = tri[:, :, 2].mean(axis=1)
         order = np.argsort(-avg_z)
-        tri       = tri[order]
-        shade_rgb = shade_rgb[order]                        # (F, 3) float
+        tri = tri[order]
+        shade_rgb = shade_rgb[order]  # (F, 3) float
 
         # ------------------------------------------------------------------
         # 7. Rasterise.
@@ -177,7 +179,7 @@ def render_thumbnail(
         base_color = np.array([168, 186, 200], dtype=np.float32)
 
         bg_color = np.array([245, 246, 248], dtype=np.uint8)  # off-white bg
-        img  = np.broadcast_to(bg_color, (height, width, 3)).copy()
+        img = np.broadcast_to(bg_color, (height, width, 3)).copy()
         zbuf = np.full((height, width), np.inf, dtype=np.float32)
 
         _rasterise_triangles(img, zbuf, tri, shade_rgb, base_color, width, height)
@@ -191,10 +193,10 @@ def render_thumbnail(
         pil = pil.filter(ImageFilter.GaussianBlur(radius=0.6))
 
         # Vignette: darken the corners slightly so the model "pops"
-        vx = np.linspace(-1, 1, width,  dtype=np.float32)
+        vx = np.linspace(-1, 1, width, dtype=np.float32)
         vy = np.linspace(-1, 1, height, dtype=np.float32)
         gx, gy = np.meshgrid(vx, vy)
-        vignette = 1.0 - 0.18 * np.clip(gx ** 2 + gy ** 2, 0, 1)
+        vignette = 1.0 - 0.18 * np.clip(gx**2 + gy**2, 0, 1)
         vig_arr = np.array(pil, dtype=np.float32) * vignette[:, :, None]
         pil = Image.fromarray(np.clip(vig_arr, 0, 255).astype(np.uint8))
 
@@ -213,6 +215,7 @@ def render_thumbnail(
 # Rasterisation helpers
 # ---------------------------------------------------------------------------
 
+
 def _rasterise_triangles(
     img, zbuf, tri, shade_rgb, base_color, width: int, height: int
 ) -> None:
@@ -224,32 +227,43 @@ def _rasterise_triangles(
 
     xs = tri[:, :, 0]
     ys = tri[:, :, 1]
-    x0 = np.clip(np.floor(xs.min(axis=1)).astype(np.int32), 0, width  - 1)
-    x1 = np.clip(np.ceil( xs.max(axis=1)).astype(np.int32), 0, width  - 1)
+    x0 = np.clip(np.floor(xs.min(axis=1)).astype(np.int32), 0, width - 1)
+    x1 = np.clip(np.ceil(xs.max(axis=1)).astype(np.int32), 0, width - 1)
     y0 = np.clip(np.floor(ys.min(axis=1)).astype(np.int32), 0, height - 1)
-    y1 = np.clip(np.ceil( ys.max(axis=1)).astype(np.int32), 0, height - 1)
+    y1 = np.clip(np.ceil(ys.max(axis=1)).astype(np.int32), 0, height - 1)
 
     v0, v1, v2 = tri[:, 0], tri[:, 1], tri[:, 2]
-    denom = (
-        (v1[:, 1] - v2[:, 1]) * (v0[:, 0] - v2[:, 0])
-        + (v2[:, 0] - v1[:, 0]) * (v0[:, 1] - v2[:, 1])
+    denom = (v1[:, 1] - v2[:, 1]) * (v0[:, 0] - v2[:, 0]) + (v2[:, 0] - v1[:, 0]) * (
+        v0[:, 1] - v2[:, 1]
     )
     valid = np.abs(denom) > 1e-9
 
     idx = np.where(valid)[0]
     for i in idx:
         _rasterise_one(
-            img, zbuf,
-            tri[i], shade_rgb[i], denom[i],
-            int(x0[i]), int(x1[i]), int(y0[i]), int(y1[i]),
+            img,
+            zbuf,
+            tri[i],
+            shade_rgb[i],
+            denom[i],
+            int(x0[i]),
+            int(x1[i]),
+            int(y0[i]),
+            int(y1[i]),
             base_color,
         )
 
 
 def _rasterise_one(
-    img, zbuf,
-    tri_i, shade_i, denom_i,
-    xmin, xmax, ymin, ymax,
+    img,
+    zbuf,
+    tri_i,
+    shade_i,
+    denom_i,
+    xmin,
+    xmax,
+    ymin,
+    ymax,
     base_color,
 ) -> None:
     """Rasterise one triangle into img/zbuf. shade_i is a (3,) RGB float in [0,1]."""
@@ -272,13 +286,13 @@ def _rasterise_one(
         return
 
     z = w0 * v0[2] + w1 * v1[2] + w2 * v2[2]
-    sub_z   = zbuf[ymin : ymax + 1, xmin : xmax + 1]
-    sub_img = img [ymin : ymax + 1, xmin : xmax + 1]
-    write   = inside & (z < sub_z)
+    sub_z = zbuf[ymin : ymax + 1, xmin : xmax + 1]
+    sub_img = img[ymin : ymax + 1, xmin : xmax + 1]
+    write = inside & (z < sub_z)
     if not write.any():
         return
 
     # shade_i is (3,) RGB multiplier; base_color is (3,) float
     colour = np.clip(base_color * shade_i, 0, 255).astype(np.uint8)
     sub_img[write] = colour
-    sub_z[write]   = z[write]
+    sub_z[write] = z[write]
