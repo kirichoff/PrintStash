@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Generator, Iterator, Protocol, runtime_checkable
+from typing import AsyncGenerator, Generator, Iterator, Protocol, runtime_checkable
 
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -22,6 +28,39 @@ _engine: Engine = create_engine(
     echo=False,
     connect_args=_connect_args,
 )
+
+_async_engine: AsyncEngine | None = None
+_async_session_maker: async_sessionmaker[AsyncSession] | None = None
+
+
+def create_async_engine_for_db(db_url: str) -> AsyncEngine:
+    if db_url.startswith("sqlite"):
+        async_url = db_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+        return create_async_engine(
+            async_url,
+            echo=False,
+            connect_args={"check_same_thread": False},
+        )
+    if db_url.startswith("postgresql://"):
+        async_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif db_url.startswith("postgres://"):
+        async_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    else:
+        async_url = db_url
+    return create_async_engine(async_url, echo=False, pool_pre_ping=True)
+
+
+def _async_session_factory() -> async_sessionmaker[AsyncSession]:
+    global _async_engine, _async_session_maker
+    if _async_session_maker is None:
+        _async_engine = create_async_engine_for_db(settings.db_url)
+        _async_session_maker = async_sessionmaker(
+            bind=_async_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autoflush=False,
+        )
+    return _async_session_maker
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +81,7 @@ class SessionFactory(Protocol):
     """
 
     def session(self) -> Session: ...
-    def async_session(self) -> Any: ...
+    def async_session(self) -> AsyncSession: ...
     def scoped_session(self) -> Generator[Session, None, None]: ...
 
 
@@ -55,8 +94,9 @@ class SQLiteSessionFactory:
     def session(self) -> Session:
         return Session(self._engine)
 
-    def async_session(self) -> Any:
-        raise NotImplementedError("AsyncSession requires Postgres (Stage 4)")
+    def async_session(self) -> AsyncSession:
+        maker = _async_session_factory()
+        return maker()
 
     @contextmanager
     def scoped_session(self) -> Generator[Session, None, None]:
@@ -152,3 +192,12 @@ def get_session() -> Iterator[Session]:
     factory = _factory_ctx.get()
     with factory.scoped_session() as session:
         yield session
+
+
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    factory = _factory_ctx.get()
+    session = factory.async_session()
+    try:
+        yield session
+    finally:
+        await session.close()

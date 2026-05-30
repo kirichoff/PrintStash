@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.core.logging import get_logger
-from app.core.security import require_auth
+from app.core.security import require_superuser
 from app.services import backup
 
 logger = get_logger(__name__)
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/backups", tags=["backups"])
 @router.post(
     "",
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(require_auth)],
+    dependencies=[Depends(require_superuser)],
     summary="Create a new vault backup",
     description=(
         "Creates a full backup (database + all stored files) as a tar.gz "
@@ -42,6 +42,7 @@ def create_backup(
 
 @router.get(
     "",
+    dependencies=[Depends(require_superuser)],
     summary="List available backups",
     description="Returns backups from local storage and (if configured) cloud storage, merged and deduplicated.",
 )
@@ -63,6 +64,7 @@ def list_backups() -> list[dict]:
 
 @router.get(
     "/{backup_id}",
+    dependencies=[Depends(require_superuser)],
     summary="Get backup metadata",
 )
 def get_backup(backup_id: str) -> dict:
@@ -83,7 +85,7 @@ def get_backup(backup_id: str) -> dict:
 @router.delete(
     "/{backup_id}",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_auth)],
+    dependencies=[Depends(require_superuser)],
     summary="Delete a backup",
 )
 def delete_backup(backup_id: str) -> dict:
@@ -95,7 +97,7 @@ def delete_backup(backup_id: str) -> dict:
 @router.post(
     "/{backup_id}/restore",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_auth)],
+    dependencies=[Depends(require_superuser)],
     summary="Restore from a backup",
     description=(
         "Restores the database and all files from a backup archive. "

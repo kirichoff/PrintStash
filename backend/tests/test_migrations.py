@@ -22,3 +22,4 @@ def test_alembic_upgrade_creates_expected_schema(tmp_path: Path, monkeypatch) ->
     assert "models" in tables
     assert "files" in tables
     assert "print_jobs" in tables
+    assert "refresh_tokens" in tables

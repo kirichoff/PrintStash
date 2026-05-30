@@ -46,6 +46,7 @@ _TRUNCATE_TABLES_ORDER = [
     "metadata",
     "models",
     "categories",
+    "refresh_tokens",
     "users",
     "system_config",
 ]

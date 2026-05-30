@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -9,9 +11,11 @@ from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.db.models import User
+from app.db.models import RefreshToken, User
+from app.core.time import utcnow
 
 logger = get_logger(__name__)
+ACCESS_BLOCKLIST: set[str] = set()
 
 
 def hash_password(password: str) -> str:
@@ -22,13 +26,26 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
-def create_access_token(user_id: int, username: str) -> str:
+def _token_hash(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def create_access_token(user_id: int, username: str, scope: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.access_token_expire_minutes
     )
+    token_id = secrets.token_hex(16)
     payload = {
         "sub": str(user_id),
         "username": username,
+        "scope": scope,
+        "jti": token_id,
         "exp": expire,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
@@ -36,12 +53,70 @@ def create_access_token(user_id: int, username: str) -> str:
 
 def verify_access_token(token: str) -> Optional[dict]:
     try:
-        return jwt.decode(
+        payload = jwt.decode(
             token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
         )
+        token_id = payload.get("jti")
+        if isinstance(token_id, str) and token_id in ACCESS_BLOCKLIST:
+            return None
+        return payload
     except JWTError as exc:
         logger.debug("jwt verification failed: %s", exc)
         return None
+
+
+def revoke_access_token(token: str) -> None:
+    payload = verify_access_token(token)
+    if not payload:
+        return
+    token_id = payload.get("jti")
+    if isinstance(token_id, str):
+        ACCESS_BLOCKLIST.add(token_id)
+
+
+def create_refresh_token(
+    session: Session, user_id: int, minutes: int = 60 * 24 * 14
+) -> str:
+    raw_token = secrets.token_urlsafe(48)
+    expires_at = utcnow() + timedelta(minutes=minutes)
+    record = RefreshToken(
+        user_id=user_id,
+        token_hash=_token_hash(raw_token),
+        expires_at=expires_at,
+        revoked=False,
+    )
+    session.add(record)
+    session.commit()
+    return raw_token
+
+
+def rotate_refresh_token(session: Session, raw_token: str) -> Optional[RefreshToken]:
+    token_hash = _token_hash(raw_token)
+    record = session.exec(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+    ).first()
+    if record is None or record.revoked or _as_utc(record.expires_at) <= utcnow():
+        return None
+    record.revoked = True
+    record.revoked_at = utcnow()
+    session.add(record)
+    session.commit()
+    return record
+
+
+def revoke_refresh_token(session: Session, raw_token: str) -> bool:
+    token_hash = _token_hash(raw_token)
+    record = session.exec(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+    ).first()
+    if record is None:
+        return False
+    if not record.revoked:
+        record.revoked = True
+        record.revoked_at = utcnow()
+        session.add(record)
+        session.commit()
+    return True
 
 
 def get_user_by_username(session: Session, username: str) -> Optional[User]:

@@ -155,7 +155,7 @@ def complete_setup(
         settings.thumb_dir,
     )
 
-    token = create_access_token(user.id, user.username)
+    token = create_access_token(user.id, user.username, scope="admin")
     return SetupResponse(
         configured=True,
         user_id=user.id,

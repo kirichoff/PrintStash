@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from app.core.security import require_auth
+from app.core.security import require_superuser
 from app.db.session import get_session
 from app.services import runtime_config
 
@@ -63,6 +63,7 @@ class VaultConfigUpdate(BaseModel):
     ),
 )
 def get_config(
+    _: object = Depends(require_superuser),
     session: Session = Depends(get_session),
 ) -> VaultConfigRead:
     cfg = runtime_config.get_effective_config(session)
@@ -72,7 +73,7 @@ def get_config(
 @router.put(
     "",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_auth)],
+    dependencies=[Depends(require_superuser)],
     summary="Update vault configuration",
     description=(
         "Persists configuration overrides to the database and applies them "

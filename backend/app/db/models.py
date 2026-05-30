@@ -244,6 +244,18 @@ class User(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class RefreshToken(SQLModel, table=True):
+    __tablename__ = "refresh_tokens"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    token_hash: str = Field(max_length=64, unique=True, index=True)
+    expires_at: datetime = Field(index=True)
+    revoked: bool = Field(default=False, index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    revoked_at: Optional[datetime] = None
+
+
 class SystemConfig(SQLModel, table=True):
     """Singleton row (id=1) holding runtime-configurable settings.
 

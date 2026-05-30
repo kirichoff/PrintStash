@@ -48,6 +48,43 @@ uv run alembic upgrade head
 uv run alembic stamp head
 ```
 
+### Upgrade flow (local dev)
+
+```bash
+cd backend
+uv sync --extra dev
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload
+```
+
+### Upgrade flow (Docker)
+
+```bash
+# Stop old containers (keeps volumes)
+docker compose down
+
+# Run DB migrations against current VAULT_DB_URL
+docker compose run --rm api uv run alembic upgrade head
+
+# Start updated stack
+docker compose up -d --build
+```
+
+### SQLite -> Postgres migration helper
+
+Use the optional script at `scripts/sqlite_to_postgres.py` after migrating the
+target Postgres schema to head:
+
+```bash
+cd backend
+uv run alembic upgrade head
+
+cd ..
+python scripts/sqlite_to_postgres.py \
+  --sqlite sqlite:////absolute/path/to/nexus3d.sqlite \
+  --postgres postgresql://nexus3d:nexus3d@localhost:5432/nexus3d
+```
+
 ## Layout
 
 ```

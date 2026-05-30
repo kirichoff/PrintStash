@@ -19,22 +19,22 @@ default path; Postgres and S3 stay optional adapters for larger installs.
 - [x] Reframe Stage 4 around self-hosted production hardening
 - [x] Add Alembic to the backend and create a baseline migration
 - [x] Remove ad hoc SQLite column patching as the schema upgrade mechanism
-- [ ] Document an explicit upgrade flow for Docker and local installs
-- [ ] Add migration smoke tests against SQLite
-- [ ] Add Postgres drivers (`asyncpg`, `psycopg2`) to `pyproject.toml`
-- [ ] Implement `async_session()` on `SessionFactory` Protocol
-- [ ] Create `create_async_engine()` in `db/session.py`
-- [ ] Add Postgres service to `docker-compose.yml` as an optional profile
-- [ ] Write a SQLite→Postgres migration guide/script
+- [x] Document an explicit upgrade flow for Docker and local installs
+- [x] Add migration smoke tests against SQLite
+- [x] Add Postgres drivers (`asyncpg`, `psycopg2`) to `pyproject.toml`
+- [x] Implement `async_session()` on `SessionFactory` Protocol
+- [x] Create `create_async_engine()` in `db/session.py`
+- [x] Add Postgres service to `docker-compose.yml` as an optional profile
+- [x] Write a SQLite→Postgres migration guide/script
 
 ### Phase 4b — Auth and admin hardening
 
-- [ ] Add `RefreshToken` model (token hash, user_id, expires_at, revoked)
-- [ ] Implement `POST /auth/refresh` and `POST /auth/logout` endpoints
-- [ ] Replace raw `Header` auth with FastAPI's `OAuth2PasswordBearer`
-- [ ] Add role-based access: enforce `is_superuser` on admin endpoints
-- [ ] Add `scope` to JWT payload (read/write/admin)
-- [ ] Implement in-memory token blocklist (invalidated on logout)
+- [x] Add `RefreshToken` model (token hash, user_id, expires_at, revoked)
+- [x] Implement `POST /auth/refresh` and `POST /auth/logout` endpoints
+- [x] Replace raw `Header` auth with FastAPI's `OAuth2PasswordBearer`
+- [x] Add role-based access: enforce `is_superuser` on admin endpoints
+- [x] Add `scope` to JWT payload (read/write/admin)
+- [x] Implement in-memory token blocklist (invalidated on logout)
 
 ### Phase 4c — Data lifecycle and recovery
 

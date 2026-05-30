@@ -5,6 +5,8 @@ description = "PrintStash — self-hosted 3D printing asset manager"
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.14",
+    "aiosqlite>=0.20",
+    "asyncpg>=0.29",
     "bcrypt>=5.0.0",
     "boto3>=1.35",
     "fastapi>=0.115",
@@ -17,6 +19,7 @@ dependencies = [
     "pydantic-settings>=2.5",
     "python-jose[cryptography]>=3.5.0",
     "python-multipart>=0.0.12",
+    "psycopg2-binary>=2.9",
     "sqlmodel>=0.0.22",
     "trimesh>=4.4",
     "uvicorn[standard]>=0.30",
