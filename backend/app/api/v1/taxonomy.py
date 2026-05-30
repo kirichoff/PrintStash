@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 
 from app.core.http import get_or_404
 from app.core.security import require_auth
+from app.core.time import utcnow
 from app.db.models import Category, Model, ModelTagLink, Tag
 from app.db.session import get_session
 from app.schemas.models import CategoryCreate, CategoryRead, TagCreate, TagRead
@@ -47,7 +48,9 @@ def _category_model_count(session: Session, path: str) -> int:
     summary="List all categories with model counts",
 )
 def list_categories(session: Session = Depends(get_session)) -> List[CategoryRead]:
-    cats = session.exec(select(Category).order_by(Category.path)).all()
+    cats = session.exec(
+        select(Category).where(Category.deleted_at.is_(None)).order_by(Category.path)  # type: ignore[union-attr]
+    ).all()
     return [
         CategoryRead(
             id=c.id,
@@ -113,7 +116,8 @@ def delete_category(
     if _category_model_count(session, cat.path):
         raise HTTPException(status_code=409, detail="category_has_models")
 
-    session.delete(cat)
+    cat.deleted_at = utcnow()
+    session.add(cat)
     session.commit()
     return Response(status_code=204)
 
@@ -138,7 +142,9 @@ def _tag_model_count(session: Session, tag_id: int) -> int:
     summary="List all tags with model counts",
 )
 def list_tags(session: Session = Depends(get_session)) -> List[TagRead]:
-    tags = session.exec(select(Tag).order_by(Tag.name)).all()
+    tags = session.exec(
+        select(Tag).where(Tag.deleted_at.is_(None)).order_by(Tag.name)  # type: ignore[union-attr]
+    ).all()
     return [
         TagRead(
             id=t.id,
@@ -187,6 +193,7 @@ def delete_tag(
 
     tag = get_or_404(session, Tag, tag_id, "tag_not_found")
     session.exec(delete(ModelTagLink).where(ModelTagLink.tag_id == tag_id))  # type: ignore[call-overload]
-    session.delete(tag)
+    tag.deleted_at = utcnow()
+    session.add(tag)
     session.commit()
     return Response(status_code=204)

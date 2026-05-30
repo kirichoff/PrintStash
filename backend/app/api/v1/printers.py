@@ -65,6 +65,7 @@ def list_printers(
     session: Session = Depends(get_session),
 ) -> List[PrinterRead]:
     stmt = select(Printer).order_by(Printer.name)
+    stmt = stmt.where(Printer.deleted_at.is_(None))  # type: ignore[union-attr]
     if group is not None:
         stmt = stmt.where(Printer.group == group)
     return [_to_read(p) for p in session.exec(stmt).all()]
@@ -120,7 +121,10 @@ def farm_dashboard(session: Session = Depends(get_session)) -> dict:
 def get_printer(
     printer_id: int, session: Session = Depends(get_session)
 ) -> PrinterRead:
-    return _to_read(get_or_404(session, Printer, printer_id, "printer_not_found"))
+    p = get_or_404(session, Printer, printer_id, "printer_not_found")
+    if p.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="printer_not_found")
+    return _to_read(p)
 
 
 @router.post(
@@ -194,7 +198,8 @@ async def delete_printer(
     hub: PrinterHub = Depends(get_hub),
 ) -> Response:
     p = get_or_404(session, Printer, printer_id, "printer_not_found")
-    session.delete(p)
+    p.deleted_at = utcnow()
+    session.add(p)
     session.commit()
     await hub.remove_printer(printer_id)
     return Response(status_code=204)

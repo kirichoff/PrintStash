@@ -1,0 +1,106 @@
+from __future__ import annotations
+
+import json
+from contextvars import ContextVar
+from typing import Any
+
+from sqlalchemy import event, inspect
+from sqlalchemy.orm import Session as SASession
+
+from app.db.models import AuditLog
+
+_actor_id_ctx: ContextVar[int | None] = ContextVar("audit_actor_id", default=None)
+_ip_ctx: ContextVar[str | None] = ContextVar("audit_ip", default=None)
+_installed = False
+
+
+def set_audit_context(*, actor_id: int | None, ip: str | None) -> None:
+    _actor_id_ctx.set(actor_id)
+    _ip_ctx.set(ip)
+
+
+def clear_audit_context() -> None:
+    _actor_id_ctx.set(None)
+    _ip_ctx.set(None)
+
+
+def _resource_id(obj: Any) -> int | None:
+    val = getattr(obj, "id", None)
+    return int(val) if isinstance(val, int) else None
+
+
+def _diff_for_obj(obj: Any) -> dict[str, Any]:
+    state = inspect(obj)
+    out: dict[str, Any] = {}
+    for attr in state.attrs:
+        hist = attr.history
+        if not hist.has_changes():
+            continue
+        out[attr.key] = {
+            "before": hist.deleted[0] if hist.deleted else None,
+            "after": hist.added[0] if hist.added else getattr(obj, attr.key, None),
+        }
+    return out
+
+
+def install_audit_listeners() -> None:
+    global _installed
+    if _installed:
+        return
+
+    @event.listens_for(SASession, "after_flush")
+    def _after_flush(session: SASession, _ctx) -> None:
+        actor_id = _actor_id_ctx.get()
+        ip = _ip_ctx.get()
+        rows: list[AuditLog] = []
+        for obj in session.new:
+            if isinstance(obj, AuditLog) or not hasattr(obj, "__tablename__"):
+                continue
+            rows.append(
+                AuditLog(
+                    actor_id=actor_id,
+                    action="create",
+                    resource_type=obj.__tablename__,
+                    resource_id=_resource_id(obj),
+                    diff_json=json.dumps(_diff_for_obj(obj), default=str),
+                    ip=ip,
+                )
+            )
+        for obj in session.dirty:
+            if isinstance(obj, AuditLog) or not hasattr(obj, "__tablename__"):
+                continue
+            diff = _diff_for_obj(obj)
+            if not diff:
+                continue
+            action = "update"
+            if "deleted_at" in diff and diff["deleted_at"].get("after") is not None:
+                action = "soft_delete"
+            elif "deleted_at" in diff and diff["deleted_at"].get("after") is None:
+                action = "restore"
+            rows.append(
+                AuditLog(
+                    actor_id=actor_id,
+                    action=action,
+                    resource_type=obj.__tablename__,
+                    resource_id=_resource_id(obj),
+                    diff_json=json.dumps(diff, default=str),
+                    ip=ip,
+                )
+            )
+        for obj in session.deleted:
+            if isinstance(obj, AuditLog) or not hasattr(obj, "__tablename__"):
+                continue
+            rows.append(
+                AuditLog(
+                    actor_id=actor_id,
+                    action="hard_delete",
+                    resource_type=obj.__tablename__,
+                    resource_id=_resource_id(obj),
+                    diff_json="{}",
+                    ip=ip,
+                )
+            )
+        if rows:
+            session.add_all(rows)
+
+    _installed = True

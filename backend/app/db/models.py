@@ -109,6 +109,8 @@ class File(SQLModel, table=True):
     sha256: str = Field(index=True, max_length=64)
 
     uploaded_at: datetime = Field(default_factory=utcnow)
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
+    deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
 
     model: Optional["Model"] = Relationship(
         back_populates="files",
@@ -142,6 +144,10 @@ class Category(SQLModel, table=True):
     )
     path: str = Field(max_length=512, unique=True, index=True)
 
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
+    deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    updated_by: Optional[int] = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -151,6 +157,10 @@ class Tag(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(max_length=64, unique=True, index=True)
     slug: str = Field(max_length=64, unique=True, index=True)
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
+    deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    updated_by: Optional[int] = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -183,6 +193,9 @@ class Model(SQLModel, table=True):
     thumbnail_file_id: Optional[int] = Field(default=None, foreign_key="files.id")
 
     deleted_at: Optional[datetime] = Field(default=None, index=True)
+    deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    updated_by: Optional[int] = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -226,6 +239,10 @@ class Printer(SQLModel, table=True):
     last_seen_at: Optional[datetime] = None
     last_error: Optional[str] = Field(default=None, max_length=512)
 
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
+    deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    updated_by: Optional[int] = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -240,6 +257,8 @@ class User(SQLModel, table=True):
     is_superuser: bool = Field(default=False)
     is_active: bool = Field(default=True)
 
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
+    deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -319,10 +338,27 @@ class PrintJob(SQLModel, table=True):
     # Distinguishes vault-initiated jobs from those detected on the printer.
     source: str = Field(default="vault", max_length=16)  # "vault" or "external"
 
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
+    deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    updated_by: Optional[int] = Field(default=None, foreign_key="users.id")
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class AuditLog(SQLModel, table=True):
+    __tablename__ = "audit_logs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    actor_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
+    action: str = Field(max_length=32, index=True)
+    resource_type: str = Field(max_length=64, index=True)
+    resource_id: Optional[int] = Field(default=None, index=True)
+    diff_json: str = Field(default="{}")
+    ip: Optional[str] = Field(default=None, max_length=64)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
 
 
 # Sentinel hashes for external (non-vault) print jobs.

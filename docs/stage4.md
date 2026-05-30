@@ -38,22 +38,22 @@ default path; Postgres and S3 stay optional adapters for larger installs.
 
 ### Phase 4c — Data lifecycle and recovery
 
-- [ ] Add `deleted_at` column to File, Printer, PrintJob, User, Tag, Category
-- [ ] Add `deleted_by` FK to User on all soft-deletable tables
-- [ ] Implement `DELETE` endpoints for printers, categories, tags, users (soft)
-- [ ] Implement `POST /{resource}/{id}/restore` endpoints
-- [ ] Implement hard-delete endpoint: `DELETE /admin/{resource}/{id}?hard=true`
-- [ ] Implement scheduled GC background task (purge rows with `deleted_at < retention`)
-- [ ] Implement orphan file cleanup (delete blobs when DB records are purged)
-- [ ] Harden local backup + restore workflows and document recovery steps
+- [x] Add `deleted_at` column to File, Printer, PrintJob, User, Tag, Category
+- [x] Add `deleted_by` FK to User on all soft-deletable tables
+- [x] Implement `DELETE` endpoints for printers, categories, tags, users (soft)
+- [x] Implement `POST /{resource}/{id}/restore` endpoints
+- [x] Implement hard-delete endpoint: `DELETE /admin/{resource}/{id}?hard=true`
+- [x] Implement scheduled GC background task (purge rows with `deleted_at < retention`)
+- [x] Implement orphan file cleanup (delete blobs when DB records are purged)
+- [x] Harden local backup + restore workflows and document recovery steps
 
 ### Phase 4d — Audit and observability
 
-- [ ] Add `AuditLog` model (actor_id, action, resource_type, resource_id, diff JSON, ip, timestamp)
-- [ ] Add `created_by` / `updated_by` columns to Model, Printer, PrintJob, Category, Tag
-- [ ] Implement SQLAlchemy event listener for auto-audit on writes
-- [ ] Implement `GET /api/v1/admin/audit` endpoint (admin-only, filterable)
-- [ ] Add audit log pagination and filtering by resource/resource_id
+- [x] Add `AuditLog` model (actor_id, action, resource_type, resource_id, diff JSON, ip, timestamp)
+- [x] Add `created_by` / `updated_by` columns to Model, Printer, PrintJob, Category, Tag
+- [x] Implement SQLAlchemy event listener for auto-audit on writes
+- [x] Implement `GET /api/v1/admin/audit` endpoint (admin-only, filterable)
+- [x] Add audit log pagination and filtering by resource/resource_id
 
 ### Phase 4e — Optional deployment adapters
 

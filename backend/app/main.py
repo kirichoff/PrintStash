@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import get_session_factory, init_db
+from app.services.audit import clear_audit_context, install_audit_listeners, set_audit_context
+from app.services.lifecycle import gc_soft_deleted
 from app.services.printer_hub import PrinterHub
 from app.services.runtime_config import apply_overlay, is_configured
 from app.services.storage_backend import init_backend
@@ -37,13 +41,25 @@ async def lifespan(app: FastAPI):
         settings.thumb_dir,
         settings.db_url,
     )
+    install_audit_listeners()
     hub = PrinterHub()
     app.state.printer_hub = hub
+    app.state.gc_task = asyncio.create_task(_gc_loop())
     await hub.start_all()
     yield
     logger.info("shutting down printer hub")
+    app.state.gc_task.cancel()
     await hub.stop_all()
     logger.info("shutting down")
+
+
+async def _gc_loop() -> None:
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            gc_soft_deleted()
+        except Exception:
+            logger.exception("scheduled GC failed")
 
 
 app = FastAPI(
@@ -64,5 +80,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def bind_audit_context(request: Request, call_next):
+    actor_id = None
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        from app.services.auth import verify_access_token
+
+        payload = verify_access_token(auth.split(" ", 1)[1])
+        if payload and payload.get("sub"):
+            try:
+                actor_id = int(payload["sub"])
+            except (TypeError, ValueError):
+                actor_id = None
+    set_audit_context(actor_id=actor_id, ip=request.client.host if request.client else None)
+    try:
+        return await call_next(request)
+    finally:
+        clear_audit_context()
 
 app.include_router(api_router)
