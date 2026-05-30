@@ -1,33 +1,34 @@
-# Stage 4 — Cloud Readiness
+# Stage 4 — Production Hardening
 
-**Codename:** Cloud Readiness
-**Status:** active (just started)
+**Codename:** Production Hardening
+**Status:** active
 
 ## Goal
 
-Productionize the vault for multi-user, multi-tenant deployments. Migrate from
-SQLite to Postgres with Alembic migrations, harden authentication with proper
-OAuth2/JWT flows, add multi-tenant isolation, implement audit logging, and polish
-S3 storage for production use.
+Ship the first stable self-hosted release. Stage 4 prioritises safe upgrades,
+predictable recovery, stronger authentication, deletion lifecycle controls,
+and clearer deployment choices. SQLite and local filesystem storage remain the
+default path; Postgres and S3 stay optional adapters for larger installs.
 
 ---
 
 ## Execution Log
 
-### Phase 4a — Postgres + Alembic (foundation)
+### Phase 4a — Schema and upgrade safety
 
+- [x] Reframe Stage 4 around self-hosted production hardening
+- [x] Add Alembic to the backend and create a baseline migration
+- [x] Remove ad hoc SQLite column patching as the schema upgrade mechanism
+- [ ] Document an explicit upgrade flow for Docker and local installs
+- [ ] Add migration smoke tests against SQLite
 - [ ] Add Postgres drivers (`asyncpg`, `psycopg2`) to `pyproject.toml`
-- [ ] Set up Alembic (`alembic init`, autogenerate initial migration from SQLModel metadata)
-- [ ] Implement `async_session()` on `SessionFactory` Protocol (replacing `NotImplementedError`)
-- [ ] Create `create_async_engine()` in `db/session.py` with connection pool config
-- [ ] Convert FastAPI `get_session()` to async generator with `AsyncSession`
-- [ ] Add Postgres service to `docker-compose.yml`
-- [ ] Write one-off SQLite→Postgres data migration script
-- [ ] Update README with Postgres configuration instructions
+- [ ] Implement `async_session()` on `SessionFactory` Protocol
+- [ ] Create `create_async_engine()` in `db/session.py`
+- [ ] Add Postgres service to `docker-compose.yml` as an optional profile
+- [ ] Write a SQLite→Postgres migration guide/script
 
-### Phase 4b — OAuth2/JWT hardening
+### Phase 4b — Auth and admin hardening
 
-- [x] Refactor frontend API client into domain modules behind a stable `@/lib/api` barrel
 - [ ] Add `RefreshToken` model (token hash, user_id, expires_at, revoked)
 - [ ] Implement `POST /auth/refresh` and `POST /auth/logout` endpoints
 - [ ] Replace raw `Header` auth with FastAPI's `OAuth2PasswordBearer`
@@ -35,7 +36,7 @@ S3 storage for production use.
 - [ ] Add `scope` to JWT payload (read/write/admin)
 - [ ] Implement in-memory token blocklist (invalidated on logout)
 
-### Phase 4c — Hard-delete + GC
+### Phase 4c — Data lifecycle and recovery
 
 - [ ] Add `deleted_at` column to File, Printer, PrintJob, User, Tag, Category
 - [ ] Add `deleted_by` FK to User on all soft-deletable tables
@@ -44,8 +45,9 @@ S3 storage for production use.
 - [ ] Implement hard-delete endpoint: `DELETE /admin/{resource}/{id}?hard=true`
 - [ ] Implement scheduled GC background task (purge rows with `deleted_at < retention`)
 - [ ] Implement orphan file cleanup (delete blobs when DB records are purged)
+- [ ] Harden local backup + restore workflows and document recovery steps
 
-### Phase 4d — Audit logs
+### Phase 4d — Audit and observability
 
 - [ ] Add `AuditLog` model (actor_id, action, resource_type, resource_id, diff JSON, ip, timestamp)
 - [ ] Add `created_by` / `updated_by` columns to Model, Printer, PrintJob, Category, Tag
@@ -53,30 +55,30 @@ S3 storage for production use.
 - [ ] Implement `GET /api/v1/admin/audit` endpoint (admin-only, filterable)
 - [ ] Add audit log pagination and filtering by resource/resource_id
 
-### Phase 4e — Multi-tenant
+### Phase 4e — Optional deployment adapters
 
-- [ ] Add `Organization` model (id, name, slug, plan, is_active)
-- [ ] Add `user_organizations` link table (user_id, organization_id, role)
-- [ ] Add `organization_id` FK to Model, File, Printer, PrintJob, Category, Tag, User
-- [ ] Implement SQLAlchemy event to auto-filter queries by `current_organization_id()`
-- [ ] Add `org_id` to JWT payload; extract in auth dependency
-- [ ] Migrate existing single-tenant data to a default "Default" Organization
-- [ ] Implement `POST /api/v1/orgs` (org creation + owner assignment)
-- [ ] Add S3 key namespace: `vault-data/{org_slug}/files/...`
-- [ ] Frontend: `<WorkspaceSelector>` component in topbar
-- [ ] Frontend: `[org_slug]/` route prefix for tenant-scoped views
-
-### Phase 4f — S3 production hardening
-
+- [ ] Add Postgres deployment docs with clear “when to choose it” guidance
+- [ ] Add S3/S3-compatible deployment docs with clear “optional feature” guidance
+- [ ] Add S3 health check probe to `/api/v1/health`
 - [ ] Implement multipart upload for files > 50MB in `S3StorageBackend`
 - [ ] Implement pre-signed URL generation for direct downloads
 - [ ] Add MinIO service to `docker-compose.yml` for local dev/test
-- [ ] Add S3 health check probe to `/api/v1/health`
 - [ ] Implement bucket lifecycle policy configuration (expiration, tiering)
 
 ---
 
-## Pre-existing Stage 4 infrastructure (carried from Stage 1-3)
+## Deferred beyond first stable release
+
+- Multi-tenant organizations and workspace routing
+- Automatic tenant scoping on every query
+- Cloud-first storage namespacing and org-aware object layout
+
+These remain valid future directions, but they are not part of the first
+stable self-hosted release.
+
+---
+
+## Pre-existing foundation carried from Stages 1–3
 
 | Component | Status |
 |---|---|

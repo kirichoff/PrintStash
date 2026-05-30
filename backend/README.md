@@ -10,7 +10,7 @@ See the [root README](../README.md) for the big picture.
 ## Stack
 
 - Python 3.11+, FastAPI, SQLModel, Uvicorn
-- SQLite (Postgres comes in Stage 4)
+- SQLite by default, optional Postgres for larger installs
 - Trimesh for mesh geometry and STL export
 - Optional Rust acceleration module (rayon-parallel thumbnail rendering,
   single-pass G-code scanner)
@@ -33,6 +33,21 @@ uv run uvicorn app.main:app --reload
 
 Open <http://localhost:8000/docs> for the Swagger UI.
 
+## Migrations
+
+Stage 4 switches schema upgrades to Alembic so self-hosted installs have a
+predictable upgrade path.
+
+```bash
+cd backend
+
+# Apply the latest schema to your configured database
+uv run alembic upgrade head
+
+# Stamp an existing database that already matches the baseline
+uv run alembic stamp head
+```
+
 ## Layout
 
 ```
@@ -48,7 +63,7 @@ backend/
 └── app/
     ├── main.py            ← FastAPI app, lifespan, Starlette
     ├── core/              ← config, security, logging, time, http helpers
-    ├── db/                ← SQLModel tables, session, DB init
+    ├── db/                ← SQLModel tables, session, DB bootstrap
     ├── schemas/           ← Pydantic DTOs
     ├── services/          ← business logic
     └── api/v1/            ← routers (files, ingest, models, printers, taxonomy, auth)
@@ -106,6 +121,12 @@ docker compose up --build
 
 The compose file mounts named volumes under `/data/` so your files and DB
 survive container rebuilds.
+
+For upgrades, run migrations before starting a new backend image:
+
+```bash
+docker compose run --rm api uv run alembic upgrade head
+```
 
 ## Tests
 

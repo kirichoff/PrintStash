@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Generator, Iterator, Protocol, runtime_checkable
 
-from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -94,60 +93,16 @@ def get_engine() -> Engine:
     return _engine
 
 
-# ---------------------------------------------------------------------------
-# Mini-migrations: SQLite + create_all() never adds columns to existing tables.
-# Until Stage 4 (Alembic), we hand-add new columns idempotently here.
-# ---------------------------------------------------------------------------
-
-_COLUMN_PATCHES: dict[str, list[tuple[str, str]]] = {
-    "models": [
-        ("category_id", "INTEGER"),
-        ("thumbnail_file_id", "INTEGER"),
-    ],
-    "printers": [
-        ("group", "VARCHAR(128)"),
-    ],
-    "print_jobs": [
-        ("source", "VARCHAR(16) DEFAULT 'vault'"),
-    ],
-    "system_config": [
-        ("storage_backend", "VARCHAR(64)"),
-        ("s3_bucket", "VARCHAR(256)"),
-        ("s3_endpoint_url", "VARCHAR(512)"),
-        ("s3_region", "VARCHAR(128)"),
-        ("s3_access_key", "VARCHAR(256)"),
-        ("s3_secret_key", "VARCHAR(512)"),
-        ("backup_retention_days", "INTEGER"),
-        ("backup_s3_bucket", "VARCHAR(256)"),
-        ("backup_s3_endpoint_url", "VARCHAR(512)"),
-        ("backup_s3_region", "VARCHAR(128)"),
-        ("backup_s3_access_key", "VARCHAR(256)"),
-        ("backup_s3_secret_key", "VARCHAR(512)"),
-    ],
-}
-
-
-def _apply_column_patches() -> None:
-    if not settings.db_url.startswith("sqlite"):
-        return
-    insp = inspect(_engine)
-    with _engine.begin() as conn:
-        for table, cols in _COLUMN_PATCHES.items():
-            if not insp.has_table(table):
-                continue
-            existing = {c["name"] for c in insp.get_columns(table)}
-            for name, ddl in cols:
-                if name not in existing:
-                    logger.info("migrate: adding column %s.%s", table, name)
-                    conn.execute(text(f'ALTER TABLE {table} ADD COLUMN "{name}" {ddl}'))
-
-
 def init_db() -> None:
-    """Create all tables. Safe to call repeatedly."""
+    """Bootstrap a fresh database and ensure sentinel rows exist.
+
+    Schema upgrades now belong to Alembic. ``create_all()`` remains here only
+    so a brand-new self-hosted SQLite install can come up without a separate
+    migration step.
+    """
     from app.db import models  # noqa: F401
 
     SQLModel.metadata.create_all(_engine)
-    _apply_column_patches()
     _ensure_sentinel_rows()
 
 
