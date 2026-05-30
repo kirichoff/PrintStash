@@ -44,6 +44,11 @@ services:
       VAULT_S3_REGION: ${VAULT_S3_REGION:-auto}
       VAULT_S3_ACCESS_KEY: ${VAULT_S3_ACCESS_KEY:-}
       VAULT_S3_SECRET_KEY: ${VAULT_S3_SECRET_KEY:-}
+      VAULT_S3_PRESIGNED_URL_EXPIRE_SECONDS: ${VAULT_S3_PRESIGNED_URL_EXPIRE_SECONDS:-900}
+      VAULT_S3_MULTIPART_THRESHOLD_MB: ${VAULT_S3_MULTIPART_THRESHOLD_MB:-50}
+      VAULT_S3_LIFECYCLE_EXPIRATION_DAYS: ${VAULT_S3_LIFECYCLE_EXPIRATION_DAYS:-0}
+      VAULT_S3_LIFECYCLE_TRANSITION_DAYS: ${VAULT_S3_LIFECYCLE_TRANSITION_DAYS:-0}
+      VAULT_S3_TRANSITION_STORAGE_CLASS: ${VAULT_S3_TRANSITION_STORAGE_CLASS:-STANDARD_IA}
       VAULT_API_KEY: ${VAULT_API_KEY:-changeme}
       VAULT_JWT_SECRET: ${VAULT_JWT_SECRET:-changeme_jwt_secret_please_change}
       VAULT_JWT_ALGORITHM: ${VAULT_JWT_ALGORITHM:-HS256}
@@ -89,6 +94,30 @@ services:
       retries: 5
       start_period: 10s
 
+  minio:
+    image: minio/minio:latest
+    container_name: nexus3d-minio
+    restart: unless-stopped
+    profiles:
+      - s3
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - vault_minio:/data
+    networks:
+      - nexus3d_net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 networks:
   nexus3d_net:
     driver: bridge
@@ -100,3 +129,4 @@ volumes:
   vault_staging:
   vault_backups:
   vault_postgres:
+  vault_minio:

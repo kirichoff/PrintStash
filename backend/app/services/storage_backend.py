@@ -67,6 +67,12 @@ class StorageBackend(ABC):
     @abstractmethod
     def walk_keys(self, prefix: str = "") -> Iterator[str]: ...
 
+    @abstractmethod
+    def presigned_download_url(self, key: str, filename: str) -> str | None: ...
+
+    @abstractmethod
+    def health_probe(self) -> dict: ...
+
 
 # ---------------------------------------------------------------------------
 # Local filesystem backend
@@ -155,6 +161,19 @@ class LocalStorageBackend(StorageBackend):
             if p.is_file():
                 yield str(p)
 
+    def presigned_download_url(self, key: str, filename: str) -> str | None:
+        return None
+
+    def health_probe(self) -> dict:
+        data_ok = settings.data_dir.exists()
+        thumb_ok = settings.thumb_dir.exists()
+        return {
+            "backend": "local",
+            "ok": data_ok and thumb_ok,
+            "data_dir": str(settings.data_dir),
+            "thumb_dir": str(settings.thumb_dir),
+        }
+
 
 # ---------------------------------------------------------------------------
 # S3-compatible backend (AWS S3, Cloudflare R2, MinIO, etc.)
@@ -208,6 +227,30 @@ class S3StorageBackend(StorageBackend):
             else:
                 raise
 
+    def _apply_lifecycle_policy(self) -> None:
+        expiration_days = int(settings.s3_lifecycle_expiration_days or 0)
+        transition_days = int(settings.s3_lifecycle_transition_days or 0)
+        if expiration_days <= 0 and transition_days <= 0:
+            return
+        rule: dict = {
+            "ID": "vault-data-lifecycle",
+            "Status": "Enabled",
+            "Filter": {"Prefix": self._prefix()},
+        }
+        if transition_days > 0:
+            rule["Transitions"] = [
+                {
+                    "Days": transition_days,
+                    "StorageClass": settings.s3_transition_storage_class,
+                }
+            ]
+        if expiration_days > 0:
+            rule["Expiration"] = {"Days": expiration_days}
+        self._client.put_bucket_lifecycle_configuration(
+            Bucket=self._bucket,
+            LifecycleConfiguration={"Rules": [rule]},
+        )
+
     def _prefix(self) -> str:
         return "vault-data/"
 
@@ -227,7 +270,11 @@ class S3StorageBackend(StorageBackend):
             return False
 
     def write_stream(self, src: BinaryIO, key: str) -> int:
-        self._client.upload_fileobj(src, self._bucket, key)
+        from boto3.s3.transfer import TransferConfig
+
+        threshold = int(settings.s3_multipart_threshold_mb) * 1024 * 1024
+        transfer_cfg = TransferConfig(multipart_threshold=threshold)
+        self._client.upload_fileobj(src, self._bucket, key, Config=transfer_cfg)
         return self.stat_size(key)
 
     def write_bytes(self, data: bytes, key: str) -> int:
@@ -264,10 +311,15 @@ class S3StorageBackend(StorageBackend):
         return dest
 
     def upload_file(self, src: Path, key: str) -> None:
-        self._client.upload_file(str(src), self._bucket, key)
+        from boto3.s3.transfer import TransferConfig
+
+        threshold = int(settings.s3_multipart_threshold_mb) * 1024 * 1024
+        transfer_cfg = TransferConfig(multipart_threshold=threshold)
+        self._client.upload_file(str(src), self._bucket, key, Config=transfer_cfg)
 
     def ensure_setup(self) -> None:
         self._ensure_bucket()
+        self._apply_lifecycle_policy()
 
     def delete(self, key: str) -> None:
         try:
@@ -290,6 +342,35 @@ class S3StorageBackend(StorageBackend):
         for page in paginator.paginate(Bucket=self._bucket, Prefix=full_prefix):
             for obj in page.get("Contents", []):
                 yield obj["Key"]
+
+    def presigned_download_url(self, key: str, filename: str) -> str | None:
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": self._bucket,
+                "Key": key,
+                "ResponseContentDisposition": f'attachment; filename="{filename}"',
+            },
+            ExpiresIn=int(settings.s3_presigned_url_expire_seconds),
+        )
+
+    def health_probe(self) -> dict:
+        try:
+            self._client.head_bucket(Bucket=self._bucket)
+            return {
+                "backend": "s3",
+                "ok": True,
+                "bucket": self._bucket,
+                "endpoint": settings.s3_endpoint_url,
+            }
+        except Exception as exc:
+            return {
+                "backend": "s3",
+                "ok": False,
+                "bucket": self._bucket,
+                "endpoint": settings.s3_endpoint_url,
+                "error": str(exc),
+            }
 
 
 # ---------------------------------------------------------------------------

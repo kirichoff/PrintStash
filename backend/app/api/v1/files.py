@@ -7,9 +7,10 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from sqlmodel import Session, select
 
+from app.core.config import settings
 from app.core.http import get_or_404
 from app.core.logging import get_logger
 from app.core.security import require_auth
@@ -69,6 +70,36 @@ def download_file(file_id: int, session: Session = Depends(get_session)):
     if not get_backend().exists(f.path):
         raise HTTPException(status_code=410, detail="file_blob_missing")
     return _serve_file(f.path, f.original_filename)
+
+
+@router.get(
+    "/{file_id}/download-url",
+    summary="Get a pre-signed direct download URL (S3 only)",
+    description=(
+        "Returns a short-lived pre-signed URL when storage backend is S3. "
+        "Falls back to API streaming URL for local storage."
+    ),
+)
+def download_url(file_id: int, session: Session = Depends(get_session)) -> dict:
+    f = get_or_404(session, File, file_id, "file_not_found")
+    backend = get_backend()
+    url = backend.presigned_download_url(f.path, f.original_filename)
+    if url:
+        return {"url": url, "backend": "s3", "expires_in": settings.s3_presigned_url_expire_seconds}
+    return {"url": f"/api/v1/files/{file_id}/download", "backend": "local"}
+
+
+@router.get(
+    "/{file_id}/download-direct",
+    summary="Redirect to pre-signed URL when available",
+)
+def download_direct(file_id: int, session: Session = Depends(get_session)):
+    f = get_or_404(session, File, file_id, "file_not_found")
+    backend = get_backend()
+    url = backend.presigned_download_url(f.path, f.original_filename)
+    if url:
+        return RedirectResponse(url=url, status_code=307)
+    return download_file(file_id=file_id, session=session)
 
 
 @router.get(

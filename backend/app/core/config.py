@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     s3_region: str = "auto"
     s3_access_key: str = ""
     s3_secret_key: str = ""
+    s3_presigned_url_expire_seconds: int = 900
+    s3_multipart_threshold_mb: int = 50
+    s3_lifecycle_expiration_days: int = 0
+    s3_lifecycle_transition_days: int = 0
+    s3_transition_storage_class: str = "STANDARD_IA"
 
     db_url: str = "sqlite:////data/db/nexus3d.sqlite"
 

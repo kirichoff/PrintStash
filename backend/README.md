@@ -165,6 +165,67 @@ For upgrades, run migrations before starting a new backend image:
 docker compose run --rm api uv run alembic upgrade head
 ```
 
+## Postgres (optional adapter)
+
+Choose Postgres when you expect higher write concurrency, larger datasets, or
+you need operational tooling around backups/replication that goes beyond a
+single SQLite file. Stay on SQLite when you are running single-node and want
+the simplest self-hosted setup.
+
+Use the built-in profile:
+
+```bash
+docker compose --profile postgres up -d postgres
+```
+
+Then set:
+
+```bash
+VAULT_DB_URL=postgresql://nexus3d:nexus3d@postgres:5432/nexus3d
+```
+
+Run migrations before starting the API:
+
+```bash
+docker compose run --rm api uv run alembic upgrade head
+```
+
+## S3 / S3-compatible storage (optional feature)
+
+Local filesystem storage remains the default for self-hosted installs. S3 is
+an optional adapter for operators who want object storage semantics.
+
+Supported endpoints include AWS S3, Cloudflare R2, and MinIO.
+
+### MinIO for local testing
+
+```bash
+docker compose --profile s3 up -d minio
+```
+
+Then configure:
+
+```bash
+VAULT_STORAGE_BACKEND=s3
+VAULT_S3_BUCKET=nexus3d-vault
+VAULT_S3_ENDPOINT_URL=http://minio:9000
+VAULT_S3_REGION=us-east-1
+VAULT_S3_ACCESS_KEY=minioadmin
+VAULT_S3_SECRET_KEY=minioadmin
+```
+
+### Phase 4e storage capabilities
+
+- S3 health probe exposed via `GET /api/v1/health`
+- Multipart upload threshold (default: 50MB) via `VAULT_S3_MULTIPART_THRESHOLD_MB`
+- Pre-signed direct downloads:
+  - `GET /api/v1/files/{id}/download-url`
+  - `GET /api/v1/files/{id}/download-direct`
+- Optional bucket lifecycle policy:
+  - `VAULT_S3_LIFECYCLE_EXPIRATION_DAYS`
+  - `VAULT_S3_LIFECYCLE_TRANSITION_DAYS`
+  - `VAULT_S3_TRANSITION_STORAGE_CLASS`
+
 ## Tests
 
 ```bash

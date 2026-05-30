@@ -57,13 +57,13 @@ default path; Postgres and S3 stay optional adapters for larger installs.
 
 ### Phase 4e — Optional deployment adapters
 
-- [ ] Add Postgres deployment docs with clear “when to choose it” guidance
-- [ ] Add S3/S3-compatible deployment docs with clear “optional feature” guidance
-- [ ] Add S3 health check probe to `/api/v1/health`
-- [ ] Implement multipart upload for files > 50MB in `S3StorageBackend`
-- [ ] Implement pre-signed URL generation for direct downloads
-- [ ] Add MinIO service to `docker-compose.yml` for local dev/test
-- [ ] Implement bucket lifecycle policy configuration (expiration, tiering)
+- [x] Add Postgres deployment docs with clear “when to choose it” guidance
+- [x] Add S3/S3-compatible deployment docs with clear “optional feature” guidance
+- [x] Add S3 health check probe to `/api/v1/health`
+- [x] Implement multipart upload for files > 50MB in `S3StorageBackend`
+- [x] Implement pre-signed URL generation for direct downloads
+- [x] Add MinIO service to `docker-compose.yml` for local dev/test
+- [x] Implement bucket lifecycle policy configuration (expiration, tiering)
 
 ---
 
