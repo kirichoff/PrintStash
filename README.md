@@ -15,7 +15,7 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&style=flat-square" />
   <img alt="Next.js" src="https://img.shields.io/badge/next.js-14-black?logo=next.js&style=flat-square" />
   <img alt="Docker" src="https://img.shields.io/badge/docker-ready-2496ED?logo=docker&style=flat-square" />
-  <img alt="Stage 3" src="https://img.shields.io/badge/stage-3%20%7C%20the%20hub-brightgreen?style=flat-square" />
+  <img alt="Stage 4" src="https://img.shields.io/badge/stage-4%20%7C%20production%20hardening-brightgreen?style=flat-square" />
 </p>
 
 <p align="center">
@@ -84,10 +84,10 @@ one model entry. Switch between profiles without losing history.
 - Light/dark mode
 - First-run setup wizard — no default accounts, no hardcoded passwords
 
-### 🖨️ Klipper / Moonraker integration (Stage 3)
-- **Register printers** by Moonraker URL (or IP:port) — one printer or a whole farm
+### 🖨️ Multi-provider printer integration (Stage 4f)
+- **Register printers** with provider-aware config (`moonraker` or `bambu_lan`) — one printer or a whole farm
 - **Send to print** from the vault — pick a G‑code file, pick a printer, hit send.
-  Optionally start the print immediately.
+  Optionally start the print immediately (Moonraker path).
 - **Live status** — per‑printer WebSocket streams temperatures, progress, printer
   state, toolhead position. Reconnects automatically.
 - **Print controls** — pause, resume, cancel from the UI
@@ -97,6 +97,10 @@ one model entry. Switch between profiles without losing history.
   breakdown. `GET /api/v1/printers/dashboard`
 - **Printer groups** — tag printers by location (`garage`, `workshop`, `enclosure`).
   Filter in the UI with `?group=garage`.
+- **Capability-aware controls** — per-printer capabilities are exposed by API so
+  the UI can disable unsupported operations safely.
+- **Bambu LAN support (first milestone)** — LAN-first status + pause/resume/cancel.
+  File upload/send parity is intentionally deferred.
 
 ### ⚡ OrcaSlicer hook
 Drop `scripts/nexus3d_orca_push.py` into your OrcaSlicer post-processing scripts
@@ -155,20 +159,20 @@ Full OpenAPI (Swagger) interactive docs at `/docs`.
 | `DELETE` | `/api/v1/taxonomy/tags/{id}` | key | Remove tag |
 | `PUT` | `/api/v1/taxonomy/models/{id}/tags` | key | Replace all tags on a model |
 
-### Printers & farm (Stage 3)
+### Printers & farm (Stage 4f provider-aware)
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|:----:|-------------|
 | `GET` | `/api/v1/printers` | — | List printers (`?group=garage` filter) |
 | `GET` | `/api/v1/printers/dashboard` | — | Farm health summary (counts per status, groups) |
-| `POST` | `/api/v1/printers` | key | Register a new printer |
-| `PATCH` | `/api/v1/printers/{id}` | key | Update name, URL, API key, group, notes |
+| `POST` | `/api/v1/printers` | key | Register a new printer (`provider` + provider credentials) |
+| `PATCH` | `/api/v1/printers/{id}` | key | Update name, provider config, credentials, group, notes |
 | `DELETE` | `/api/v1/printers/{id}` | key | Remove a printer |
 | `POST` | `/api/v1/printers/{id}/send` | key | Upload vault G‑code to printer; optionally start print |
 | `POST` | `/api/v1/printers/{id}/pause` | key | Pause the active print job |
 | `POST` | `/api/v1/printers/{id}/resume` | key | Resume a paused print |
 | `POST` | `/api/v1/printers/{id}/cancel` | key | Cancel the active print |
-| `GET` | `/api/v1/printers/{id}/status` | — | One‑shot status snapshot + cached Moonraker state |
+| `GET` | `/api/v1/printers/{id}/status` | — | One‑shot status snapshot + cached provider state |
 | `GET` | `/api/v1/printers/{id}/jobs` | — | Print job history (recent 50 by default) |
 | `WS` | `/api/v1/printers/{id}/ws` | — | Live WebSocket status stream |
 
@@ -230,6 +234,11 @@ See `.env.example` for the full annotated list.
 | `VAULT_LOG_LEVEL` | `INFO` | Python logging level |
 | `NEXT_PUBLIC_WS_URL` | `ws://localhost:8000` | Browser‑side WebSocket URL for live printer status |
 
+Printer provider fields:
+- `provider`: `moonraker` or `bambu_lan`
+- Moonraker: `moonraker_url`, optional `api_key`
+- Bambu LAN: `bambu_host`, `bambu_serial`, `bambu_access_code`
+
 ### File storage layout (inside the container)
 
 ```
@@ -276,7 +285,7 @@ See `.env.example` for the full annotated list.
  │                        ┌────────────────────┼───────────────┐ │
  │                        │  Services          │               │ │
  │                        │                    ▼               │ │
- │                        │  ◇ PrinterHub ◇ MoonrakerClient    │ │
+ │                        │  ◇ PrinterHub ◇ Provider adapters   │ │
  │                        │  ◇ G‑code parser ◇ Ingest pipeline │ │
  │                        │  ◇ Mesh processing ◇ Thumbnails    │ │
  │                        │  ◇ Storage backend (local / S3)    │ │
@@ -295,8 +304,8 @@ See `.env.example` for the full annotated list.
          │                              │
          ▼                              ▼
  ┌──────────────────┐    ┌──────────────────────────────┐
- │  Klipper /       │    │  S3 / R2 (optional)          │
- │  Moonraker       │    │  Cloud storage & backups     │
+ │  Moonraker /     │    │  S3 / R2 (optional)          │
+ │  Bambu LAN       │    │  Cloud storage & backups     │
  │  (your printers) │    │                              │
  └──────────────────┘    └──────────────────────────────┘
 ```
@@ -311,7 +320,7 @@ See `.env.example` for the full annotated list.
 | **Frontend** | Next.js 14, TypeScript, Tailwind CSS, Shadcn/ui, React Three Fiber |
 | **Infra** | Docker Compose, named volumes, health checks |
 | **Optional Rust** | `_nexus3d_rust` wheel for faster G‑code scanning & thumbnail rendering |
-| **Integration** | OrcaSlicer post‑processing hook (stdlib only), Moonraker WebSocket API |
+| **Integration** | OrcaSlicer post‑processing hook (stdlib only), Moonraker API, Bambu LAN controls |
 | **Testing** | pytest, pytest‑asyncio, in‑memory SQLite, FastAPI TestClient |
 
 ### Key design decisions
@@ -322,7 +331,7 @@ See `.env.example` for the full annotated list.
 - **Background work** — FastAPI `BackgroundTasks` for ingestion; no Celery/Redis
   until Stage 3
 - **Printer hub** — singleton `PrinterHub` on `app.state` maintains one persistent
-  WebSocket per printer to Moonraker, with exponential backoff reconnection
+  live-state worker per printer via provider adapters, with exponential backoff reconnection
 - **ORM choice** — SQLModel today specifically so the Postgres jump in Stage 4
   is a config change, not a rewrite
 
@@ -366,7 +375,7 @@ uv run pytest tests -v          # all tests
 uv run pytest tests/test_printer_hub.py -v   # just one file
 ```
 
-73 tests across: Moonraker HTTP+WS client, PrinterHub worker, Printers API router,
+118 tests across: Moonraker HTTP+WS client, provider adapters, PrinterHub worker, Printers API router,
 Rust acceleration wrappers, and the G‑code ingestion pipeline.
 
 ### Lint & format
@@ -396,9 +405,9 @@ pnpm lint
 │   │   ├── core/                ← config, security, logging, time, http helpers
 │   │   ├── db/                  ← SQLModel models, session factory, init + migrations
 │   │   ├── schemas/             ← Pydantic request/response DTOs
-│   │   ├── services/            ← business logic (ingest, gcode parser, moonraker, etc.)
+│   │   ├── services/            ← business logic (ingest, gcode parser, providers, etc.)
 │   │   └── api/v1/              ← versioned routers (models, printers, taxonomy, etc.)
-│   └── tests/                   ← pytest (73 tests, in‑memory SQLite)
+│   └── tests/                   ← pytest (118 tests, in‑memory SQLite)
 ├── frontend/
 │   ├── Dockerfile
 │   ├── package.json
@@ -422,12 +431,14 @@ pnpm lint
 
 ## Roadmap
 
+Detailed roadmap: [docs/roadmap.md](./docs/roadmap.md)
+
 | Stage | Status | What's included |
 |:-----:|:------:|-----------------|
 | **1** — Headless Vault | ✅ | Ingestion, metadata extraction, dedup, thumbnails, REST API, SQLite |
 | **2** — Visual Experience | ✅ | Next.js UI, 3D viewer, setup wizard, auth, categories, tags, search |
 | **3** — The Hub | ✅ | Moonraker/Klipper integration, printer farm, live status WS, print history, OrcaSlicer hook, dashboard |
-| **4** — Cloud Readiness | 🔜 | PostgreSQL (Alembic migrations), S3 as primary storage, OAuth2/JWT refinement, multi‑tenant, audit logs, hard‑delete GC |
+| **4** — Production Hardening | ✅ | Alembic migrations, Postgres/S3 optional adapters, auth hardening, lifecycle/audit controls, provider architecture + Bambu LAN milestone |
 
 ---
 
@@ -437,7 +448,7 @@ pnpm lint
   already produce.
 - **Not a cloud service** — runs entirely on your hardware. Cloud features (S3,
   Postgres, multi‑tenant) are Stage 4 and will always be opt‑in.
-- **Not a print queue manager** — Klipper/Moonraker owns the print queue.
+- **Not a print queue manager** — Moonraker/Bambu firmware owns the print queue.
   PrintStash sends jobs to your printers and tracks their state, but the queue
   disciplines live on the printer firmware.
 

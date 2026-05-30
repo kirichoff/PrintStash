@@ -1,7 +1,7 @@
 # Stage 3 — The Hub (Moonraker/Klipper Bidirectional Integration)
 
 **Codename:** The Hub
-**Status:** active (~95% feature-complete; all core features + tests done)
+**Status:** completed
 
 ## Goal
 
@@ -72,9 +72,11 @@ monitor live printer state through the web UI, and get a farm-wide health dashbo
   - `docs/stage3.md` — this file
   - `.opencode/skills/nexus3d-vault/SKILL.md` — architecture reference + development guide
 
-### Future (Stage 4)
+### Carried into Stage 4
 
-- Redis pub/sub for multi-process printer hub
-- JWT-only auth for printer endpoints
-- Load balancing: auto-select least-busy printer
-- Printer health alerting: email/webhook on errors
+- Provider abstraction (`moonraker`, `bambu_lan`) now implemented in Stage 4f
+- API compatibility preserved while adding capability-aware provider dispatch
+- Future enhancements remain:
+  - Redis pub/sub for multi-process printer hub
+  - Load balancing: auto-select least-busy printer
+  - Printer health alerting: email/webhook on errors
