@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest an improvement or integration.
+title: "[Feature]: "
+labels: ["needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that PrintStash does not support well today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful version of the feature.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - File organization
+        - Search / metadata
+        - Slicer integration
+        - Printer integration
+        - UI workflow
+        - Storage / backup
+        - API
+        - Documentation
+        - Other
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workaround, existing tool, or simpler approach?

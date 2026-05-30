@@ -1,0 +1,28 @@
+name: Roadmap feedback
+description: Share priorities, workflows, and next-step ideas.
+category: Ideas
+title: "[Roadmap]: "
+labels: ["roadmap"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for roadmap feedback, priorities, and real-world workflow notes.
+  - type: textarea
+    id: use-case
+    attributes:
+      label: What workflow would this improve?
+      description: Describe the setup, printer/slicer, and pain point.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would a good first version look like?
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Tradeoffs or constraints
+      description: Hardware, privacy, self-hosting, API compatibility, or maintenance concerns.

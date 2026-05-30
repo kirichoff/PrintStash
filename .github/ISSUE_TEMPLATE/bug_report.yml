@@ -1,0 +1,62 @@
+name: Bug report
+description: Report something that is broken or surprising.
+title: "[Bug]: "
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please remove secrets, printer access codes, API keys, private URLs, and customer files before posting.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the behavior you saw and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start PrintStash with ...
+        2. Upload ...
+        3. Click ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Install / Docker
+        - File ingestion
+        - G-code metadata
+        - STL / 3MF processing
+        - Web UI
+        - OrcaSlicer hook
+        - Moonraker / Klipper
+        - Bambu LAN
+        - Auth / setup
+        - Backup / storage
+        - Other
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: main, commit SHA, or release tag
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        Host OS:
+        Install method:
+        Browser:
+        Printer/provider:
+        Slicer/version:
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: shell

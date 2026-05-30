@@ -14,6 +14,10 @@ default path; Postgres and S3 stay optional adapters for larger installs.
 
 ## Execution Log
 
+### Open-source launch prep
+
+- [x] Refresh public-facing docs for a self-hosted release: README, roadmap, contribution guidance, issue templates, and GitHub discussion surface.
+
 ### Phase 4a — Schema and upgrade safety
 
 - [x] Reframe Stage 4 around self-hosted production hardening
