@@ -1,14 +1,12 @@
 ---
 title: User guide
-description: The full loop — get files in, inspect them, find them again later.
+description: "The everyday loop: add files, check them, mark what worked, find them later."
 ---
 
-This is the core PrintStash loop end to end: get files in, understand what you've
-got, and find it again six weeks from now. It describes what the app actually
-does today, with no promises about future work. If you're fuzzy on terms like
+This is the normal PrintStash loop: add files, understand what you have, and find
+the right one later. It describes what the app does today. If terms like
 *model*, *artifact*, or *recommended revision*, skim
-[Core concepts](/PrintStash/concepts/core-concepts/) first — it'll make this
-shorter.
+[Core concepts](/PrintStash/concepts/core-concepts/) first.
 
 The questions this loop answers:
 
@@ -21,14 +19,13 @@ The questions this loop answers:
 
 ## 1. Get a model in
 
-Open the grid (`/`). On a fresh install it's empty; that's the moment to upload
-something.
+Open the vault grid (`/`). A fresh install is empty, so start with one model you
+know well.
 
-Hit the upload modal and drop in an STL or 3MF. You can assign a collection right
-there — say `Functional/Brackets` — and add tags inline if the tag doesn't exist
-yet. The upload runs in the background and shows up in the task center, so you can
-keep working while the thumbnail renders. When it's done, a model card appears in
-the grid.
+Open the upload modal and drop in an STL or 3MF. You can pick a collection there,
+for example `Functional/Brackets`, and add tags inline if they do not exist yet.
+The upload runs in the background and appears in the task center while the
+thumbnail renders. When it finishes, a model card appears in the grid.
 
 You don't have to upload mesh and G-code together. The modal accepts mesh-only,
 G-code-only, or both at once — whatever you have on hand.
@@ -52,18 +49,17 @@ Now look at the two viewers:
   the layer slider, toggle travel moves, and turn on the bed overlay (drawn from
   known printer profiles).
 
-The toolpath viewer is a visualization aid, not a slicer-grade simulator — it
-won't validate macros, acceleration, or pressure advance. It's there so you can
-*recognize* a file, not certify it.
+The toolpath viewer is for recognition, not certification. It will not validate
+macros, acceleration, pressure advance, or firmware-specific behavior.
 
 ## 3. Build the revision story
 
-This is where the app earns its keep over a folder of files.
+This is the part that replaces guessing from filenames.
 
 - Upload a second G-code revision, or edit the fields on an existing one in the
   **Revisions** tab.
 - Set each revision's status — `needs_test`, `known_good`, or `failed`.
-- Drop a short note that future-you will understand: `PETG, +5°C`,
+- Drop a short note you will understand later: `PETG, +5°C`,
   `tighter fit`, `warped at corners`.
 - Mark the best one **recommended**. Remember the invariant: marking one
   recommended clears the marker from the rest, so there's always exactly one
@@ -77,14 +73,14 @@ straight from the printer (see step 5).
 
 ## 4. Find it again
 
-Weeks later, back at the grid:
+Later, back at the grid:
 
 - Search by model name.
 - Filter by collection (breadcrumbs let you drill into the tree) or by tag.
 - Filter by printer presence to see what's already loaded where.
 
-The model keeps its mesh, every revision, the notes, and the history together —
-so "find it again" is one search, not an archaeology dig through filenames.
+The model keeps its mesh, revisions, notes, and history together, so finding it
+again is one search instead of a dig through old export folders.
 
 ## 5. Connect a printer
 
@@ -99,10 +95,10 @@ in [Printers & providers](/PrintStash/guides/printers/).
 
 ## 6. Get your data back out
 
-Your library shouldn't be a trap. From **Settings → Overview** you can export
-metadata as JSON or CSV (JSON for full library context, CSV for one row per
-stored file). Exports include model fields, collections, tags, revision data, and
-slicer/mesh metadata.
+Your library should not be a trap. From **Settings → Overview** you can export
+metadata as JSON or CSV. JSON keeps the full library context; CSV gives one row
+per stored file. Exports include model fields, collections, tags, revision data,
+and slicer/mesh metadata.
 
 They deliberately **exclude** the raw STL/G-code blobs, secrets, and printer
 credentials — and they require auth, because filenames, materials, and print
@@ -112,10 +108,10 @@ entire install (blobs and all), use full
 
 ## Skip the manual upload: the OrcaSlicer hook
 
-Once the loop above feels natural, stop uploading G-code by hand. PrintStash
-ships a post-processing script (`scripts/printstash_orca_push.py`) that you add to
+Once manual upload feels annoying, use the OrcaSlicer hook. PrintStash ships a
+post-processing script (`scripts/printstash_orca_push.py`) that you add to
 OrcaSlicer's post-processing settings. After every slice, OrcaSlicer runs it and
-the exported G-code lands in the vault as a new revision automatically.
+the exported G-code lands in the vault as a new revision.
 
 A couple of things that make it pleasant to live with:
 
@@ -125,5 +121,5 @@ A couple of things that make it pleasant to live with:
 - If PrintStash is offline, it exits `0` — so a down vault never breaks your
   slicing or export.
 
-Point it at your upload endpoint with the API key and forget about it; new
-revisions just show up.
+Point it at your upload endpoint with the API key. After that, new revisions
+show up when you export.

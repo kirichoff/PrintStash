@@ -3,9 +3,9 @@ title: Installation
 description: Bring up the Docker Compose stack and create your first admin account.
 ---
 
-PrintStash ships as a Docker Compose stack. If you have Docker and Docker Compose
-installed, you don't need Python, Node, or anything else on the host — it all
-runs in containers.
+The normal install is Docker Compose. If Docker is already working on the host,
+you do not need to install Python, Node, or frontend tooling just to run
+PrintStash.
 
 ## Quick start
 
@@ -19,9 +19,10 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-The first build pulls base images and compiles the frontend, so give it a few
-minutes. When it settles, you'll have two containers running — `printstash-api`
-and `printstash-frontend` — plus a handful of named volumes for your data.
+The first build can take a few minutes because it pulls base images and builds
+the frontend. When it is done, you should have two main containers running:
+`printstash-api` and `printstash-frontend`, plus named volumes for the database,
+files, thumbnails, and backups.
 
 | Service      | URL                                  | What it is                       |
 | ------------ | ------------------------------------ | -------------------------------- |
@@ -29,9 +30,9 @@ and `printstash-frontend` — plus a handful of named volumes for your data.
 | API docs     | http://localhost:8000/docs           | Interactive Swagger reference    |
 | Health check | http://localhost:8000/api/v1/health  | Liveness + component readiness   |
 
-The frontend container runs nginx, which serves the static build and proxies
-`/api/v1` and WebSocket traffic to the API on the same origin. That's why the UI
-and API can both live behind `localhost` without CORS gymnastics.
+The frontend container runs nginx. It serves the built UI and proxies `/api/v1`
+and WebSocket traffic to the API, so the browser talks to one origin during a
+normal Compose install.
 
 ## First launch
 
@@ -43,11 +44,9 @@ Open the UI and you'll be sent to the setup wizard at
 3. Confirming data directories and backup retention.
 4. Optionally wiring up a separate S3/R2 bucket for backups.
 
-There is **no default username or password**. The account you create in the
-wizard is the first one that exists — which is deliberate, because a shipped
-default credential is exactly the kind of thing that ends up exposed on the
-public internet. If the wizard won't complete, fix the wizard; there's nothing to
-fall back on.
+There is **no default username or password**. The setup account is the first
+account in the database. If the wizard will not complete, check the API logs and
+fix that problem; there is no hidden fallback login.
 
 Once you're in, head to **Settings** to mint an API key, then add printers and
 start uploading.
@@ -71,8 +70,8 @@ only need these for larger or multi-user installs — see
 
 ## Before you expose it
 
-PrintStash is built for a **trusted home network**. A few things to settle before
-it's reachable from anywhere beyond your LAN:
+PrintStash is designed for a **trusted home network** first. Before it is
+reachable from outside your LAN, settle these:
 
 - Set a strong, unique `VAULT_JWT_SECRET`. Treat it like a password — anyone who
   has it can forge valid tokens.

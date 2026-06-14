@@ -3,7 +3,7 @@ title: PrintStash
 description: Self-hosted asset manager for people who 3D print more things than they can remember.
 template: splash
 hero:
-  tagline: Keep files, versions, metadata, thumbnails, printer presence, and print history together in one local app. No cloud account, no subscription, no telemetry.
+  tagline: A local place for the STL, 3MF, and G-code files you actually care about, plus the notes that stop you from printing the wrong revision again.
   actions:
     - text: Install
       link: /PrintStash/getting-started/installation/
@@ -17,41 +17,52 @@ hero:
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
 
-## Why this exists
+## Why I wanted this
 
-Most 3D printing workflows produce files faster than they help you remember
-them. Slicers know settings, printers know what is running now, and folders know
-where blobs live. PrintStash keeps it all in one place you host yourself.
+Most print libraries start out tidy. Then a few months pass and you have
+`hinge-final.gcode`, `hinge-final-fixed.gcode`, and a folder called `old maybe`.
+The slicer remembers some settings, the printer remembers what is on its disk,
+and your file browser remembers almost nothing useful.
+
+PrintStash is the missing notebook for that mess. It keeps the model, the sliced
+revisions, the thumbnail, the parser metadata, the printer copy, and your "this
+one worked" note together. It is still a small self-hosted project, but it is
+meant to be useful in a real home workflow today.
 
 <CardGrid stagger>
-  <Card title="Ingest & organize" icon="open-book">
-    Upload STL, 3MF, OBJ, and G-code. Push exported G-code from OrcaSlicer,
-    deduplicate by content hash, and sort with collections, tags, search, and
-    thumbnails.
+  <Card title="Bring files in" icon="open-book">
+    Upload STL, 3MF, OBJ, and G-code, or let OrcaSlicer push exported G-code
+    after slicing. Duplicate uploads are caught by content hash instead of
+    becoming another mystery file.
   </Card>
-  <Card title="Inspect every model" icon="magnifier">
-    View slicer settings and mesh metadata, preview meshes and G-code toolpaths
-    in the browser, and track revisions, notes, and recommended versions.
+  <Card title="See what you sliced" icon="magnifier">
+    Open the mesh, scrub the G-code toolpath, and check the slicer settings the
+    file actually contains. Missing fields usually mean the slicer did not write
+    them, not that you did anything wrong.
   </Card>
-  <Card title="Talk to printers" icon="rocket">
-    Manage Moonraker/Klipper printers with live status and send-to-print, sync
-    remote file inventories, and use beta Bambu LAN status and controls.
+  <Card title="Remember the good one" icon="rocket">
+    Mark the recommended revision, keep quick notes, compare settings, and log
+    what happened when it came off the bed.
   </Card>
-  <Card title="Run locally" icon="laptop">
-    First-run setup wizard, JWT auth, API keys, trash restore/purge,
-    JSON/CSV export, backups, and optional Postgres and S3/R2 storage.
+  <Card title="Run it yourself" icon="laptop">
+    Docker Compose, first-run setup, local disk by default, SQLite by default,
+    no cloud account, and export/backup paths when you need to move it.
   </Card>
 </CardGrid>
 
-## Where to next
+## Start here
 
 <CardGrid>
-  <Card title="Get it running" icon="rocket">
-    Follow the [installation guide](/PrintStash/getting-started/installation/)
-    to bring up the Docker Compose stack and create the first admin.
+  <Card title="Install it" icon="rocket">
+    Start with [Installation](/PrintStash/getting-started/installation/) if you
+    just want the containers running and the first admin created.
   </Card>
-  <Card title="Learn the workflow" icon="open-book">
-    The [user guide](/PrintStash/guides/user-guide/) walks the ingest →
-    inspect → find-again loop end to end.
+  <Card title="Use it without guessing" icon="open-book">
+    Read the [user guide](/PrintStash/guides/user-guide/) for the normal loop:
+    upload, inspect, mark the good revision, find it later.
+  </Card>
+  <Card title="Know the limits" icon="information">
+    The [known limitations](/PrintStash/reference/known-limitations/) page is
+    intentionally blunt about what is rough, beta, or out of scope.
   </Card>
 </CardGrid>

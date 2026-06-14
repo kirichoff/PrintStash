@@ -1,32 +1,30 @@
 ---
 title: Overview
-description: What PrintStash is, why it exists, and how far along it is.
+description: What PrintStash is, what it helps with, and what not to expect yet.
 ---
 
-If you 3D print regularly, you end up with a folder of cryptic filenames, a
-slicer that remembers settings you don't, and a printer that only knows what's
-running right now. Three months later you want to reprint that bracket that fit
-*perfectly* — and you have `bracket_v3_final_REAL.gcode`, `bracket_fixed.gcode`,
-and no idea which one came off the bed straight.
+If you print often enough, file names stop being a reliable memory system.
+Three months later you want the bracket that fit perfectly, but the folder has
+`bracket_v3_final_REAL.gcode`, `bracket_fixed.gcode`, and no note saying which
+one came off the bed straight.
 
-PrintStash is a self-hosted app that keeps the whole picture in one place: the
-mesh, every G-code revision, the slicer settings that produced them, a
-thumbnail, which printer it lives on, and what happened the last time you ran it.
-It runs on your own hardware. No cloud account, no subscription, no telemetry.
+PrintStash is a self-hosted app for keeping that context near the files: source
+meshes, G-code revisions, slicer metadata, thumbnails, printer copies, and short
+notes about what worked. It runs on your own hardware. There is no cloud account,
+subscription, or telemetry.
 
 ## How it fits your workflow
 
-You slice in OrcaSlicer (or PrusaSlicer, Bambu Studio, Cura — the parser handles
-all of them). The G-code lands in PrintStash, either because you uploaded it or
-because a post-processing hook pushed it automatically on export. PrintStash
-reads the slicer comments, pulls out layer height, infill, material, estimated
-time, filament weight, and groups the file under a logical *model* alongside the
-source mesh.
+You slice in OrcaSlicer, PrusaSlicer, Bambu Studio, or Cura. The G-code lands in
+PrintStash either by manual upload or through the OrcaSlicer post-processing
+hook. PrintStash reads the comments your slicer wrote into the file, pulls out
+fields like layer height, infill, material, estimated time, and filament use, and
+groups that G-code under a logical *model* alongside the source mesh.
 
 Later you search by name, filter by collection or tag, and open the model. You
 see every revision, which one you marked as the good one, what the toolpath looks
-like layer by layer, and — if you've connected a Moonraker printer — whether the
-file is already sitting on the printer ready to go.
+like layer by layer, and, if you connected a Moonraker printer, whether that file
+is already on the printer.
 
 ## What it does today
 
@@ -49,10 +47,10 @@ file is already sitting on the printer ready to go.
 
 ## How far along it is
 
-PrintStash is an early, honestly-scoped open-source project. The current release
-is genuinely useful for a home library and a Moonraker/Klipper workflow, and the
-backup, upgrade, and migration paths are real. It is **not** a slicer, a firmware
-replacement, or a print-farm scheduler, and it doesn't pretend to be. See
+PrintStash is early open-source software. The current build is useful for a home
+library and a Moonraker/Klipper workflow, and the backup, upgrade, and migration
+paths are real. It is **not** a slicer, firmware replacement, or print-farm
+scheduler. See
 [Known limitations](/PrintStash/reference/known-limitations/) for the honest
 list of rough edges and explicit non-goals.
 
