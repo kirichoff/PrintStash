@@ -81,7 +81,7 @@ whether it's a config problem or a reachability problem.
 History import is **model-scoped** and conservative. When you import on a model,
 PrintStash matches recent Moonraker history entries against that model's known
 G-code filenames, records new matches as `printer_history` jobs, and skips any
-remote filename it has already imported. So you can re-run it without piling up
+remote filename it has already imported. Re-running it never piles up
 duplicate entries.
 
 ## When a printer won't behave

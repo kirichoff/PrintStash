@@ -34,7 +34,7 @@ is already on the printer.
 - **Organize:** hierarchical collections, flat tags, full-text search, sortable
   grid/list views, and drag-and-drop between collections.
 - **Inspect:** an in-browser mesh viewer (solid / x-ray / wireframe) and a
-  client-side G-code toolpath viewer you can scrub layer by layer.
+  client-side G-code toolpath viewer that scrubs layer by layer.
 - **Track revisions:** every model with G-code has exactly one *recommended*
   revision. Label the others `known_good`, `needs_test`, or `failed`, add notes,
   and compare two revisions' settings side by side.

@@ -90,8 +90,8 @@ reachable from outside your LAN, settle these:
   port, or the container failed to start. Check `docker compose ps`.
 - **Health check shows a component unhealthy.** Hit
   `http://localhost:8000/api/v1/health` directly — it breaks readiness out by
-  database, storage, backup, and printer providers, so you can see which one is
-  unhappy.
+  database, storage, backup, and printer providers, so the failing component is
+  obvious.
 
 For upgrading an existing install, see
 [Upgrading](/PrintStash/guides/upgrading/).

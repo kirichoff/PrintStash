@@ -88,9 +88,9 @@ soft-delete  →  restore  →  expiry  →  hard delete (rows + blobs)  →  or
 
 A **live** row is one that isn't in the trash; a **trashed** row is soft-deleted
 and waiting out its retention window (`VAULT_TRASH_RETENTION_DAYS`, default 30).
-Until that window expires you can restore it intact. After it expires, a hard
+It stays restorable intact until that window expires. After it expires, a hard
 delete removes the rows and the blobs, and a background pass cleans up any
-orphaned blobs. You can also purge the trash manually from **Settings → Trash**.
+orphaned blobs. Purge the trash manually from **Settings → Trash** at any time.
 
 The practical upshot: a fat-fingered delete is recoverable for a month, and
 storage genuinely frees up once things expire.

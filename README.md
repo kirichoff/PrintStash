@@ -44,21 +44,21 @@ are welcome in
 
 ## Who Is This For?
 
-PrintStash is built for people who print more than they can keep track of:
+PrintStash targets people whose print output has outgrown their memory of it.
 
-- **Klipper / Moonraker users** who want live printer status, send-to-print, and
-  imported print history next to the files themselves.
-- **OrcaSlicer (and PrusaSlicer / Bambu Studio / Cura) users** who want every
-  exported G-code captured automatically with its slicer settings.
-- **Homelab / self-hosters** who want a local app on a NAS or mini PC — no cloud
-  account, no subscription, no telemetry.
-- **Anyone with a sprawling library** of STLs, 3MFs, STEP files, and G-code who
-  is tired of "which version actually printed well?" living in folder names.
+If you run Klipper/Moonraker, live status, send-to-print, and imported print
+history sit next to the files instead of in a separate tab. OrcaSlicer,
+PrusaSlicer, Bambu Studio, and Cura users get every exported G-code captured
+with the slicer settings that produced it. On a homelab NAS or mini PC the whole
+thing runs locally, with no cloud account or subscription. And once a library of
+STLs, 3MFs, STEP files, and G-code has sprawled past the point of recall, it
+replaces the "which version actually printed well?" guesswork that otherwise
+lives in folder names.
 
 ## How Is This Different?
 
-It is not just another STL gallery. Most tools store *files*; PrintStash stores
-the *whole printing context* and links it together:
+Most tools store *files*. PrintStash stores the printing context around a file
+and links it together:
 
 - **Models + G-code as revisions** — source meshes and every sliced G-code live
   on one model, with version history and a recommended/known-good verdict.
@@ -74,15 +74,16 @@ the *whole printing context* and links it together:
   users, and collection-level access control are part of the vault instead of
   bolted-on scripts.
 
-No cloud account, no subscription, no telemetry — it all runs on your hardware.
+It runs on your own hardware. No cloud account, no subscription, no telemetry.
 
 ## PrintStash vs. a Simple Model Vault
 
-A simple model vault is usually a nicer folder browser: upload a mesh, add a
-thumbnail, maybe search by filename or tag. That is useful, but it loses the
-information you need after a few months of real printing.
+A simple model vault is a folder browser with thumbnails: upload a mesh, search
+by filename or tag. That holds up until you come back months later and the slicer
+settings, the version that printed cleanly, and the print history are all gone.
 
-PrintStash treats the print as the unit of knowledge, not just the STL:
+PrintStash keeps the print as the unit of record, not the STL. The difference,
+by capability:
 
 | Capability | Simple model vault | PrintStash |
 | --- | --- | --- |
@@ -98,70 +99,69 @@ PrintStash treats the print as the unit of knowledge, not just the STL:
 ## Features
 
 **Ingest and organize**
-- Upload STL, 3MF, OBJ, STEP/STP, and G-code files from the browser.
-- Import from a URL or a `.zip` archive with selective per-file extraction.
-- Push exported G-code from OrcaSlicer with a post-processing hook that uses
-  username + API key login, then uploads with a JWT Bearer token.
-- Deduplicate by content hash, group files into logical models, and keep model
-  history instead of scattering versions across folders.
-- Organize with nested collections, tags, search, filters, thumbnails, grid/list
-  views, sorting, breadcrumbs, and drag/drop collection workflows.
+- STL, 3MF, OBJ, STEP/STP, and G-code upload from the browser.
+- URL imports and `.zip` archives, with per-file selection on extraction.
+- An OrcaSlicer post-processing hook pushes exported G-code automatically: it
+  logs in with username + API key, then uploads under a JWT Bearer token.
+- Content-hash dedup groups files into logical models and keeps version history
+  in one place rather than scattered across folders.
+- Nested collections, flat tags, search, filters, thumbnails, grid/list views,
+  sorting, breadcrumbs, and drag-and-drop between collections.
 
 **Preview and inspect**
-- Preview source meshes in a browser 3D viewer with solid, X-ray, wireframe,
-  build-plate grid, fit-to-view, zoom, reset, and screenshot controls.
-- Preview G-code toolpaths with layer navigation, travel visibility, and bed
+- A browser 3D viewer for source meshes — solid, X-ray, and wireframe modes,
+  plus build-plate grid, fit-to-view, zoom, reset, and screenshot.
+- G-code toolpath preview with layer navigation, travel visibility, and bed
   overlays derived from printer profiles.
-- View source files, recommended G-code, slicer settings, mesh metadata, and
-  print history from one model detail page.
-- Extract useful G-code metadata from common OrcaSlicer, PrusaSlicer, Bambu
-  Studio, Cura, and Klipper-style output: slicer/version, printer profile,
-  nozzle, layer height, infill, material, filament brand/type, temperatures,
-  estimated print time, filament length, filament weight, and cost.
-- Store mesh metadata where available, including bounding box, volume, and
-  triangle count.
+- One model detail page covers the source files, recommended G-code, slicer
+  settings, mesh metadata, and print history.
+- Slicer metadata is parsed out of common OrcaSlicer, PrusaSlicer, Bambu Studio,
+  Cura, and Klipper-style output: slicer/version, printer profile, nozzle, layer
+  height, infill, material, filament brand/type, temperatures, estimated time,
+  and filament length/weight/cost.
+- Mesh metadata where the file carries it — bounding box, volume, triangle count.
 
 **G-code revisions**
-- Add multiple G-code revisions to the same model.
-- Track labels, notes, outcome status, and a single recommended revision.
-- Mark revisions as `known_good`, `needs_test`, `failed`, or `archived`.
-- Compare two G-code revisions side by side by slicer, material, and print
+- Multiple G-code revisions per model, each with a label, notes, and outcome
+  status.
+- Statuses are `known_good`, `needs_test`, `failed`, or `archived`; exactly one
+  revision is recommended at a time.
+- A side-by-side compare view diffs two revisions on slicer, material, and print
   metadata.
-- Auto-mark a revision known-good after its first successful print.
+- The first successful print auto-marks a revision known-good.
 
 **Printer workflows**
-- Manage Moonraker/Klipper printers with live status, WebSocket updates, and
-  send-to-print.
-- Sync Moonraker remote file inventory and match printer-side G-code back to
-  vault files where possible.
-- See which printer already has a model's G-code, start supported remote files,
-  and track vault-initiated jobs through upload/start/status states.
-- Import matching Moonraker print history with measured filament use, actual
-  duration, and per-print cost.
-- Run provider diagnostics for capabilities, configuration checks, and
-  connectivity.
-- Use beta Bambu LAN status and pause/resume/cancel controls.
+- Moonraker/Klipper printers with live WebSocket status and send-to-print.
+- Remote file inventory sync, matched back to vault files where the filenames
+  line up.
+- Vault-initiated jobs track through upload/start/status states, and the UI shows
+  which printer already holds a model's G-code or can start a supported remote
+  file.
+- Print history import pulls measured filament use, actual duration, and
+  per-print cost from Moonraker.
+- Provider diagnostics cover capabilities, configuration, and connectivity.
+- Bambu LAN status and pause/resume/cancel, in beta.
 
 **Users, access, and administration**
-- First-run setup wizard creates the first admin account; no default password.
-- Multiple users with JWT login, refresh/logout flow, admin user management, and
-  named API keys for scripts and slicer hooks.
-- Collection-level RBAC for sharing parts of a library with view/edit/admin
-  access.
-- Audit logs capture who changed records.
-- Recycle bin keeps soft-deleted models restorable until the retention period
-  expires, with manual restore, purge-expired, and permanent-delete controls.
+- A first-run setup wizard creates the first admin account. There is no default
+  password.
+- JWT login with refresh/logout, admin user management, and named API keys for
+  scripts and slicer hooks.
+- Collection-level RBAC shares parts of a library at view/edit/admin levels.
+- Audit logs record who changed what.
+- A recycle bin keeps soft-deleted models restorable until retention expires,
+  with manual restore, purge-expired, and permanent-delete.
 
 **Backups, portability, and customization**
-- Full backup/restore covers the database plus stored files and thumbnails.
-- Optional backup mirroring to S3/R2-compatible storage, independent of where
-  vault files are stored.
-- Metadata-only JSON and CSV export for analysis, migration planning, or audits.
-- Customize model-card metrics and choose which metadata fields appear on model
-  detail pages.
-- Configure local disk, optional S3/R2 object storage, optional Postgres, upload
-  limits, trash retention, and backup retention.
-- Health checks report database, storage, backup, and printer provider readiness.
+- Full backup/restore of the database plus stored files and thumbnails.
+- Backups can mirror to S3/R2-compatible storage, independent of where vault
+  files live.
+- Metadata export to JSON or CSV for analysis, migration planning, or audits.
+- Model-card metrics and the metadata fields shown on detail pages are
+  configurable.
+- Local disk by default, with optional S3/R2 object storage and Postgres, plus
+  upload limits, trash retention, and backup retention.
+- Health checks report database, storage, backup, and printer-provider readiness.
 
 ## Quick Start
 

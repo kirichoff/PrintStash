@@ -22,7 +22,7 @@ The questions this loop answers:
 Open the vault grid (`/`). A fresh install is empty, so start with one model you
 know well.
 
-Open the upload modal and drop in an STL or 3MF. You can pick a collection there,
+Open the upload modal and drop in an STL or 3MF. Pick a collection there,
 for example `Functional/Brackets`, and add tags inline if they do not exist yet.
 The upload runs in the background and appears in the task center while the
 thumbnail renders. When it finishes, a model card appears in the grid.
@@ -85,7 +85,7 @@ again is one search instead of a dig through old export folders.
 ## 5. Connect a printer
 
 Add a Moonraker/Klipper printer from **Printers** and open its detail page. From
-there you can watch live status, send a vault G-code file to it, sync its remote
+there, watch live status, send a vault G-code file to it, sync its remote
 file inventory, and import its print history onto the matching models.
 
 Open the **Diagnostics** tab to see the provider's support level, capability
@@ -95,7 +95,7 @@ in [Printers & providers](/PrintStash/guides/printers/).
 
 ## 6. Get your data back out
 
-Your library should not be a trap. From **Settings → Overview** you can export
+Your library should not be a trap. From **Settings → Overview**, export
 metadata as JSON or CSV. JSON keeps the full library context; CSV gives one row
 per stored file. Exports include model fields, collections, tags, revision data,
 and slicer/mesh metadata.
