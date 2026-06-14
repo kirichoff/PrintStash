@@ -53,3 +53,5 @@ CLAUDE.md
 docs/agents/
 frontend/test-results/
 frontend/playwright-report/
+.playwright-mcp/
+screenshots/gif-frames/
