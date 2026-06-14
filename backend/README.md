@@ -105,7 +105,6 @@ backend/
 | `VAULT_DATA_DIR` | Where ingested files live | `./_data/files` |
 | `VAULT_THUMB_DIR` | Where rendered thumbnails go | `./_data/thumbs` |
 | `VAULT_JWT_SECRET` | Signing key for auth tokens | anything random |
-| `VAULT_JWT_ALGORITHM` | JWT algorithm | `HS256` |
 | `VAULT_ACCESS_TOKEN_EXPIRE_MINUTES` | Token lifetime | `60` |
 | `VAULT_MAX_UPLOAD_MB` | Upload size limit | `512` |
 | `VAULT_LOG_LEVEL` | Python log level | `INFO` |

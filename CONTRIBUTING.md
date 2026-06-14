@@ -21,7 +21,6 @@ Backend:
 cd backend
 uv sync --extra dev
 
-VAULT_API_KEY=devkey \
 VAULT_DB_URL=sqlite:///./dev.sqlite \
 VAULT_DATA_DIR=./_data/files \
 VAULT_THUMB_DIR=./_data/thumbs \

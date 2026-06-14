@@ -87,7 +87,7 @@ duplicate entries.
 ## When a printer won't behave
 
 - **Status badge stuck on "reconnecting."** The browser can't reach the
-  WebSocket. Confirm `NEXT_PUBLIC_WS_URL` points at an address reachable from
+  WebSocket. Confirm `VITE_WS_URL` points at an address reachable from
   your browser (not just from inside the container) — see
   [Configuration](/PrintStash/getting-started/configuration/#frontend).
 - **Printer shows offline but Mainsail works.** Check the URL you registered is

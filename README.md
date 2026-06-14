@@ -107,8 +107,8 @@ No cloud account, no subscription, no telemetry — it all runs on your hardware
 > [!WARNING]
 > **Run PrintStash only on a trusted self-hosted network.** Do not expose it
 > directly to the public internet. If you need remote access, put it behind a
-> reverse proxy with TLS and your own authentication, and change **both**
-> `VAULT_JWT_SECRET` and `VAULT_API_KEY` from their placeholder defaults first.
+> reverse proxy with TLS and your own authentication, and change
+> `VAULT_JWT_SECRET` from its placeholder default first.
 > See [Security](#security).
 
 Requirements: Docker and Docker Compose.
@@ -118,7 +118,7 @@ git clone https://github.com/xiao-villamor/PrintStash.git
 cd PrintStash
 
 cp .env.example .env
-# Edit .env and set strong, random values for VAULT_JWT_SECRET and VAULT_API_KEY,
+# Edit .env and set a strong, random value for VAULT_JWT_SECRET,
 # e.g. `openssl rand -hex 32`.
 
 docker compose up -d --build

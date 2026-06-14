@@ -128,6 +128,10 @@ function formatDate(value: string | null | undefined): string {
   }).format(new Date(value));
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 // Consistent card shell used across every settings section.
 function SettingsCard({
   icon: Icon,
@@ -358,6 +362,23 @@ export function SettingsPanel() {
     if (!newApiKey) return;
     await navigator.clipboard.writeText(newApiKey);
     toast.success("API key copied.");
+  }
+
+  async function copyOrcaCommand() {
+    if (!newApiKey || !user) return;
+    const baseUrl = window.location.origin;
+    const command = [
+      "/usr/bin/python3",
+      "/path/to/printstash_orca_push.py",
+      "--url",
+      shellQuote(baseUrl),
+      "--username",
+      shellQuote(user.username),
+      "--api-key",
+      shellQuote(newApiKey),
+    ].join(" ");
+    await navigator.clipboard.writeText(command);
+    toast.success("OrcaSlicer command copied.");
   }
 
   async function saveCollectionAccess() {
@@ -1016,6 +1037,15 @@ export function SettingsPanel() {
                         >
                           <Copy className="h-4 w-4" />
                         </button>
+                        <button
+                          type="button"
+                          onClick={copyOrcaCommand}
+                          className={BTN_SECONDARY}
+                          title="Copy OrcaSlicer post-processing command"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          Orca command
+                        </button>
                       </div>
                     </div>
                   )}
@@ -1055,7 +1085,7 @@ export function SettingsPanel() {
 
                   <div className="rounded border border-border bg-muted/40 p-3">
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Use your username with this API key on <code className="font-mono">/api/v1/auth/login</code>. The response is the same JWT Bearer token used by the app, so later requests only need the normal <code className="font-mono">Authorization</code> header.
+                      Use your username with this API key on <code className="font-mono">/api/v1/auth/login</code>. The hook exchanges it for a JWT Bearer token, then uploads with the normal <code className="font-mono">Authorization</code> header.
                     </p>
                   </div>
                 </>

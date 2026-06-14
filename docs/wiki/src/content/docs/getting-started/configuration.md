@@ -23,9 +23,7 @@ token. Generate something long and random and treat it as a credential.
 | Variable                            | Default                              | Purpose                                        |
 | ----------------------------------- | ------------------------------------ | ---------------------------------------------- |
 | `VAULT_JWT_SECRET`                  | `changeme_jwt_secret_please_change`  | Signing secret for auth tokens. **Change it.** |
-| `VAULT_JWT_ALGORITHM`               | `HS256`                              | JWT signing algorithm.                          |
 | `VAULT_ACCESS_TOKEN_EXPIRE_MINUTES` | `60`                                 | Access-token lifetime, in minutes.             |
-| `VAULT_API_KEY`                     | `changeme`                           | Shared key for headless scripts / the Orca hook. |
 | `VAULT_CORS_ORIGINS`                | _(empty)_                            | Comma-separated browser origins allowed to call the API. Only needed if the UI is served from a different origin than the API. |
 | `VAULT_MAX_UPLOAD_MB`               | `512`                                | Maximum size per uploaded file, in MB. Docker Compose also maps this to the frontend nginx proxy body limit. |
 | `VAULT_LOG_LEVEL`                   | `INFO`                               | Backend log verbosity.                         |
@@ -97,9 +95,13 @@ data on local disk while shipping nightly backups off to R2. See
 
 ## Frontend
 
-| Variable             | Default               | Purpose                                  |
-| -------------------- | --------------------- | ---------------------------------------- |
-| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8000` | WebSocket base the browser uses for live printer status. Must be reachable from the user's browser, not just the container. |
+The default Docker setup serves the frontend and proxies API/WebSocket traffic
+same-origin, so no frontend environment variables are needed.
+
+| Variable       | Default | Purpose |
+| -------------- | ------- | ------- |
+| `VITE_API_URL` | _(empty)_ | Build-time API base for split-origin or local Vite development. Leave empty for Docker. |
+| `VITE_WS_URL`  | _(empty)_ | Build-time WebSocket base for split-origin or local Vite development. Leave empty for Docker. |
 
 :::note
 **Settings are frozen at startup.** Environment values are read once when the

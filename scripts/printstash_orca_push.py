@@ -7,7 +7,7 @@ Configure in OrcaSlicer:
         /usr/bin/python3 /path/to/printstash_orca_push.py \
             --url https://printstash.example.com \
             --username YOUR_USERNAME \
-            --password YOUR_PASSWORD \
+            --api-key psk_YOUR_KEY \
             --collection "Functional/Brackets"
 
 OrcaSlicer appends the exported .gcode path automatically as the final argv.
@@ -68,9 +68,16 @@ def build_multipart(fields: dict, file_path: Path) -> tuple[bytes, str]:
     return bytes(body), f"multipart/form-data; boundary={boundary}"
 
 
-def login(url: str, username: str, password: str) -> str | None:
+def login(
+    url: str, username: str, api_key: str | None, password: str | None
+) -> str | None:
     endpoint = url.rstrip("/") + "/api/v1/auth/login"
-    body = json.dumps({"username": username, "password": password}).encode("utf-8")
+    credentials = (
+        {"username": username, "api_key": api_key}
+        if api_key
+        else {"username": username, "password": password}
+    )
+    body = json.dumps(credentials).encode("utf-8")
     req = urlrequest.Request(endpoint, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
     req.add_header("User-Agent", "PrintStash-OrcaHook/1.0")
@@ -142,6 +149,10 @@ def main() -> int:
         "--password",
         default=os.environ.get("PRINTSTASH_PASSWORD"),
     )
+    parser.add_argument(
+        "--api-key",
+        default=os.environ.get("PRINTSTASH_API_KEY"),
+    )
     parser.add_argument("--collection", default=None)
     parser.add_argument("--tags", default=None)
     parser.add_argument("--model-name", default=None)
@@ -154,9 +165,9 @@ def main() -> int:
     if not gcode.exists():
         log.error("file not found: %s", gcode)
         return 0
-    if not args.url or not args.username or not args.password:
+    if not args.url or not args.username or not (args.api_key or args.password):
         log.warning(
-            "missing --url, --username, or --password — skipping PrintStash push"
+            "missing --url, --username, or --api-key — skipping PrintStash push"
         )
         return 0
 
@@ -166,7 +177,7 @@ def main() -> int:
         "tags": args.tags,
     }
 
-    token = login(args.url, args.username, args.password)
+    token = login(args.url, args.username, args.api_key, args.password)
     if not token:
         log.warning("PrintStash login failed; export still proceeds")
         return 0

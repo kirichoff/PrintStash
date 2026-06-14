@@ -44,7 +44,7 @@ endpoint for a Bearer token:
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"<api-key>"}'
+  -d '{"username":"admin","api_key":"<api-key>"}'
 ```
 
 API keys can be revoked from the same Settings page without touching your

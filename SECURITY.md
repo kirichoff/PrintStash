@@ -31,7 +31,7 @@ are running.
 
 ## Deployment Notes
 
-- Change `VAULT_API_KEY` and `VAULT_JWT_SECRET` before use.
+- Change `VAULT_JWT_SECRET` before use.
 - Prefer a reverse proxy with TLS if the UI is reachable outside your LAN.
 - Do not publish printer access codes, Moonraker API keys, database files, or
   backups.

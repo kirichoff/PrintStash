@@ -12,7 +12,6 @@ mkdir -p _data/files _data/thumbs
 export VAULT_DB_URL=sqlite:///./dev.sqlite
 export VAULT_DATA_DIR=./_data/files
 export VAULT_THUMB_DIR=./_data/thumbs
-export VAULT_API_KEY=devkey
 
 .venv/bin/alembic upgrade head
 
