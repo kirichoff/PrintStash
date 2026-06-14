@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useRouter } from "@/lib/navigation";
-import { Box, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { BrandMark } from "@/components/brand-mark";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -45,7 +46,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm mx-auto space-y-8">
         <div className="text-center">
           <div className="w-14 h-14 mx-auto rounded bg-blue-600 dark:bg-orange-600 flex items-center justify-center text-white mb-4">
-            <Box className="h-7 w-7" />
+            <BrandMark className="h-10 w-10" />
           </div>
           <h1 className="text-2xl font-bold text-[var(--on-surface)]">
             PrintStash

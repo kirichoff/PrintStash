@@ -16,7 +16,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "@/lib/navigation";
 import {
-  Box,
   ChevronLeft,
   ChevronRight,
   Cloud,
@@ -30,6 +29,7 @@ import {
 
 import { completeSetup, getSetupStatus } from "@/lib/api";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { BrandMark } from "@/components/brand-mark";
 import { storeLogin, type StoredUser } from "@/lib/auth";
 import type { SetupStatus } from "@/types";
 
@@ -256,7 +256,7 @@ export default function SetupPage() {
         {/* Header */}
         <div className="text-center">
           <div className="w-14 h-14 mx-auto rounded bg-blue-600 dark:bg-orange-600 flex items-center justify-center text-white mb-4">
-            <Box className="h-7 w-7" />
+            <BrandMark className="h-10 w-10" />
           </div>
           <h1 className="text-2xl font-bold text-[var(--on-surface)]">
             Welcome to PrintStash

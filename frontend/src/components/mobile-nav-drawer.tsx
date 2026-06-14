@@ -5,6 +5,7 @@ import { Link } from "@/lib/navigation";
 import { usePathname } from "@/lib/navigation";
 import { Box, SlidersHorizontal, FolderTree, LogIn, LogOut, Printer, Settings, User, X } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { BrandMark } from "@/components/brand-mark";
 
 interface MobileNavDrawerProps {
   open: boolean;
@@ -50,7 +51,7 @@ export function MobileNavDrawer({ open, onClose }: MobileNavDrawerProps) {
         <div className="flex items-center justify-between p-4 border-b border-[var(--outline-variant)]">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded bg-[var(--primary-container)] flex items-center justify-center text-[var(--on-primary-container)]">
-              <Box className="h-5 w-5" />
+              <BrandMark className="h-7 w-7" />
             </div>
             <div>
               <h2 className="text-lg font-bold text-[var(--primary)] leading-tight">

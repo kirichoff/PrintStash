@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { StorageConfigCard } from "@/components/storage-config-card";
+import { BrandMark } from "@/components/brand-mark";
 import {
   createApiKey,
   createAdminUser,
@@ -1419,9 +1420,7 @@ export function SettingsPanel() {
           <div className="bg-card border border-border rounded">
             <div className="px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center gap-4">
               <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)]">
-                <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                </svg>
+                <BrandMark className="h-10 w-10" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
