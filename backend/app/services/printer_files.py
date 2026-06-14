@@ -194,23 +194,40 @@ def sync_printer_files(
     existing = session.exec(
         select(PrinterFile).where(
             PrinterFile.printer_id == printer_id,
-            PrinterFile.missing_since.is_(None),  # type: ignore[union-attr]
         )
     ).all()
     for row in existing:
-        if row.remote_filename not in seen:
-            row.missing_since = now
-            row.updated_at = now
-            session.add(row)
+        if row.remote_filename in seen:
+            continue
+        if row.file_id is not None:
+            # Vault-linked revisions are kept and flagged so the disappearance
+            # of a known print stays visible in history.
+            if row.missing_since is None:
+                row.missing_since = now
+                row.updated_at = now
+                session.add(row)
+        else:
+            # External/unmatched files that vanish carry no history worth
+            # keeping, so drop them outright.
+            session.delete(row)
     session.commit()
-    return list_printer_files(session, printer_id=printer_id)
+    return list(
+        session.exec(
+            select(PrinterFile)
+            .where(PrinterFile.printer_id == printer_id)
+            .order_by(PrinterFile.remote_filename.asc())  # type: ignore[attr-defined]
+        ).all()
+    )
 
 
 def list_printer_files(session: Session, *, printer_id: int) -> list[PrinterFile]:
     return list(
         session.exec(
             select(PrinterFile)
-            .where(PrinterFile.printer_id == printer_id)
+            .where(
+                PrinterFile.printer_id == printer_id,
+                PrinterFile.missing_since.is_(None),  # type: ignore[union-attr]
+            )
             .order_by(PrinterFile.remote_filename.asc())  # type: ignore[attr-defined]
         ).all()
     )

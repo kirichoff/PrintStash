@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Boxes,
+  Check,
   Database,
   Download,
   Eraser,
+  Eye,
+  EyeOff,
   Files,
   FolderTree,
   HardDrive,
@@ -166,6 +169,7 @@ function SettingsCard({
 
 export function SettingsPanel() {
   const { user } = useAuth();
+  const latestRelease = CHANGELOG[0];
   const [activeSection, setActiveSection] = useState<SettingsSection>("overview");
   const [health, setHealth] = useState<HealthResponse | null>(null);
   // Vault totals refresh automatically when models change (model writes
@@ -192,6 +196,8 @@ export function SettingsPanel() {
   const [trashLoading, setTrashLoading] = useState(false);
   const [trashBusy, setTrashBusy] = useState<number | "expired" | "settings" | null>(null);
   const [trashRetentionDays, setTrashRetentionDays] = useState(30);
+  const [autoMarkKnownGood, setAutoMarkKnownGood] = useState(true);
+  const [autoMarkBusy, setAutoMarkBusy] = useState(false);
   const [purgeTarget, setPurgeTarget] = useState<number | null>(null);
   const [backingUp, setBackingUp] = useState(false);
   const [metadataPrefs, setMetadataPrefs] = useState<MetadataPreferences>(
@@ -267,6 +273,35 @@ export function SettingsPanel() {
       loadTrash();
     }
   }, [activeSection, loadTrash]);
+
+  useEffect(() => {
+    if (activeSection !== "design" || !user) return;
+    let cancelled = false;
+    getVaultConfig()
+      .then((cfg) => {
+        if (!cancelled) setAutoMarkKnownGood(cfg.auto_mark_known_good ?? true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection, user]);
+
+  async function saveAutoMarkKnownGood(next: boolean) {
+    setAutoMarkKnownGood(next);
+    setAutoMarkBusy(true);
+    try {
+      await updateVaultConfig({ auto_mark_known_good: next });
+      toast.success(
+        next ? "Auto-mark known good enabled." : "Auto-mark known good disabled.",
+      );
+    } catch (e) {
+      setAutoMarkKnownGood(!next);
+      toast.error(e);
+    } finally {
+      setAutoMarkBusy(false);
+    }
+  }
 
   async function handleBackupNow() {
     setBackingUp(true);
@@ -437,6 +472,14 @@ export function SettingsPanel() {
     setMetadataPrefs(DEFAULT_METADATA_PREFERENCES);
     writeMetadataPreferences(DEFAULT_METADATA_PREFERENCES);
     toast.success("Metadata display reset.");
+  }
+
+  function setAllMetadataPreferences(visible: boolean) {
+    const next = Object.fromEntries(
+      METADATA_FIELDS.map((field) => [field.id, visible]),
+    ) as MetadataPreferences;
+    setMetadataPrefs(next);
+    writeMetadataPreferences(next);
   }
 
   function updateCardMetric(slot: 0 | 1 | 2, id: CardMetricId) {
@@ -1049,6 +1092,37 @@ export function SettingsPanel() {
 
       {activeSection === "design" && (
         <div className="space-y-6">
+          {/* Print tracking behaviour */}
+          <SettingsCard
+            icon={Printer}
+            title="Print tracking"
+            description="Automatically promote a revision to known-good after its first successful print. A manual failed/archived verdict is never overridden."
+          >
+            <div className="p-4 sm:p-5 flex items-center justify-between gap-4">
+              <span className="text-[13px] text-foreground">
+                Auto-mark known good on successful print
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoMarkKnownGood}
+                disabled={!user || autoMarkBusy}
+                onClick={() => saveAutoMarkKnownGood(!autoMarkKnownGood)}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+                  autoMarkKnownGood
+                    ? "bg-[var(--primary)]"
+                    : "bg-[var(--outline-variant)]"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    autoMarkKnownGood ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+          </SettingsCard>
+
           {/* Card metrics picker */}
           <SettingsCard
             icon={Palette}
@@ -1063,30 +1137,57 @@ export function SettingsPanel() {
           >
             <div className="p-4 sm:p-5 grid gap-4 sm:grid-cols-3">
               {([0, 1, 2] as const).map((slot) => (
-                <div key={slot} className="space-y-1.5">
-                  <p className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                <div key={slot} className="space-y-2">
+                  <p className="text-[11px] font-mono uppercase tracking-wider text-[var(--primary)]">
                     Slot {slot + 1}
                   </p>
                   <div className="grid grid-cols-1 gap-1">
                     {CARD_METRIC_OPTIONS.map((opt) => {
                       const isSelected = cardMetrics[slot] === opt.id;
-                      const usedInOther = cardMetrics.some((id, i) => i !== slot && id === opt.id);
+                      const otherSlot = cardMetrics.findIndex(
+                        (id, i) => i !== slot && id === opt.id,
+                      );
+                      const usedInOther = otherSlot !== -1;
                       return (
                         <button
                           key={opt.id}
                           type="button"
                           disabled={usedInOther}
+                          aria-pressed={isSelected}
                           onClick={() => updateCardMetric(slot, opt.id as CardMetricId)}
-                          className={`flex items-center justify-between px-3 py-2 rounded border text-sm transition-colors ${
+                          className={`group flex items-center gap-2 px-3 py-2 rounded border text-sm transition-colors ${
                             isSelected
-                              ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
+                              ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm"
                               : usedInOther
-                              ? "border-border bg-muted/30 text-muted-foreground/40 cursor-not-allowed"
-                              : "border-border bg-background text-foreground hover:bg-muted"
+                              ? "border-dashed border-border bg-transparent text-muted-foreground/50 cursor-not-allowed"
+                              : "border-border bg-background text-foreground hover:border-[var(--primary)]/50 hover:bg-muted"
                           }`}
                         >
-                          <span>{opt.label}</span>
-                          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{opt.abbr}</span>
+                          <span
+                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                              isSelected
+                                ? "border-[var(--primary-foreground)] bg-[var(--primary-foreground)] text-[var(--primary)]"
+                                : "border-border text-transparent"
+                            }`}
+                          >
+                            <Check className="h-3 w-3" strokeWidth={3} />
+                          </span>
+                          <span className="flex-1 text-left">{opt.label}</span>
+                          {usedInOther ? (
+                            <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground/60">
+                              Slot {otherSlot + 1}
+                            </span>
+                          ) : (
+                            <span
+                              className={`font-mono text-[10px] uppercase tracking-wider ${
+                                isSelected
+                                  ? "text-[var(--primary-foreground)]/80"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {opt.abbr}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
@@ -1107,26 +1208,55 @@ export function SettingsPanel() {
               </button>
             }
           >
-            <div className="grid gap-2 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3">
-              {METADATA_FIELDS.map((field) => (
-                <label
-                  key={field.id}
-                  className="flex items-center justify-between gap-3 rounded border border-border bg-background px-3 py-2.5 cursor-pointer hover:bg-muted transition-colors"
-                >
-                  <span className="text-sm text-foreground">
-                    {field.label}
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={metadataPrefs[field.id]}
-                    onChange={(event) => updateMetadataPreference(
-                      field.id,
-                      event.target.checked,
-                    )}
-                    className="h-4 w-4 accent-[var(--primary)]"
-                  />
-                </label>
-              ))}
+            <div className="p-4 sm:p-5 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                  {METADATA_FIELDS.filter((f) => metadataPrefs[f.id]).length} of{" "}
+                  {METADATA_FIELDS.length} shown
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAllMetadataPreferences(true)}
+                    className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-[var(--primary)] transition-colors"
+                  >
+                    Show all
+                  </button>
+                  <span className="text-muted-foreground/40">·</span>
+                  <button
+                    type="button"
+                    onClick={() => setAllMetadataPreferences(false)}
+                    className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-[var(--primary)] transition-colors"
+                  >
+                    Hide all
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {METADATA_FIELDS.map((field) => {
+                  const visible = metadataPrefs[field.id];
+                  return (
+                    <button
+                      key={field.id}
+                      type="button"
+                      aria-pressed={visible}
+                      onClick={() => updateMetadataPreference(field.id, !visible)}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                        visible
+                          ? "border-[var(--primary)]/40 bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)]/15"
+                          : "border-dashed border-border bg-transparent text-muted-foreground/60 hover:border-border hover:text-foreground"
+                      }`}
+                    >
+                      {visible ? (
+                        <Eye className="h-3.5 w-3.5" />
+                      ) : (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      )}
+                      {field.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </SettingsCard>
         </div>
@@ -1306,20 +1436,20 @@ export function SettingsPanel() {
           {/* Changelog */}
           <SettingsCard
             icon={Info}
-            title="Version history"
-            description="What changed in each release"
+            title="Latest changes"
+            description="What changed in the current release"
           >
             <div className="divide-y divide-border">
-              {CHANGELOG.map((release) => (
-                <div key={release.version} className="px-4 sm:px-6 py-5 grid grid-cols-1 sm:grid-cols-[8rem_1fr] gap-3">
+              {latestRelease && (
+                <div className="px-4 sm:px-6 py-5 grid grid-cols-1 sm:grid-cols-[8rem_1fr] gap-3">
                   <div className="flex items-start gap-2">
                     <span className="rounded bg-[var(--primary)]/10 px-2 py-0.5 text-xs font-semibold text-[var(--primary)]">
-                      v{release.version}
+                      v{latestRelease.version}
                     </span>
-                    <span className="text-[11px] text-muted-foreground pt-0.5">{release.date}</span>
+                    <span className="text-[11px] text-muted-foreground pt-0.5">{latestRelease.date}</span>
                   </div>
                   <ul className="space-y-1.5">
-                    {release.changes.map((change, i) => (
+                    {latestRelease.changes.map((change, i) => (
                       <li key={i} className="flex gap-2 text-xs text-muted-foreground">
                         <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-[var(--primary)]" />
                         <span>{change}</span>
@@ -1327,7 +1457,7 @@ export function SettingsPanel() {
                     ))}
                   </ul>
                 </div>
-              ))}
+              )}
             </div>
           </SettingsCard>
         </div>

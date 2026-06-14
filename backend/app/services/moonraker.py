@@ -15,35 +15,19 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
+from urllib.parse import quote
 
 import httpx
 import websockets
 
+from app.core.http_client import close_http_client, get_http_client
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Shared connection pool for all Moonraker HTTP calls. MoonrakerClient
-# instances are created per request/worker loop, so a per-instance client
-# would still open a fresh TCP connection every call; pooling at module
-# level keeps connections alive across printers and requests.
-_http_client: httpx.AsyncClient | None = None
-
-
-def get_http_client() -> httpx.AsyncClient:
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(
-            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
-        )
-    return _http_client
-
-
-async def close_http_client() -> None:
-    global _http_client
-    if _http_client is not None and not _http_client.is_closed:
-        await _http_client.aclose()
-    _http_client = None
+# Re-exported from app.core.http_client for backward compatibility; the pooled
+# client is shared across all outbound HTTP (Moonraker calls + URL imports).
+__all__ = ["get_http_client", "close_http_client", "MoonrakerError", "MoonrakerClient"]
 
 
 class MoonrakerError(RuntimeError):
@@ -52,7 +36,14 @@ class MoonrakerError(RuntimeError):
 
 # Objects and fields required for live printer state.
 SUBSCRIPTIONS: Dict[str, Optional[list[str]]] = {
-    "print_stats": ["state", "filename", "print_duration", "total_duration", "message"],
+    "print_stats": [
+        "state",
+        "filename",
+        "print_duration",
+        "total_duration",
+        "filament_used",
+        "message",
+    ],
     "virtual_sdcard": ["progress", "file_position", "file_size"],
     "heater_bed": ["temperature", "target"],
     "extruder": ["temperature", "target"],
@@ -94,6 +85,12 @@ class MoonrakerClient:
     async def info(self) -> Dict[str, Any]:
         return await self._request("GET", "/printer/info")
 
+    async def server_info(self) -> Dict[str, Any]:
+        return await self._request("GET", "/server/info")
+
+    async def server_config(self) -> Dict[str, Any]:
+        return await self._request("GET", "/server/config")
+
     async def query_status(self) -> Dict[str, Any]:
         params = "&".join(
             (f"{name}={','.join(fields)}" if fields else name)
@@ -101,8 +98,18 @@ class MoonrakerClient:
         )
         return await self._request("GET", f"/printer/objects/query?{params}")
 
+    async def query_configfile(self) -> Dict[str, Any]:
+        return await self._request("GET", "/printer/objects/query?configfile")
+
     async def list_gcode_files(self) -> Dict[str, Any]:
         return await self._request("GET", "/server/files/list?root=gcodes")
+
+    async def delete_gcode_file(self, remote_filename: str) -> Dict[str, Any]:
+        encoded = "/".join(quote(part, safe="") for part in remote_filename.split("/"))
+        return await self._request(
+            "DELETE",
+            "/server/files/gcodes/" + encoded.lstrip("/"),
+        )
 
     async def upload_gcode(
         self, local_path: Path, remote_filename: str, *, start_print: bool = False
