@@ -2,7 +2,7 @@
 
 import { Link } from "@/lib/navigation";
 import { usePathname } from "@/lib/navigation";
-import { Box, SlidersHorizontal, FolderTree, LogIn, LogOut, Printer, Settings, User } from "lucide-react";
+import { BookOpen, Box, SlidersHorizontal, FolderTree, LogIn, LogOut, Printer, Settings, User } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { BrandMark } from "@/components/brand-mark";
 
@@ -11,6 +11,7 @@ const mainItems = [
   { href: "/printers", label: "Printers", icon: Printer, adminOnly: true },
   { href: "/profiles", label: "Profiles", icon: SlidersHorizontal },
   { href: "/organize", label: "Catalog", icon: FolderTree },
+  { href: "https://xiao-villamor.github.io/PrintStash/", label: "Wiki", icon: BookOpen, external: true },
 ];
 
 const bottomItems = [
@@ -44,16 +45,23 @@ export function SidebarNav() {
             item.href === "/"
               ? pathname === "/"
               : pathname.startsWith(item.href);
+          const className = `flex items-center gap-4 px-3 py-2 rounded text-sm font-medium transition-all active:scale-95 ${
+            isActive
+              ? "text-blue-700 dark:text-orange-400 bg-blue-50"
+              : "text-muted-foreground hover:bg-muted"
+          }`;
+          if (item.external) {
+            return (
+              <a key={item.href} href={item.href} className={className}>
+                <item.icon className="h-5 w-5" />
+                <span className="font-mono text-xs tracking-wider uppercase">
+                  {item.label}
+                </span>
+              </a>
+            );
+          }
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-4 px-3 py-2 rounded text-sm font-medium transition-all active:scale-95 ${
-                isActive
-                  ? "text-blue-700 dark:text-orange-400 bg-blue-50"
-                  : "text-muted-foreground hover:bg-muted"
-              }`}
-            >
+            <Link key={item.href} href={item.href} className={className}>
               <item.icon className="h-5 w-5" />
               <span className="font-mono text-xs tracking-wider uppercase">
                 {item.label}

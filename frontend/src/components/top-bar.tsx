@@ -8,6 +8,7 @@ import {
   Box,
   CheckCircle2,
   ChevronDown,
+  BookOpen,
   SlidersHorizontal,
   LogOut,
   Loader2,
@@ -25,6 +26,8 @@ import {
   subscribeTasks,
   TaskItem,
 } from "@/lib/task-center";
+
+const WIKI_URL = "https://xiao-villamor.github.io/PrintStash/";
 
 function TopBarSearch() {
   const router = useRouter();
@@ -142,6 +145,13 @@ export function TopBar() {
 
       {/* Right Actions & Profile */}
       <div className="flex items-center space-x-4">
+        <a
+          href={WIKI_URL}
+          className="hidden sm:flex items-center gap-1.5 rounded border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <BookOpen className="h-4 w-4" />
+          Wiki
+        </a>
         <ThemeToggle />
         <div ref={tasksRef} className="relative hidden sm:flex">
           <button
@@ -224,6 +234,7 @@ function ProfileMenu({
     { href: "/", label: "Vault", icon: Box },
     { href: "/printers", label: "Printers", icon: Printer, adminOnly: true },
     { href: "/profiles", label: "Profiles", icon: SlidersHorizontal },
+    { href: WIKI_URL, label: "Wiki", icon: BookOpen, external: true },
     { href: "/settings", label: "Settings", icon: Settings },
   ].filter((item) => !item.adminOnly || isAdmin);
 
@@ -234,18 +245,21 @@ function ProfileMenu({
     >
       {items.map((item, index) => {
         const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+        const className = `flex items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
+          active
+            ? "bg-blue-50 dark:bg-orange-500/10 text-blue-700 dark:text-orange-400"
+            : "text-foreground hover:bg-muted hover:text-foreground"
+        } ${index === 3 ? "border-t border-border" : ""}`;
+        if (item.external) {
+          return (
+            <a key={item.href} href={item.href} role="menuitem" onClick={onNavigate} className={className}>
+              <item.icon className="h-4 w-4" />
+              <span>{item.label}</span>
+            </a>
+          );
+        }
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            role="menuitem"
-            onClick={onNavigate}
-            className={`flex items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
-              active
-                ? "bg-blue-50 dark:bg-orange-500/10 text-blue-700 dark:text-orange-400"
-                : "text-foreground hover:bg-muted hover:text-foreground"
-            } ${index === 3 ? "border-t border-border" : ""}`}
-          >
+          <Link key={item.href} href={item.href} role="menuitem" onClick={onNavigate} className={className}>
             <item.icon className="h-4 w-4" />
             <span>{item.label}</span>
           </Link>
