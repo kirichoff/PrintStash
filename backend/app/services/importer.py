@@ -309,21 +309,28 @@ def import_assets(
     source_url: Optional[str],
     actor_user_id: Optional[int],
     session_factory: SessionFactory,
+    model_name: Optional[str] = None,
 ) -> None:
     """Ingest each staged 3D file as its own Model, reporting aggregate progress.
 
     Each file runs through the existing pipeline under its own child job; the
     parent ``job_id`` tracks how many files are done and collects the results.
+
+    ``model_name`` is an optional display-name override; it only applies to a
+    single-file import (it makes no sense to name many archive entries alike),
+    otherwise each model is named after its filename stem.
     """
     total = len(staged_files)
     if total == 0:
         registry.update(job_id, state="failed", error="no_importable_files")
         return
+    override = model_name.strip() if model_name and total == 1 else None
     registry.update(job_id, state="running", total_steps=total)
     results: list[dict] = []
     done = 0
     for staged, original_filename in staged_files:
         suffix = Path(original_filename).suffix.lower()
+        resolved_name = override or Path(original_filename).stem
         child = registry.create(owner_user_id=actor_user_id)
         try:
             if suffix in _GCODE_SUFFIXES:
@@ -331,7 +338,7 @@ def import_assets(
                     job_id=child,
                     staged_path=staged,
                     original_filename=original_filename,
-                    model_name=Path(original_filename).stem,
+                    model_name=resolved_name,
                     collection=collection,
                     tags=tags,
                     source_hash=None,
@@ -348,7 +355,7 @@ def import_assets(
                     job_id=child,
                     staged_path=staged,
                     original_filename=original_filename,
-                    model_name=Path(original_filename).stem,
+                    model_name=resolved_name,
                     collection=collection,
                     tags=tags,
                     file_type=file_type,

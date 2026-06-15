@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.1 - About tab freshness
+
+A small patch release.
+
+### Highlights
+
+- **Paste a model page to import.** Import from URL previously accepted only
+  direct file/`.zip` links — pasting the Printables/MakerWorld/Thingiverse page
+  you were looking at failed. The server now resolves the page to its
+  downloadable asset (Printables, MakerWorld, and Thingiverse), keeping the
+  original page as the model's source URL. MakerWorld/Thingiverse downloads that
+  require a login accept an optional session cookie.
+
+### Reliability
+
+- **Fixed:** the Settings → About "Latest changes" card stayed on the previous
+  release because its entry list was hand-maintained and easy to forget. A
+  drift-guard test now fails whenever `changelog.ts` falls behind
+  `package.json`, so the About tab can't ship stale.
+
+### Performance
+
+- **Fixed:** 3D model (STL) previews took ~20-30s to load on the first open.
+  The `/files/{id}/stl` endpoint wrapped the rendered bytes in a
+  `StreamingResponse(BytesIO(...))`, which Starlette iterates line-by-line —
+  catastrophic for binary mesh data, where stray `0x0A` bytes split the body
+  into tens of thousands of tiny ASGI chunks (~1s per MB). It now returns the
+  body in a single `Response`, dropping an 11 MB preview from ~26s to ~0.02s.
+  Affects both the model detail viewer and public share links.
+
 ## 0.6.0 - NAS External Libraries
 
 Mirror a folder you already have — typically on a NAS — into PrintStash without

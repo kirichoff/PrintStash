@@ -18,12 +18,20 @@ class IngestResponse(BaseModel):
 
 
 class UrlIngestRequest(BaseModel):
-    """Body for POST /ingest/url."""
+    """Body for POST /ingest/url.
+
+    ``url`` may be a direct file/.zip link *or* a model *page* on a supported
+    host (Printables / MakerWorld / Thingiverse); pages are resolved to their
+    download link server-side. The optional ``*_cookie`` fields carry a browser
+    session header for hosts that gate downloads behind login.
+    """
 
     url: str
     collection: Optional[str] = None
     model_name: Optional[str] = None
     tags: Optional[str] = None
+    makerworld_cookie: Optional[str] = None
+    thingiverse_cookie: Optional[str] = None
 
 
 class ArchiveEntryRead(BaseModel):

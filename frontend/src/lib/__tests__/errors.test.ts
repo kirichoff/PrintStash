@@ -48,6 +48,14 @@ describe("parseApiError", () => {
     expect(err.detail).toBe("a plain string");
   });
 
+  it("treats a bare snake_case message as a server detail code", () => {
+    // Failed background jobs surface a bare code with no HTTP envelope.
+    const err = parseApiError(new Error("url_not_a_direct_file"));
+    expect(err.status).toBe(0);
+    expect(err.code).toBe("url_not_a_direct_file");
+    expect(userMessage(err)).toMatch(/direct file/i);
+  });
+
   it("handles non-error, non-string values", () => {
     const err = parseApiError({ weird: true });
     expect(err.code).toBe("unknown");
