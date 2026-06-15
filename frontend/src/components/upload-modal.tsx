@@ -723,10 +723,11 @@ export function UploadModal({
                     value={urlValue}
                     onChange={(e) => setUrlValue(e.target.value)}
                     className="w-full h-10 bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-sm border border-[var(--outline-variant)] rounded px-3 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
-                    placeholder="https://…/model.stl or …/pack.zip"
+                    placeholder="Printables / MakerWorld / Thingiverse page, or a direct .stl/.zip link"
                   />
                   <p className="mt-1.5 font-mono text-[10px] text-[var(--on-surface-variant)]/70">
-                    Direct file or .zip link — downloaded on the server.
+                    A model page (Printables, MakerWorld, Thingiverse) or a
+                    direct file/.zip link — fetched on the server.
                   </p>
                 </div>
               ) : (

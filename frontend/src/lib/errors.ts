@@ -50,7 +50,12 @@ export function parseApiError(raw: unknown): ApiError {
 
   const match = message.match(/^HTTP\s+(\d{3}):\s*([\s\S]+)$/);
   if (!match) {
-    return new ApiError(0, "unknown", message);
+    // No HTTP envelope. Background-job failures surface a bare server detail
+    // code (e.g. "unsupported_file_type") with no status, so treat a
+    // snake_case token as the code and let it map to friendly copy. Free-form
+    // text (exception strings, etc.) stays "unknown".
+    const code = /^[a-z][a-z0-9_]*$/.test(message) ? message : "unknown";
+    return new ApiError(0, code, message);
   }
 
   const status = Number(match[1]);
@@ -80,6 +85,38 @@ const ERROR_MESSAGES: Record<string, string> = {
   // Ingest
   unsupported_file_type: "Unsupported file type.",
   file_too_large: "File exceeds the upload size limit.",
+  upload_too_large: "File exceeds the upload size limit.",
+  no_importable_files: "No importable 3D files were found.",
+  no_entries_selected: "Select at least one file to import.",
+  // URL import
+  url_required: "Enter a URL to import from.",
+  url_not_a_direct_file:
+    "That link isn't a direct file. Paste a direct .stl/.3mf/.obj/.gcode or .zip download link.",
+  url_scheme_not_allowed: "Only http(s) URLs can be imported.",
+  url_host_missing: "That URL has no host.",
+  url_dns_resolution_failed: "Couldn't resolve that host.",
+  url_target_not_public: "That URL points to a private or local address.",
+  url_too_many_redirects: "The URL redirected too many times.",
+  url_redirect_without_location: "The server redirected without a destination.",
+  download_too_large: "The download exceeds the size limit.",
+  // Model-page resolution (Printables / MakerWorld / Thingiverse)
+  printables_resolve_failed:
+    "Couldn't find a download for that Printables page. Try a direct download link.",
+  makerworld_resolve_failed:
+    "Couldn't find a download for that MakerWorld page. Try a direct download link.",
+  thingiverse_resolve_failed:
+    "Couldn't find a download for that Thingiverse page. Try a direct download link.",
+  printables_blocked:
+    "Printables blocked the request. Try again later or use a direct download link.",
+  makerworld_blocked:
+    "MakerWorld blocked the request. Add your session cookie in settings, or use a direct download link.",
+  // Archive / ZIP import
+  archive_invalid: "That file isn't a valid .zip archive.",
+  archive_not_found: "This archive is no longer available — re-upload it.",
+  archive_too_many_entries: "The archive has too many files.",
+  archive_entry_too_large: "A file inside the archive is too large.",
+  archive_too_large: "The archive's contents exceed the size limit.",
+  archive_unsafe_entry: "The archive contains an unsafe file path.",
   // Taxonomy
   collection_not_found: "Collection not found.",
   collection_not_empty: "Cannot delete: collection still has models assigned.",

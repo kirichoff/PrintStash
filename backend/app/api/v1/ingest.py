@@ -35,7 +35,7 @@ from app.schemas.ingest import (
     IngestResponse,
     UrlIngestRequest,
 )
-from app.services import importer, rbac, storage, taxonomy
+from app.services import import_resolvers, importer, rbac, storage, taxonomy
 from app.services.ingestion import ingest_mesh, ingest_orca_gcode
 from app.services.jobs import registry
 
@@ -250,10 +250,23 @@ async def _import_from_url(
     actor_user_id: int,
     session_factory: SessionFactory,
 ) -> None:
-    """Background task: download a URL, then ingest it or stage it as an archive."""
+    """Background task: download a URL, then ingest it or stage it as an archive.
+
+    If ``req.url`` is a model *page* on a supported host, it is first resolved to
+    a direct download link; the user-pasted page URL is still recorded as the
+    model's ``source_url``.
+    """
     try:
         registry.update(job_id, state="running")
-        staged, original_filename = await importer.download_to_staging(req.url)
+        download_url = (
+            await import_resolvers.resolve_page_url(
+                req.url,
+                makerworld_cookie=req.makerworld_cookie,
+                thingiverse_cookie=req.thingiverse_cookie,
+            )
+            or req.url
+        )
+        staged, original_filename = await importer.download_to_staging(download_url)
     except importer.ImportError_ as exc:
         registry.update(job_id, state="failed", error=str(exc))
         return
@@ -264,8 +277,14 @@ async def _import_from_url(
 
     suffix = Path(original_filename).suffix.lower()
     # Treat anything that is actually a zip as an archive (handles missing/odd
-    # extensions on direct download links).
-    if suffix == ".zip" or zipfile.is_zipfile(staged):
+    # extensions on direct download links). A .3mf is itself a zip container but
+    # is a single model, so route it (and other known mesh/g-code suffixes) to
+    # direct ingestion rather than the archive-manifest flow.
+    if suffix == ".zip" or (
+        zipfile.is_zipfile(staged)
+        and suffix not in _MESH_SUFFIXES
+        and suffix not in _GCODE_SUFFIXES
+    ):
         try:
             entries = await run_in_threadpool(importer.inspect_archive, staged)
         except importer.ImportError_ as exc:
@@ -289,8 +308,11 @@ async def _import_from_url(
         return
 
     if suffix not in _MESH_SUFFIXES and suffix not in _GCODE_SUFFIXES:
+        # The URL resolved to something that isn't a model file or a .zip —
+        # almost always a model *page* (HTML) rather than a direct download
+        # link. Use a dedicated code so the UI can tell the user what to paste.
         staged.unlink(missing_ok=True)
-        registry.update(job_id, state="failed", error="unsupported_file_type")
+        registry.update(job_id, state="failed", error="url_not_a_direct_file")
         return
 
     # Single direct file — ingest under the user's chosen collection. Offload
@@ -304,6 +326,7 @@ async def _import_from_url(
         source_url=req.url,
         actor_user_id=actor_user_id,
         session_factory=session_factory,
+        model_name=req.model_name,
     )
 
 
