@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.6.0 - NAS External Libraries
+
+Mirror a folder you already have — typically on a NAS — into PrintStash without
+copying it. The folder stays the source of truth; PrintStash indexes files
+where they live and stores only thumbnails and metadata.
+
+### Highlights
+
+- **External libraries (NAS folder mirroring).** Point PrintStash at a folder
+  and it indexes every supported file in place (`File.is_external`), storing
+  only the generated thumbnail + metadata. Opt-in and OFF by default
+  (`SystemConfig.external_libraries_enabled`). Manage libraries in Settings
+  (superuser only).
+- **Two-way sync.** A scan reconciles the index with the folder — new files
+  indexed, removed files trashed, edited files re-hashed and refreshed — while
+  web uploads/revisions *write back* into the folder so it stays complete.
+  Revisions follow their model's library automatically; new uploads pick a
+  destination in the upload modal.
+- **Folder hierarchy → collections.** In MIRROR mode a file's subfolder chain
+  becomes its collection path; SINGLE mode routes everything into one chosen
+  collection.
+- **Your bytes are never touched.** PrintStash only ever *adds* files to the
+  folder (collision-safe naming), never overwrites. Trash hard-delete and the
+  orphan-blob GC skip external files entirely — removing a model or a library
+  drops the index rows but leaves the originals on the NAS.
+- **Unmount safety.** A scan aborts without deleting anything when the root is
+  missing/unreadable, or empty while indexed files still exist — an unmounted
+  share can never trigger mass deletion.
+- **Periodic background scans.** Enabled libraries are rescanned on their
+  configured interval; manual scan available via the API and UI.
+
+### Reliability
+
+- **Fixed:** the periodic scan scheduler crashed on a naive/aware datetime
+  comparison (`last_scanned_at` reads back from the DB without tzinfo), which
+  the scan loop swallowed — silently stopping scheduled scans after each
+  library's first run. Normalised via `core.time.ensure_utc`.
+- Real-use-case test suites for NAS mirroring (safety invariants, write-back,
+  reconcile, scheduler, full API round trip) and for ingestion/revisions driven
+  by real STL/3MF/g-code fixtures.
+
 ## 0.5.0 - Import, CAD, Sharing & Measured Prints
 
 A big release closing the ingest/discovery gap and deepening the
