@@ -11,6 +11,7 @@ per facet) — N+1 regressions are bugs in this module, testable without HTTP.
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime, timedelta
 import csv
 import io
 from pathlib import Path
@@ -20,7 +21,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.core.config import settings
-from app.core.time import utcnow
+from app.core.time import ensure_utc, utcnow
 from app.db.models import (
     Collection,
     CollectionRole,
@@ -33,19 +34,25 @@ from app.db.models import (
     ModelTagLink,
     Printer,
     PrinterFile,
+    PrintJob,
+    PrintJobState,
     SENTINEL_MODEL_HASH,
     Tag,
     User,
 )
 from app.db.scopes import live, trashed
 from app.schemas.models import (
+    CollectionStatRead,
     FileRead,
+    FilamentStatRead,
     MetadataRead,
     ModelListItem,
     ModelPrinterPresenceRead,
     ModelRead,
+    PrintStatisticsRead,
     PrintSummaryRead,
     StorageUsageRead,
+    TimeBucketRead,
     TrashedModelRead,
     VaultStatsRead,
 )
@@ -840,4 +847,223 @@ def vault_stats(session: Session, user: User) -> VaultStatsRead:
         printer_count=int(printer_count or 0),
         indexed_size_bytes=int(indexed_size or 0),
         storage=storage_usage,
+    )
+
+
+# Supported preset windows → lookback in days; None means "all time".
+_STATS_PERIODS: dict[str, Optional[int]] = {
+    "7d": 7,
+    "30d": 30,
+    "90d": 90,
+    "1y": 365,
+    "all": None,
+}
+
+
+def _effective_print_metrics(
+    profiles: list[FilamentProfile],
+    md: Metadata | None,
+    job: PrintJob,
+) -> tuple[Optional[float], Optional[float], Optional[int]]:
+    """Filament grams, cost and duration for a completed print.
+
+    Prefers the values the printer actually measured; falls back to the slicer
+    estimate from :class:`Metadata` when the printer reported nothing (Bambu
+    does not report live consumption, and manual logs often omit it). Without
+    this fallback the cost/filament totals read as "—" for whole fleets.
+    """
+    if job.filament_used_g is not None:
+        grams: Optional[float] = job.filament_used_g
+        cost = filament_cost_for_grams(profiles, md, grams)
+    elif md is not None:
+        grams = md.filament_weight_g
+        cost = filament_cost_for_grams(profiles, md, grams)
+        if cost is None:
+            cost = md.filament_cost
+    else:
+        grams = None
+        cost = None
+
+    duration = job.actual_duration_s
+    if duration is None and md is not None:
+        duration = md.estimated_time_s
+
+    return grams, cost, duration
+
+
+def print_statistics(session: Session, period: str) -> PrintStatisticsRead:
+    """Aggregate *completed* print jobs over a preset time window.
+
+    Counts cost, filament and duration totals plus the collections and
+    filaments with the most prints. Per-print cost reuses the same
+    profile-matching helper that drives the model detail view, so the numbers
+    here are consistent with what users see per model.
+    """
+    if period not in _STATS_PERIODS:
+        period = "30d"
+    lookback_days = _STATS_PERIODS[period]
+
+    end_at = utcnow()
+    start_at: Optional[datetime] = (
+        end_at - timedelta(days=lookback_days) if lookback_days is not None else None
+    )
+    # Manually-logged jobs may not set finished_at; fall back to created_at so
+    # they still land in the right window.
+    anchor = func.coalesce(PrintJob.finished_at, PrintJob.created_at)
+
+    query = (
+        select(PrintJob, Metadata, Model, Collection)
+        .join(File, File.id == PrintJob.file_id)
+        .outerjoin(Metadata, Metadata.file_id == File.id)
+        .join(Model, Model.id == PrintJob.model_id)
+        .outerjoin(Collection, Collection.id == Model.collection_id)
+        .where(
+            live(PrintJob),
+            PrintJob.state == PrintJobState.COMPLETED,
+        )
+    )
+    if start_at is not None:
+        query = query.where(anchor >= start_at)  # type: ignore[operator]
+
+    rows = session.exec(query).all()
+    profiles = _load_filament_profiles(session)
+
+    total_cost = 0.0
+    has_cost = False
+    total_filament_g = 0.0
+    has_filament = False
+    total_duration_s = 0
+    grams_samples = 0
+    grams_sum = 0.0
+
+    bucket_monthly = lookback_days is None or lookback_days > 90
+
+    collection_acc: dict[Optional[int], dict] = {}
+    filament_acc: dict[tuple, dict] = {}
+    time_acc: dict[str, dict] = {}
+
+    for job, md, model, collection in rows:
+        grams, cost, duration = _effective_print_metrics(profiles, md, job)
+        if cost is not None:
+            total_cost += cost
+            has_cost = True
+        if grams is not None:
+            total_filament_g += grams
+            has_filament = True
+            grams_sum += grams
+            grams_samples += 1
+        if duration is not None:
+            total_duration_s += duration
+
+        # Top collections (Uncategorized bucket when the model has no collection).
+        cid = collection.id if collection is not None else None
+        c = collection_acc.setdefault(
+            cid,
+            {
+                "name": collection.name if collection is not None else "Uncategorized",
+                "path": collection.path if collection is not None else None,
+                "print_count": 0,
+                "total_cost": 0.0,
+                "has_cost": False,
+            },
+        )
+        c["print_count"] += 1
+        if cost is not None:
+            c["total_cost"] += cost
+            c["has_cost"] = True
+
+        # Top filaments grouped by (material_type, material_brand).
+        mtype = md.material_type if md is not None else None
+        mbrand = md.material_brand if md is not None else None
+        f = filament_acc.setdefault(
+            (mtype, mbrand),
+            {
+                "material_type": mtype,
+                "material_brand": mbrand,
+                "print_count": 0,
+                "total_g": 0.0,
+                "has_g": False,
+                "total_cost": 0.0,
+                "has_cost": False,
+            },
+        )
+        f["print_count"] += 1
+        if grams is not None:
+            f["total_g"] += grams
+            f["has_g"] = True
+        if cost is not None:
+            f["total_cost"] += cost
+            f["has_cost"] = True
+
+        # Cost-over-time buckets keyed by day (≤90d) or month (longer/all).
+        when = ensure_utc(job.finished_at or job.created_at)
+        key = when.strftime("%Y-%m") if bucket_monthly else when.strftime("%Y-%m-%d")
+        b = time_acc.setdefault(
+            key,
+            {
+                "cost": 0.0,
+                "has_cost": False,
+                "filament_g": 0.0,
+                "has_g": False,
+                "print_count": 0,
+            },
+        )
+        b["print_count"] += 1
+        if cost is not None:
+            b["cost"] += cost
+            b["has_cost"] = True
+        if grams is not None:
+            b["filament_g"] += grams
+            b["has_g"] = True
+
+    top_collections = [
+        CollectionStatRead(
+            collection_id=cid,
+            name=v["name"],
+            path=v["path"],
+            print_count=v["print_count"],
+            total_cost=round(v["total_cost"], 4) if v["has_cost"] else None,
+        )
+        for cid, v in sorted(
+            collection_acc.items(), key=lambda kv: kv[1]["print_count"], reverse=True
+        )
+    ][:10]
+
+    top_filaments = [
+        FilamentStatRead(
+            material_type=v["material_type"],
+            material_brand=v["material_brand"],
+            print_count=v["print_count"],
+            total_g=round(v["total_g"], 2) if v["has_g"] else None,
+            total_cost=round(v["total_cost"], 4) if v["has_cost"] else None,
+        )
+        for v in sorted(
+            filament_acc.values(), key=lambda x: x["print_count"], reverse=True
+        )
+    ][:10]
+
+    cost_over_time = [
+        TimeBucketRead(
+            bucket=key,
+            cost=round(v["cost"], 4) if v["has_cost"] else None,
+            filament_g=round(v["filament_g"], 2) if v["has_g"] else None,
+            print_count=v["print_count"],
+        )
+        for key, v in sorted(time_acc.items())
+    ]
+
+    return PrintStatisticsRead(
+        period=period,
+        start_at=start_at,
+        end_at=end_at,
+        total_prints=len(rows),
+        total_cost=round(total_cost, 4) if has_cost else None,
+        total_filament_g=round(total_filament_g, 2) if has_filament else None,
+        avg_filament_g=(
+            round(grams_sum / grams_samples, 2) if grams_samples else None
+        ),
+        total_print_time_s=total_duration_s,
+        top_collections=top_collections,
+        top_filaments=top_filaments,
+        cost_over_time=cost_over_time,
     )

@@ -13,6 +13,10 @@ export type {
   TrashPurgeRead,
   StorageUsageRead,
   VaultStatsRead,
+  CollectionStatRead,
+  FilamentStatRead,
+  TimeBucketRead,
+  PrintStatisticsRead,
   ModelUpdate,
   ManualPrintJobCreate,
   ImportedPrintJobRead,
@@ -82,5 +86,7 @@ export type {
   ExternalLibraryCreate,
   ExternalLibraryUpdate,
   ExternalLibraryCollectionMode,
+  ExternalLibraryWatchMode,
+  ExternalLibraryFsKind,
   ExternalLibraryScanSummary,
 } from "./config";

@@ -11,7 +11,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from croniter import croniter
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
@@ -21,6 +22,7 @@ from app.core.time import utcnow
 from app.db.models import (
     ExternalLibrary,
     ExternalLibraryCollectionMode,
+    ExternalLibraryWatchMode,
     User,
 )
 from app.db.session import SessionFactory, get_session, get_session_factory
@@ -43,6 +45,10 @@ class LibraryRead(BaseModel):
     root_path: str
     enabled: bool
     scan_interval_minutes: int
+    scan_schedule: str
+    watch_mode: ExternalLibraryWatchMode
+    fs_kind: Optional[str]
+    watch_active: bool
     collection_mode: ExternalLibraryCollectionMode
     target_collection_id: Optional[int]
     last_scanned_at: Optional[str]
@@ -56,7 +62,9 @@ class LibraryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     root_path: str = Field(min_length=1, max_length=1024)
     enabled: bool = True
-    scan_interval_minutes: int = Field(default=60, ge=1)
+    # Empty string = manual only. Otherwise a cron expression.
+    scan_schedule: str = Field(default="0 * * * *", max_length=128)
+    watch_mode: ExternalLibraryWatchMode = ExternalLibraryWatchMode.AUTO
     collection_mode: ExternalLibraryCollectionMode = ExternalLibraryCollectionMode.MIRROR
     target_collection_id: Optional[int] = None
 
@@ -67,7 +75,8 @@ class LibraryUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=128)
     root_path: Optional[str] = Field(default=None, min_length=1, max_length=1024)
     enabled: Optional[bool] = None
-    scan_interval_minutes: Optional[int] = Field(default=None, ge=1)
+    scan_schedule: Optional[str] = Field(default=None, max_length=128)
+    watch_mode: Optional[ExternalLibraryWatchMode] = None
     collection_mode: Optional[ExternalLibraryCollectionMode] = None
     target_collection_id: Optional[int] = None
 
@@ -80,6 +89,23 @@ def _validate_root_path(root_path: str) -> None:
         raise HTTPException(status_code=400, detail="root_path_unreadable")
 
 
+def _validate_schedule(schedule: str) -> None:
+    # Empty string is allowed and means "manual only".
+    if schedule and not croniter.is_valid(schedule):
+        raise HTTPException(status_code=400, detail="invalid_cron_schedule")
+
+
+def _schedule_watcher_refresh(request: Request, background_tasks: BackgroundTasks) -> None:
+    """Reconcile the folder watcher after a config change (best-effort).
+
+    The watcher only exists once the app lifespan has started; guard for setups
+    (e.g. tests) where it isn't attached.
+    """
+    watcher = getattr(request.app.state, "library_watcher", None)
+    if watcher is not None:
+        background_tasks.add_task(watcher.refresh)
+
+
 def _to_read(lib: ExternalLibrary) -> LibraryRead:
     summary = None
     if lib.last_scan_summary:
@@ -87,12 +113,19 @@ def _to_read(lib: ExternalLibrary) -> LibraryRead:
             summary = json.loads(lib.last_scan_summary)
         except (ValueError, TypeError):
             summary = None
+    watch_active = lib.fs_kind is not None and external_library.should_watch(
+        lib, lib.fs_kind  # type: ignore[arg-type]
+    )
     return LibraryRead(
         id=lib.id,  # type: ignore[arg-type]
         name=lib.name,
         root_path=lib.root_path,
         enabled=lib.enabled,
         scan_interval_minutes=lib.scan_interval_minutes,
+        scan_schedule=lib.scan_schedule,
+        watch_mode=lib.watch_mode,
+        fs_kind=lib.fs_kind,
+        watch_active=watch_active,
         collection_mode=lib.collection_mode,
         target_collection_id=lib.target_collection_id,
         last_scanned_at=lib.last_scanned_at.isoformat() if lib.last_scanned_at else None,
@@ -119,20 +152,27 @@ def list_libraries(session: Session = Depends(get_session)) -> list[LibraryRead]
 )
 def create_library(
     body: LibraryCreate,
+    request: Request,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
 ) -> LibraryRead:
     _validate_root_path(body.root_path)
+    _validate_schedule(body.scan_schedule)
     lib = ExternalLibrary(
         name=body.name.strip(),
         root_path=body.root_path,
         enabled=body.enabled,
-        scan_interval_minutes=body.scan_interval_minutes,
+        scan_schedule=body.scan_schedule,
+        watch_mode=body.watch_mode,
+        # Detect up front so watch_active is meaningful before the first scan.
+        fs_kind=external_library.detect_fs_kind(body.root_path),
         collection_mode=body.collection_mode,
         target_collection_id=body.target_collection_id,
     )
     session.add(lib)
     session.commit()
     session.refresh(lib)
+    _schedule_watcher_refresh(request, background_tasks)
     return _to_read(lib)
 
 
@@ -144,18 +184,24 @@ def create_library(
 def update_library(
     library_id: int,
     body: LibraryUpdate,
+    request: Request,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
 ) -> LibraryRead:
     lib = get_or_404(session, ExternalLibrary, library_id, "library_not_found")
     if body.root_path is not None and body.root_path != lib.root_path:
         _validate_root_path(body.root_path)
         lib.root_path = body.root_path
+        lib.fs_kind = external_library.detect_fs_kind(body.root_path)
     if body.name is not None:
         lib.name = body.name.strip()
     if body.enabled is not None:
         lib.enabled = body.enabled
-    if body.scan_interval_minutes is not None:
-        lib.scan_interval_minutes = body.scan_interval_minutes
+    if body.scan_schedule is not None:
+        _validate_schedule(body.scan_schedule)
+        lib.scan_schedule = body.scan_schedule
+    if body.watch_mode is not None:
+        lib.watch_mode = body.watch_mode
     if body.collection_mode is not None:
         lib.collection_mode = body.collection_mode
     if body.target_collection_id is not None:
@@ -164,6 +210,7 @@ def update_library(
     session.add(lib)
     session.commit()
     session.refresh(lib)
+    _schedule_watcher_refresh(request, background_tasks)
     return _to_read(lib)
 
 
@@ -178,12 +225,15 @@ def update_library(
 )
 def delete_library(
     library_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
 ) -> dict:
     lib = get_or_404(session, ExternalLibrary, library_id, "library_not_found")
     trashed = external_library.purge_library_index(session, library_id)
     session.delete(lib)
     session.commit()
+    _schedule_watcher_refresh(request, background_tasks)
     return {"deleted": True, "files_trashed": trashed}
 
 

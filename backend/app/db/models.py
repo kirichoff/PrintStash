@@ -443,6 +443,10 @@ class SystemConfig(SQLModel, table=True):
     # are unavailable. Disabling later never deletes libraries or indexed models.
     external_libraries_enabled: bool = Field(default=False)
 
+    # ISO 4217 currency code used to render cost figures (statistics, filament
+    # cost). ``None`` falls back to the default "USD".
+    currency: Optional[str] = Field(default=None, max_length=3)
+
     configured_at: Optional[datetime] = Field(default=None, index=True)
 
     created_at: datetime = Field(default_factory=utcnow)
@@ -464,6 +468,23 @@ class ExternalLibraryScanStatus(str, Enum):
     RUNNING = "running"
 
 
+class ExternalLibraryWatchMode(str, Enum):
+    """Whether a library is watched for real-time changes (watchfiles).
+
+    Real-time watching only works on local filesystems; on network mounts
+    (NFS/SMB/CIFS) the kernel does not deliver inotify events, so the library
+    falls back to its scheduled scan. ``AUTO`` decides from the detected
+    filesystem; ``EVENTS``/``OFF`` are explicit user overrides.
+    """
+
+    # Watch only when the root is on a local filesystem (auto-detected).
+    AUTO = "auto"
+    # Force watching regardless of detected filesystem.
+    EVENTS = "events"
+    # Never watch; rely solely on the schedule / manual scans.
+    OFF = "off"
+
+
 class ExternalLibrary(SQLModel, table=True):
     """A user-managed external folder (typically on a NAS) mirrored into the vault.
 
@@ -480,7 +501,19 @@ class ExternalLibrary(SQLModel, table=True):
     name: str = Field(max_length=128)
     root_path: str = Field(max_length=1024)
     enabled: bool = Field(default=True, index=True)
+    # Legacy fixed-interval scheduling. Retained for back-compat / migration
+    # source; ``scan_schedule`` (cron) is now the source of truth.
     scan_interval_minutes: int = Field(default=60)
+    # Cron expression driving scheduled scans. Empty string = manual only.
+    scan_schedule: str = Field(default="0 * * * *", max_length=128)
+    # Whether to watch the folder for real-time changes (see enum docstring).
+    watch_mode: ExternalLibraryWatchMode = Field(
+        default=ExternalLibraryWatchMode.AUTO
+    )
+    # Last-detected filesystem class ("local" / "network" / "unknown"). Display
+    # only — explains why watching is or isn't active. Refreshed on each scan /
+    # watcher (re)start.
+    fs_kind: Optional[str] = Field(default=None, max_length=16)
 
     collection_mode: ExternalLibraryCollectionMode = Field(
         default=ExternalLibraryCollectionMode.MIRROR

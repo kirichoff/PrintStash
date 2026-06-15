@@ -179,6 +179,43 @@ export interface VaultStatsRead {
   storage: StorageUsageRead;
 }
 
+export interface CollectionStatRead {
+  collection_id: number | null;
+  name: string;
+  path: string | null;
+  print_count: number;
+  total_cost: number | null;
+}
+
+export interface FilamentStatRead {
+  material_type: string | null;
+  material_brand: string | null;
+  print_count: number;
+  total_g: number | null;
+  total_cost: number | null;
+}
+
+export interface TimeBucketRead {
+  bucket: string;
+  cost: number | null;
+  filament_g: number | null;
+  print_count: number;
+}
+
+export interface PrintStatisticsRead {
+  period: string;
+  start_at: string | null;
+  end_at: string;
+  total_prints: number;
+  total_cost: number | null;
+  total_filament_g: number | null;
+  avg_filament_g: number | null;
+  total_print_time_s: number;
+  top_collections: CollectionStatRead[];
+  top_filaments: FilamentStatRead[];
+  cost_over_time: TimeBucketRead[];
+}
+
 export interface ModelUpdate {
   name?: string;
   description?: string;

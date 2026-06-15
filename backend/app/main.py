@@ -24,6 +24,7 @@ from app.services.audit import (
     set_audit_context,
 )
 from app.services.trash import gc_soft_deleted
+from app.services.library_watcher import LibraryWatcher
 from app.services.printer_hub import PrinterHub
 from app.services.runtime_config import apply_overlay, is_configured
 from app.services.storage_backend import init_backend
@@ -62,13 +63,21 @@ async def lifespan(app: FastAPI):
     install_audit_listeners()
     hub = PrinterHub()
     app.state.printer_hub = hub
+    watcher = LibraryWatcher()
+    app.state.library_watcher = watcher
     app.state.gc_task = asyncio.create_task(_gc_loop())
     app.state.external_scan_task = asyncio.create_task(_external_scan_loop())
     await hub.start_all()
+    # Real-time folder watching is best-effort: never let it block startup.
+    try:
+        await watcher.start_all()
+    except Exception:
+        logger.exception("library watcher failed to start; scheduled scans still run")
     yield
     logger.info("shutting down printer hub")
     app.state.gc_task.cancel()
     app.state.external_scan_task.cancel()
+    await watcher.stop_all()
     await hub.stop_all()
     from app.services.moonraker import close_http_client
 

@@ -38,6 +38,7 @@ class VaultConfigRead(BaseModel):
     has_backup_s3: bool = False
     auto_mark_known_good: bool = True
     external_libraries_enabled: bool = False
+    currency: str = "USD"
 
 
 class VaultConfigUpdate(BaseModel):
@@ -45,6 +46,7 @@ class VaultConfigUpdate(BaseModel):
 
     auto_mark_known_good: Optional[bool] = None
     external_libraries_enabled: Optional[bool] = None
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
 
     storage_backend: Optional[str] = None
     data_dir: Optional[str] = None
@@ -113,6 +115,9 @@ def update_config(
         runtime_config.set_external_libraries_enabled(
             session, body.external_libraries_enabled
         )
+
+    if body.currency is not None:
+        runtime_config.set_currency(session, body.currency)
 
     runtime_config.update_config(
         session,

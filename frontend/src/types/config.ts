@@ -70,6 +70,7 @@ export interface VaultConfigRead {
   has_backup_s3: boolean;
   auto_mark_known_good: boolean;
   external_libraries_enabled: boolean;
+  currency: string;
 }
 
 export interface VaultConfigUpdate {
@@ -90,9 +91,16 @@ export interface VaultConfigUpdate {
   backup_s3_secret_key?: string;
   auto_mark_known_good?: boolean;
   external_libraries_enabled?: boolean;
+  currency?: string;
 }
 
 export type ExternalLibraryCollectionMode = "mirror" | "single";
+
+// auto: watch only on local filesystems; events: always watch; off: never watch.
+export type ExternalLibraryWatchMode = "auto" | "events" | "off";
+
+// Detected filesystem class backing the root path.
+export type ExternalLibraryFsKind = "local" | "network" | "unknown";
 
 export interface ExternalLibraryScanSummary {
   added: number;
@@ -110,6 +118,10 @@ export interface ExternalLibrary {
   root_path: string;
   enabled: boolean;
   scan_interval_minutes: number;
+  scan_schedule: string;
+  watch_mode: ExternalLibraryWatchMode;
+  fs_kind: ExternalLibraryFsKind | null;
+  watch_active: boolean;
   collection_mode: ExternalLibraryCollectionMode;
   target_collection_id: number | null;
   last_scanned_at: string | null;
@@ -121,7 +133,8 @@ export interface ExternalLibraryCreate {
   name: string;
   root_path: string;
   enabled?: boolean;
-  scan_interval_minutes?: number;
+  scan_schedule?: string;
+  watch_mode?: ExternalLibraryWatchMode;
   collection_mode?: ExternalLibraryCollectionMode;
   target_collection_id?: number | null;
 }
@@ -130,7 +143,8 @@ export interface ExternalLibraryUpdate {
   name?: string;
   root_path?: string;
   enabled?: boolean;
-  scan_interval_minutes?: number;
+  scan_schedule?: string;
+  watch_mode?: ExternalLibraryWatchMode;
   collection_mode?: ExternalLibraryCollectionMode;
   target_collection_id?: number | null;
 }

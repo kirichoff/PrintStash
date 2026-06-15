@@ -847,7 +847,7 @@ export function UploadModal({
                     <option value="">Vault storage</option>
                     {libraries.map((lib) => (
                       <option key={lib.id} value={lib.id}>
-                        {lib.name} (NAS folder)
+                        {lib.name} (shared volume)
                       </option>
                     ))}
                   </select>

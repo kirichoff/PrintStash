@@ -46,10 +46,11 @@ meant to be useful in a real home workflow today.
     Mark the recommended revision, keep quick notes, compare settings, and log
     what happened when it came off the bed.
   </Card>
-  <Card title="Mirror your NAS" icon="random">
-    Already have everything on a NAS? Point PrintStash at the folder and it
-    indexes files **in place** — no copying, no second source of truth. See
-    [NAS folders](/PrintStash/guides/nas-external-libraries/).
+  <Card title="Mirror a folder or NAS" icon="random">
+    Already have everything in a folder or on a NAS? Point PrintStash at it and it
+    indexes files **in place** — no copying, no second source of truth. Local
+    folders sync in real time; everything else runs on a schedule. See
+    [Shared volumes](/PrintStash/guides/shared-volumes/).
   </Card>
   <Card title="Run it yourself" icon="laptop">
     Docker Compose, first-run setup, local disk by default, SQLite by default,
@@ -67,13 +68,14 @@ You get to choose, per setup:
 
 - **Vault** — PrintStash owns the bytes. Upload a file and it's copied into local
   disk or S3/R2-compatible storage. Simple, self-contained, easy to back up.
-- **NAS folders (External Libraries)** — *your* folder stays the source of truth.
-  PrintStash indexes files where they sit and only stores thumbnails and
-  metadata, so the rest of your tooling keeps working unchanged. An unmounted
-  share can never trigger a mass delete. See
-  [NAS folders](/PrintStash/guides/nas-external-libraries/).
+- **Shared volumes** — *your* folder (on the server or a NAS) stays the source of
+  truth. PrintStash indexes files where they sit and only stores thumbnails and
+  metadata, so the rest of your tooling keeps working unchanged. Local folders are
+  watched and sync in real time; network folders run on a schedule, and an
+  unmounted share can never trigger a mass delete. See
+  [Shared volumes](/PrintStash/guides/shared-volumes/).
 
-The two coexist: most people run a vault and link a NAS folder or two on top.
+The two coexist: most people run a vault and link a shared volume or two on top.
 
 ## Start here
 
@@ -89,9 +91,9 @@ The two coexist: most people run a vault and link a NAS folder or two on top.
     href="/PrintStash/guides/user-guide/"
   />
   <LinkCard
-    title="Mirror a NAS folder"
-    description="Index files in place and learn how to mount the share into the container."
-    href="/PrintStash/guides/nas-external-libraries/"
+    title="Mirror a shared volume"
+    description="Index a server folder or NAS share in place, with scheduled and real-time syncing."
+    href="/PrintStash/guides/shared-volumes/"
   />
   <LinkCard
     title="Know the limits"

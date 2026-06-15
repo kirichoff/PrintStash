@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.6.2 - Shared volumes: scheduling + real-time watching
+
+External Libraries grow up: the feature is now **Shared volumes** (a folder on
+the server *or* a NAS), with proper scheduling and optional real-time syncing.
+
+### Highlights
+
+- **Cron-based scheduling.** Each volume's scan runs on a schedule you pick from
+  a preset (hourly, every 6 hours, daily, weekly) or a custom cron expression —
+  or set it to **Manual only**. This replaces the fixed "every N minutes" field;
+  existing libraries are migrated to an equivalent cron schedule automatically.
+- **Real-time watching.** Local folders are watched (via `watchfiles`) and
+  reconcile within seconds of a change, so you no longer have to wait for the
+  next scheduled scan. A burst of changes is debounced and then runs the same
+  safe reconcile as a normal scan.
+- **Network-aware fallback.** Filesystem events aren't delivered for network
+  mounts (NFS/SMB/CIFS), so watching auto-detects the filesystem and falls back
+  to scheduled scans on network folders. A per-volume control (Auto / On / Off)
+  lets you override the detection. Each volume shows its detected filesystem and
+  whether watching is active.
+
+### Renamed
+
+- The **Settings → NAS folders** tab is now **Shared volumes**, reflecting that
+  it works for local server folders as well as NAS shares.
+
+### Reliability
+
+- **Fixed:** opening the Shared volumes settings tab returned a 500. The
+  `watch_mode` column's migration default stored the lowercase enum value while
+  SQLAlchemy reads enums by member name, so existing rows failed to load. The
+  default is corrected and a follow-up migration repairs affected rows.
+
 ## 0.6.1 - About tab freshness
 
 A small patch release.

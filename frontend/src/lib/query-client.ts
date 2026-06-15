@@ -45,6 +45,8 @@ export const queryKeys = {
   printerProfiles: ["printer-profiles"] as const,
   adminUsers: ["admin", "users"] as const,
   vaultStats: ["vault-stats"] as const,
+  vaultConfig: ["vault-config"] as const,
+  printStats: (period: string) => ["print-stats", period] as const,
 } as const;
 
 /**
