@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams, usePathname } from "@/lib/navigation";
 import { Link } from "@/lib/navigation";
 import {
+  BarChart3,
   Bell,
   Box,
   CheckCircle2,
@@ -233,6 +234,7 @@ function ProfileMenu({
   const items = [
     { href: "/", label: "Vault", icon: Box },
     { href: "/printers", label: "Printers", icon: Printer, adminOnly: true },
+    { href: "/statistics", label: "Statistics", icon: BarChart3, adminOnly: true },
     { href: "/profiles", label: "Profiles", icon: SlidersHorizontal },
     { href: WIKI_URL, label: "Wiki", icon: BookOpen, external: true },
     { href: "/settings", label: "Settings", icon: Settings },
@@ -243,13 +245,13 @@ function ProfileMenu({
       role="menu"
       className="absolute right-0 top-full mt-3 w-48 overflow-hidden rounded border border-border bg-popover py-1 shadow-lg"
     >
-      {items.map((item, index) => {
+      {items.map((item) => {
         const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
         const className = `flex items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
           active
             ? "bg-blue-50 dark:bg-orange-500/10 text-blue-700 dark:text-orange-400"
             : "text-foreground hover:bg-muted hover:text-foreground"
-        } ${index === 3 ? "border-t border-border" : ""}`;
+        } ${item.href === WIKI_URL ? "border-t border-border" : ""}`;
         if (item.external) {
           return (
             <a key={item.href} href={item.href} role="menuitem" onClick={onNavigate} className={className}>

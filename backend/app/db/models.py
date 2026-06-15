@@ -443,6 +443,10 @@ class SystemConfig(SQLModel, table=True):
     # are unavailable. Disabling later never deletes libraries or indexed models.
     external_libraries_enabled: bool = Field(default=False)
 
+    # ISO 4217 currency code used to render cost figures (statistics, filament
+    # cost). ``None`` falls back to the default "USD".
+    currency: Optional[str] = Field(default=None, max_length=3)
+
     configured_at: Optional[datetime] = Field(default=None, index=True)
 
     created_at: datetime = Field(default_factory=utcnow)

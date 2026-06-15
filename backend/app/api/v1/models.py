@@ -54,6 +54,7 @@ from app.schemas.models import (
     ModelListItem,
     ModelRead,
     ModelUpdate,
+    PrintStatisticsRead,
     TrashPurgeRead,
     TrashedModelRead,
     VaultStatsRead,
@@ -220,6 +221,26 @@ def vault_stats(
     session: Session = Depends(get_session),
 ) -> VaultStatsRead:
     return model_views.vault_stats(session, current_user)
+
+
+@router.get(
+    "/stats/prints",
+    response_model=PrintStatisticsRead,
+    dependencies=[Depends(require_superuser)],
+    summary="Print analytics over a time window",
+    description=(
+        "Aggregates completed print jobs over a preset window (7d/30d/90d/1y/all): "
+        "total cost and filament, average filament per print, total print time, "
+        "and the collections and filaments with the most prints."
+    ),
+)
+def print_stats(
+    period: str = Query(
+        "30d", description="Preset window: 7d, 30d, 90d, 1y, or all"
+    ),
+    session: Session = Depends(get_session),
+) -> PrintStatisticsRead:
+    return model_views.print_statistics(session, period)
 
 
 @router.get(

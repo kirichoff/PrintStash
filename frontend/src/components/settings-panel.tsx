@@ -11,6 +11,7 @@ import {
   EyeOff,
   Files,
   FolderSync,
+  Coins,
   FolderTree,
   HardDrive,
   Info,
@@ -29,6 +30,7 @@ import {
   Users,
 } from "lucide-react";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { CURRENCY_OPTIONS } from "@/lib/currency";
 import { ExternalLibrariesPanel } from "@/components/external-libraries-panel";
 import { StorageConfigCard } from "@/components/storage-config-card";
 import { BrandMark } from "@/components/brand-mark";
@@ -213,6 +215,8 @@ export function SettingsPanel() {
   const [trashRetentionDays, setTrashRetentionDays] = useState(30);
   const [autoMarkKnownGood, setAutoMarkKnownGood] = useState(true);
   const [autoMarkBusy, setAutoMarkBusy] = useState(false);
+  const [currency, setCurrency] = useState("USD");
+  const [currencyBusy, setCurrencyBusy] = useState(false);
   const [purgeTarget, setPurgeTarget] = useState<number | null>(null);
   const [backingUp, setBackingUp] = useState(false);
   const [metadataPrefs, setMetadataPrefs] = useState<MetadataPreferences>(
@@ -294,7 +298,10 @@ export function SettingsPanel() {
     let cancelled = false;
     getVaultConfig()
       .then((cfg) => {
-        if (!cancelled) setAutoMarkKnownGood(cfg.auto_mark_known_good ?? true);
+        if (!cancelled) {
+          setAutoMarkKnownGood(cfg.auto_mark_known_good ?? true);
+          setCurrency(cfg.currency ?? "USD");
+        }
       })
       .catch(() => {});
     return () => {
@@ -315,6 +322,21 @@ export function SettingsPanel() {
       toast.error(e);
     } finally {
       setAutoMarkBusy(false);
+    }
+  }
+
+  async function saveCurrency(next: string) {
+    const prev = currency;
+    setCurrency(next);
+    setCurrencyBusy(true);
+    try {
+      await updateVaultConfig({ currency: next });
+      toast.success(`Currency set to ${next}.`);
+    } catch (e) {
+      setCurrency(prev);
+      toast.error(e);
+    } finally {
+      setCurrencyBusy(false);
     }
   }
 
@@ -1167,6 +1189,29 @@ export function SettingsPanel() {
                   }`}
                 />
               </button>
+            </div>
+          </SettingsCard>
+
+          {/* Currency for cost tracking */}
+          <SettingsCard
+            icon={Coins}
+            title="Currency"
+            description="Currency used to display cost figures in statistics and filament pricing."
+          >
+            <div className="p-4 sm:p-5 flex items-center justify-between gap-4">
+              <span className="text-[13px] text-foreground">Display currency</span>
+              <select
+                value={currency}
+                onChange={(event) => saveCurrency(event.target.value)}
+                disabled={!user || currencyBusy}
+                className={`${INPUT} max-w-xs`}
+              >
+                {CURRENCY_OPTIONS.map((opt) => (
+                  <option key={opt.code} value={opt.code}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </SettingsCard>
 

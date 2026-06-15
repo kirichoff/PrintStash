@@ -1,12 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 
 import {
+  getPrintStatistics,
+  getVaultConfig,
   getVaultStats,
   listCollections,
   listFilamentProfiles,
   listPrinterProfiles,
   listPrinters,
   listTags,
+  type StatsPeriod,
 } from "@/lib/api";
 import { queryKeys } from "@/lib/query-client";
 import type {
@@ -14,7 +17,9 @@ import type {
   FilamentProfileRead,
   PrinterProfileRead,
   PrinterRead,
+  PrintStatisticsRead,
   TagRead,
+  VaultConfigRead,
   VaultStatsRead,
 } from "@/types";
 
@@ -80,5 +85,19 @@ export function useVaultStats() {
   return useQuery<VaultStatsRead>({
     queryKey: queryKeys.vaultStats,
     queryFn: () => getVaultStats({ fresh: true }),
+  });
+}
+
+export function usePrintStatistics(period: StatsPeriod) {
+  return useQuery<PrintStatisticsRead>({
+    queryKey: queryKeys.printStats(period),
+    queryFn: () => getPrintStatistics(period, { fresh: true }),
+  });
+}
+
+export function useVaultConfig() {
+  return useQuery<VaultConfigRead>({
+    queryKey: queryKeys.vaultConfig,
+    queryFn: () => getVaultConfig(),
   });
 }

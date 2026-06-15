@@ -7,6 +7,7 @@ import LoginPage from "@/pages/login";
 import SetupPage from "@/pages/setup";
 import OrganizePage from "@/pages/organize";
 import ProfilesPage from "@/pages/profiles";
+import StatisticsPage from "@/pages/statistics";
 import SettingsPage from "@/pages/settings";
 import PrintersRoute from "@/pages/printers";
 import PrinterDetailRoute from "@/pages/printer-detail";
@@ -26,6 +27,7 @@ export const router = createBrowserRouter([
       { path: "setup", element: <SetupPage /> },
       { path: "organize", element: <OrganizePage /> },
       { path: "profiles", element: <ProfilesPage /> },
+      { path: "statistics", element: <StatisticsPage /> },
       { path: "settings", element: <SettingsPage /> },
       { path: "printers", element: <PrintersRoute /> },
       { path: "printers/:id", element: <PrinterDetailRoute /> },

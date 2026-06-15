@@ -70,6 +70,7 @@ export interface VaultConfigRead {
   has_backup_s3: boolean;
   auto_mark_known_good: boolean;
   external_libraries_enabled: boolean;
+  currency: string;
 }
 
 export interface VaultConfigUpdate {
@@ -90,6 +91,7 @@ export interface VaultConfigUpdate {
   backup_s3_secret_key?: string;
   auto_mark_known_good?: boolean;
   external_libraries_enabled?: boolean;
+  currency?: string;
 }
 
 export type ExternalLibraryCollectionMode = "mirror" | "single";

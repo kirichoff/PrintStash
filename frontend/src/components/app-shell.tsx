@@ -25,7 +25,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       router.replace("/login");
       return;
     }
-    if (!chromeless && !loading && user && !user.is_superuser && pathname.startsWith("/printers")) {
+    if (
+      !chromeless &&
+      !loading &&
+      user &&
+      !user.is_superuser &&
+      (pathname.startsWith("/printers") || pathname.startsWith("/statistics"))
+    ) {
       router.replace("/");
     }
   }, [chromeless, loading, pathname, router, user]);

@@ -189,6 +189,43 @@ class VaultStatsRead(BaseModel):
     storage: StorageUsageRead
 
 
+class CollectionStatRead(BaseModel):
+    collection_id: Optional[int] = None
+    name: str
+    path: Optional[str] = None
+    print_count: int = 0
+    total_cost: Optional[float] = None
+
+
+class FilamentStatRead(BaseModel):
+    material_type: Optional[str] = None
+    material_brand: Optional[str] = None
+    print_count: int = 0
+    total_g: Optional[float] = None
+    total_cost: Optional[float] = None
+
+
+class TimeBucketRead(BaseModel):
+    bucket: str
+    cost: Optional[float] = None
+    filament_g: Optional[float] = None
+    print_count: int = 0
+
+
+class PrintStatisticsRead(BaseModel):
+    period: str
+    start_at: Optional[datetime] = None
+    end_at: datetime
+    total_prints: int = 0
+    total_cost: Optional[float] = None
+    total_filament_g: Optional[float] = None
+    avg_filament_g: Optional[float] = None
+    total_print_time_s: int = 0
+    top_collections: List[CollectionStatRead] = []
+    top_filaments: List[FilamentStatRead] = []
+    cost_over_time: List[TimeBucketRead] = []
+
+
 class ModelUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

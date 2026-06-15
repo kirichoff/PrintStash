@@ -2,12 +2,13 @@
 
 import { Link } from "@/lib/navigation";
 import { usePathname } from "@/lib/navigation";
-import { BookOpen, Box, SlidersHorizontal, FolderTree, Printer, Settings } from "lucide-react";
+import { BarChart3, BookOpen, Box, SlidersHorizontal, FolderTree, Printer, Settings } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 
 const items = [
   { href: "/", label: "Vault", icon: Box },
   { href: "/printers", label: "Printers", icon: Printer, adminOnly: true },
+  { href: "/statistics", label: "Stats", icon: BarChart3, adminOnly: true },
   { href: "/profiles", label: "Profiles", icon: SlidersHorizontal },
   { href: "/organize", label: "Catalog", icon: FolderTree },
   { href: "https://xiao-villamor.github.io/PrintStash/", label: "Wiki", icon: BookOpen, external: true },
