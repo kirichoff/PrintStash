@@ -6,7 +6,9 @@
 // (app_version), and frontend/package.json. The Settings → About tab renders
 // CHANGELOG[0] as the current version's details.
 //
-// Newest release goes FIRST. See .claude/skills/printstash/SKILL.md → Changelog.
+// Newest release goes FIRST. CHANGELOG[0].version MUST equal the version in
+// frontend/package.json — this is enforced by changelog.test.ts, so a forgotten
+// entry fails CI instead of silently leaving the About tab on an old release.
 // ─────────────────────────────────────────────────────────────────────────
 
 export const GITHUB_REPO = "xiao-villamor/PrintStash";
@@ -18,6 +20,25 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "0.6.1",
+    date: "Jun 2026",
+    changes: [
+      "Fixed the About tab showing the previous release instead of the current one",
+    ],
+  },
+  {
+    version: "0.6.0",
+    date: "Jun 2026",
+    changes: [
+      "External libraries: mirror a NAS or local folder in place — files are indexed where they live, never copied",
+      "Two-way sync: scans pick up added, removed, and edited files; web uploads and revisions write back into the folder",
+      "Folder structure maps to collections (mirror mode), or route everything into one collection (single mode)",
+      "Your files are never overwritten or deleted — trash and cleanup skip externally-linked files, and uploads never clobber existing ones",
+      "Unmount-safe: a scan aborts instead of mass-deleting when the folder is missing or unexpectedly empty",
+      "Fixed scheduled scans silently stopping after a library's first scan",
+    ],
+  },
   {
     version: "0.5.0",
     date: "Jun 2026",

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.1 - About tab freshness
+
+A small patch release.
+
+### Reliability
+
+- **Fixed:** the Settings → About "Latest changes" card stayed on the previous
+  release because its entry list was hand-maintained and easy to forget. A
+  drift-guard test now fails whenever `changelog.ts` falls behind
+  `package.json`, so the About tab can't ship stale.
+
 ## 0.6.0 - NAS External Libraries
 
 Mirror a folder you already have — typically on a NAS — into PrintStash without
