@@ -160,11 +160,11 @@ test("gallery upload queues a task and tracks it to completion", async ({ page }
   expect(problems).toEqual([]);
 });
 
-test.describe("external libraries (NAS) enabled", () => {
+test.describe("shared volumes enabled", () => {
   test.beforeEach(() => setExternalLibrariesEnabled(true));
   test.afterEach(() => setExternalLibrariesEnabled(false));
 
-  test("upload modal surfaces the NAS write-back destination selector", async ({
+  test("upload modal surfaces the shared-volume write-back destination selector", async ({
     page,
   }) => {
     const problems = await collectPageProblems(page);
@@ -173,12 +173,12 @@ test.describe("external libraries (NAS) enabled", () => {
     await page.getByRole("button", { name: "Upload" }).click();
     await expect(page.getByRole("dialog", { name: "Upload model" })).toBeVisible();
 
-    // With mirroring on and a library present, the "Store in" selector appears,
-    // defaulting to vault and offering the NAS folder as a write-back target.
+    // With mirroring on and a volume present, the "Store in" selector appears,
+    // defaulting to vault and offering the shared volume as a write-back target.
     const destination = page.getByRole("combobox").filter({ hasText: "Vault storage" });
     await expect(destination).toBeVisible();
     await expect(
-      page.getByRole("option", { name: /nas-main \(NAS folder\)/ }),
+      page.getByRole("option", { name: /nas-main \(shared volume\)/ }),
     ).toBeAttached();
 
     expect(problems).toEqual([]);
