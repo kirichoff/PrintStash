@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 from pathlib import Path
 
 from fastapi import (
@@ -209,8 +208,8 @@ def stl_response(f: File, request: Request):
     # Already STL: stream the blob straight through, no conversion.
     if Path(f.original_filename).suffix.lower() == ".stl":
         data = backend.read_bytes(f.path)
-        return StreamingResponse(
-            io.BytesIO(data), media_type="application/sla", headers=cache_headers
+        return Response(
+            content=data, media_type="application/sla", headers=cache_headers
         )
 
     # 3MF/OBJ: trimesh conversion is expensive, so cache the result keyed by the
@@ -218,8 +217,8 @@ def stl_response(f: File, request: Request):
     cache_key = backend.stl_cache_key(f.sha256)
     if backend.exists(cache_key):
         data = backend.read_bytes(cache_key)
-        return StreamingResponse(
-            io.BytesIO(data), media_type="application/sla", headers=cache_headers
+        return Response(
+            content=data, media_type="application/sla", headers=cache_headers
         )
 
     # Lazy import: trimesh is heavy; pull it in only when we must convert.
@@ -235,8 +234,8 @@ def stl_response(f: File, request: Request):
     except Exception:
         logger.warning("stl cache write failed for file %s", f.id, exc_info=True)
 
-    return StreamingResponse(
-        io.BytesIO(data), media_type="application/sla", headers=cache_headers
+    return Response(
+        content=data, media_type="application/sla", headers=cache_headers
     )
 
 

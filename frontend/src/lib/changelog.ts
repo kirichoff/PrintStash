@@ -25,6 +25,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "Jun 2026",
     changes: [
       "Fixed the About tab showing the previous release instead of the current one",
+      "Fixed 3D model previews taking 20-30s to load — STL files now serve near-instantly",
     ],
   },
   {

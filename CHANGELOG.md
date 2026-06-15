@@ -11,6 +11,16 @@ A small patch release.
   drift-guard test now fails whenever `changelog.ts` falls behind
   `package.json`, so the About tab can't ship stale.
 
+### Performance
+
+- **Fixed:** 3D model (STL) previews took ~20-30s to load on the first open.
+  The `/files/{id}/stl` endpoint wrapped the rendered bytes in a
+  `StreamingResponse(BytesIO(...))`, which Starlette iterates line-by-line —
+  catastrophic for binary mesh data, where stray `0x0A` bytes split the body
+  into tens of thousands of tiny ASGI chunks (~1s per MB). It now returns the
+  body in a single `Response`, dropping an 11 MB preview from ~26s to ~0.02s.
+  Affects both the model detail viewer and public share links.
+
 ## 0.6.0 - NAS External Libraries
 
 Mirror a folder you already have — typically on a NAS — into PrintStash without
