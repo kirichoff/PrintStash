@@ -21,6 +21,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.6.2",
+    date: "Jun 2026",
+    changes: [
+      "Shared volumes (formerly “NAS folders”): mirror a folder on the server or a NAS",
+      "Scheduled scans now use presets (hourly, daily, weekly…) or a custom cron expression, alongside manual “Scan now”",
+      "Real-time watching keeps local folders in sync within seconds; network folders (NAS) automatically fall back to scheduled scans",
+      "Fixed a 500 error when opening the Shared volumes settings tab",
+    ],
+  },
+  {
     version: "0.6.1",
     date: "Jun 2026",
     changes: [
