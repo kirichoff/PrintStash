@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import type { Server } from "node:http";
 
-import { startMockApi } from "./mock-api";
+import { setExternalLibrariesEnabled, startMockApi } from "./mock-api";
 
 const apiPort = Number(process.env.PLAYWRIGHT_API_PORT ?? 4210);
 
@@ -158,4 +158,29 @@ test("gallery upload queues a task and tracks it to completion", async ({ page }
   await expect(page.getByText("running", { exact: true })).toHaveCount(0);
 
   expect(problems).toEqual([]);
+});
+
+test.describe("external libraries (NAS) enabled", () => {
+  test.beforeEach(() => setExternalLibrariesEnabled(true));
+  test.afterEach(() => setExternalLibrariesEnabled(false));
+
+  test("upload modal surfaces the NAS write-back destination selector", async ({
+    page,
+  }) => {
+    const problems = await collectPageProblems(page);
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Upload" }).click();
+    await expect(page.getByRole("dialog", { name: "Upload model" })).toBeVisible();
+
+    // With mirroring on and a library present, the "Store in" selector appears,
+    // defaulting to vault and offering the NAS folder as a write-back target.
+    const destination = page.getByRole("combobox").filter({ hasText: "Vault storage" });
+    await expect(destination).toBeVisible();
+    await expect(
+      page.getByRole("option", { name: /nas-main \(NAS folder\)/ }),
+    ).toBeAttached();
+
+    expect(problems).toEqual([]);
+  });
 });

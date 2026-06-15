@@ -69,7 +69,10 @@ def hard_delete_model(session: Session, model: Model) -> None:
     file_ids = [row.id for row in file_rows if row.id is not None]
 
     for file_row in file_rows:
-        backend.delete(file_row.path)
+        # External (NAS-linked) blobs are user-owned: never delete the original
+        # bytes — only the vault-owned thumbnails. The DB row is still removed.
+        if not file_row.is_external:
+            backend.delete(file_row.path)
         if file_row.id is not None:
             backend.delete(backend.thumbnail_key(file_row.id))
             backend.delete(backend.legacy_thumbnail_key(file_row.id))

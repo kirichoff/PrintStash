@@ -7,6 +7,7 @@ from app.api.v1 import (
     auth,
     backup,
     config,
+    external_libraries,
     files,
     filaments,
     health,
@@ -33,5 +34,6 @@ api_router.include_router(taxonomy.router)
 api_router.include_router(printers.router)
 api_router.include_router(backup.router)
 api_router.include_router(config.router)
+api_router.include_router(external_libraries.router)
 api_router.include_router(share.router)
 api_router.include_router(share.admin_router)

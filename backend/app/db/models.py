@@ -173,6 +173,17 @@ class File(SQLModel, table=True):
     revision_notes: Optional[str] = None
     is_recommended: bool = Field(default=False, index=True)
 
+    # External libraries (NAS folder mirroring). When ``is_external`` is true the
+    # blob lives on a user-managed external root (``path`` is its absolute path on
+    # that root) — PrintStash indexes/serves it but never owns or deletes the bytes.
+    # ``source_mtime`` is the on-disk mtime captured at scan time, used alongside
+    # ``size_bytes`` for cheap change detection on subsequent scans.
+    is_external: bool = Field(default=False, index=True)
+    external_library_id: Optional[int] = Field(
+        default=None, foreign_key="external_libraries.id", index=True
+    )
+    source_mtime: Optional[float] = None
+
     uploaded_at: datetime = Field(default_factory=utcnow, index=True)
     deleted_at: Optional[datetime] = Field(default=None, index=True)
     deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
@@ -427,7 +438,62 @@ class SystemConfig(SQLModel, table=True):
     # successful print (never overriding a human's failed/archived verdict).
     auto_mark_known_good: bool = Field(default=True)
 
+    # Opt-in master switch for NAS folder mirroring (External Libraries). Off by
+    # default: while disabled, the scan loop is idle and the /libraries API and UI
+    # are unavailable. Disabling later never deletes libraries or indexed models.
+    external_libraries_enabled: bool = Field(default=False)
+
     configured_at: Optional[datetime] = Field(default=None, index=True)
+
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class ExternalLibraryCollectionMode(str, Enum):
+    """How a scanned file's NAS subfolder maps to a vault Collection."""
+
+    # Mirror the folder tree: ``{root}/functional/brackets/x.stl`` -> "functional/brackets".
+    MIRROR = "mirror"
+    # Drop everything into one fixed target collection (``target_collection_id``).
+    SINGLE = "single"
+
+
+class ExternalLibraryScanStatus(str, Enum):
+    OK = "ok"
+    ERROR = "error"
+    RUNNING = "running"
+
+
+class ExternalLibrary(SQLModel, table=True):
+    """A user-managed external folder (typically on a NAS) mirrored into the vault.
+
+    The folder is the source of truth: PrintStash indexes files where they sit
+    (``File.is_external=true``, ``File.path`` = absolute on-disk path), stores only
+    the generated thumbnail + metadata, and streams originals on demand. A scan
+    reconciles the index with the folder; web uploads/revisions write back into the
+    folder so it stays complete. PrintStash never overwrites or deletes existing bytes.
+    """
+
+    __tablename__ = "external_libraries"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(max_length=128)
+    root_path: str = Field(max_length=1024)
+    enabled: bool = Field(default=True, index=True)
+    scan_interval_minutes: int = Field(default=60)
+
+    collection_mode: ExternalLibraryCollectionMode = Field(
+        default=ExternalLibraryCollectionMode.MIRROR
+    )
+    target_collection_id: Optional[int] = Field(
+        default=None, foreign_key="collections.id"
+    )
+
+    last_scanned_at: Optional[datetime] = Field(default=None)
+    last_scan_status: Optional[ExternalLibraryScanStatus] = Field(default=None)
+    # JSON blob: {"added": n, "updated": n, "removed": n, "skipped": n,
+    #             "errors": [..], "error": "..."}
+    last_scan_summary: Optional[str] = Field(default=None, sa_column=Column(Text))
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

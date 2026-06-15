@@ -15,7 +15,7 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid } from "@astrojs/starlight/components";
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 
 ## Why I wanted this
 
@@ -28,6 +28,8 @@ PrintStash is the missing notebook for that mess. It keeps the model, the sliced
 revisions, the thumbnail, the parser metadata, the printer copy, and your "this
 one worked" note together. It is still a small self-hosted project, but it is
 meant to be useful in a real home workflow today.
+
+## What it does
 
 <CardGrid stagger>
   <Card title="Bring files in" icon="open-book">
@@ -44,25 +46,56 @@ meant to be useful in a real home workflow today.
     Mark the recommended revision, keep quick notes, compare settings, and log
     what happened when it came off the bed.
   </Card>
+  <Card title="Mirror your NAS" icon="random">
+    Already have everything on a NAS? Point PrintStash at the folder and it
+    indexes files **in place** — no copying, no second source of truth. See
+    [NAS folders](/PrintStash/guides/nas-external-libraries/).
+  </Card>
   <Card title="Run it yourself" icon="laptop">
     Docker Compose, first-run setup, local disk by default, SQLite by default,
     no cloud account, and export/backup paths when you need to move it.
   </Card>
+  <Card title="Keep it honest" icon="approve-check">
+    Soft-delete trash with retention, scheduled backups (local or S3/R2), and an
+    upgrade path that doesn't ask you to hand-migrate data.
+  </Card>
 </CardGrid>
+
+## Where your files live
+
+You get to choose, per setup:
+
+- **Vault** — PrintStash owns the bytes. Upload a file and it's copied into local
+  disk or S3/R2-compatible storage. Simple, self-contained, easy to back up.
+- **NAS folders (External Libraries)** — *your* folder stays the source of truth.
+  PrintStash indexes files where they sit and only stores thumbnails and
+  metadata, so the rest of your tooling keeps working unchanged. An unmounted
+  share can never trigger a mass delete. See
+  [NAS folders](/PrintStash/guides/nas-external-libraries/).
+
+The two coexist: most people run a vault and link a NAS folder or two on top.
 
 ## Start here
 
 <CardGrid>
-  <Card title="Install it" icon="rocket">
-    Start with [Installation](/PrintStash/getting-started/installation/) if you
-    just want the containers running and the first admin created.
-  </Card>
-  <Card title="Use it without guessing" icon="open-book">
-    Read the [user guide](/PrintStash/guides/user-guide/) for the normal loop:
-    upload, inspect, mark the good revision, find it later.
-  </Card>
-  <Card title="Know the limits" icon="information">
-    The [known limitations](/PrintStash/reference/known-limitations/) page is
-    intentionally blunt about what is rough, beta, or out of scope.
-  </Card>
+  <LinkCard
+    title="Install it"
+    description="Get the containers running and create the first admin."
+    href="/PrintStash/getting-started/installation/"
+  />
+  <LinkCard
+    title="Use it without guessing"
+    description="The normal loop: upload, inspect, mark the good revision, find it later."
+    href="/PrintStash/guides/user-guide/"
+  />
+  <LinkCard
+    title="Mirror a NAS folder"
+    description="Index files in place and learn how to mount the share into the container."
+    href="/PrintStash/guides/nas-external-libraries/"
+  />
+  <LinkCard
+    title="Know the limits"
+    description="Blunt about what is rough, beta, or out of scope."
+    href="/PrintStash/reference/known-limitations/"
+  />
 </CardGrid>

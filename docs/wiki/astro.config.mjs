@@ -43,6 +43,10 @@ export default defineConfig({
           items: [
             { label: "User guide", slug: "guides/user-guide" },
             { label: "Printers & providers", slug: "guides/printers" },
+            {
+              label: "NAS folders (External Libraries)",
+              slug: "guides/nas-external-libraries",
+            },
             { label: "Backup & restore", slug: "guides/backup-and-restore" },
             { label: "Upgrading", slug: "guides/upgrading" },
           ],

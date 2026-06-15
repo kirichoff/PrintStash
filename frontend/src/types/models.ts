@@ -48,6 +48,7 @@ export interface FileRead {
   revision_status: FileRevisionStatus | null;
   revision_notes: string | null;
   is_recommended: boolean;
+  is_external?: boolean;
   uploaded_at: string;
   metadata: MetadataRead | null;
 }

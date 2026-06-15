@@ -75,6 +75,20 @@ def _require_ingest_collection(
     rbac.require_collection_role(session, user, row.id, CollectionRole.EDIT)
 
 
+def _validate_target_library(session: Session, library_id: int | None) -> None:
+    """Reject a write-back target unless mirroring is on and the library exists."""
+    if library_id is None:
+        return
+    from app.db.models import ExternalLibrary
+    from app.services.runtime_config import external_libraries_enabled
+
+    if not external_libraries_enabled(session):
+        raise HTTPException(status_code=400, detail="external_libraries_disabled")
+    library = session.get(ExternalLibrary, library_id)
+    if library is None or not library.enabled:
+        raise HTTPException(status_code=400, detail="library_not_found")
+
+
 def _stage_upload(upload: UploadFile, suffix: str) -> Path:
     """Stream an UploadFile into the staging dir; reject if it exceeds the limit."""
     staged = settings.incoming_dir / f"{uuid.uuid4().hex}{suffix}"
@@ -118,6 +132,10 @@ async def ingest_orca(
     source_hash: Optional[str] = Form(
         None, description="Optional sha256 of the source mesh for dedup"
     ),
+    target_library_id: Optional[int] = Form(
+        None,
+        description="Write the blob into this external (NAS) library instead of vault",
+    ),
     current_user: User = Depends(require_user),
     session: Session = Depends(get_session),
     session_factory: SessionFactory = Depends(get_session_factory),
@@ -130,6 +148,7 @@ async def ingest_orca(
     if suffix not in _GCODE_SUFFIXES:
         raise HTTPException(status_code=400, detail="unsupported_file_type")
     _require_ingest_collection(session, current_user, collection)
+    _validate_target_library(session, target_library_id)
 
     staged = await run_in_threadpool(_stage_upload, file, suffix)
     job_id = registry.create(owner_user_id=current_user.id)
@@ -144,6 +163,7 @@ async def ingest_orca(
         source_hash=source_hash,
         actor_user_id=current_user.id,
         session_factory=session_factory,
+        target_library_id=target_library_id,
     )
     return IngestResponse(job_id=job_id, state="pending")
 
@@ -170,6 +190,10 @@ async def ingest_model(
     ),
     tags: Optional[str] = Form(None, description="Comma-separated tag list"),
     source_hash: Optional[str] = Form(None, description="Optional sha256 for dedup"),
+    target_library_id: Optional[int] = Form(
+        None,
+        description="Write the blob into this external (NAS) library instead of vault",
+    ),
     current_user: User = Depends(require_user),
     session: Session = Depends(get_session),
     session_factory: SessionFactory = Depends(get_session_factory),
@@ -182,6 +206,7 @@ async def ingest_model(
     if suffix not in _MESH_SUFFIXES:
         raise HTTPException(status_code=400, detail="unsupported_file_type")
     _require_ingest_collection(session, current_user, collection)
+    _validate_target_library(session, target_library_id)
 
     staged = await run_in_threadpool(_stage_upload, file, suffix)
     job_id = registry.create(owner_user_id=current_user.id)
@@ -197,6 +222,7 @@ async def ingest_model(
         source_hash=source_hash,
         actor_user_id=current_user.id,
         session_factory=session_factory,
+        target_library_id=target_library_id,
     )
     return IngestResponse(job_id=job_id, state="pending")
 

@@ -213,6 +213,22 @@ def auto_mark_known_good_enabled(session: Session) -> bool:
     return True if config is None else bool(config.auto_mark_known_good)
 
 
+def external_libraries_enabled(session: Session) -> bool:
+    """Master opt-in switch for NAS folder mirroring. Off by default."""
+    config = session.get(SystemConfig, 1)
+    return False if config is None else bool(config.external_libraries_enabled)
+
+
+def set_external_libraries_enabled(session: Session, enabled: bool) -> SystemConfig:
+    config = get_or_create(session)
+    config.external_libraries_enabled = enabled
+    config.updated_at = utcnow()
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    return config
+
+
 def set_auto_mark_known_good(session: Session, enabled: bool) -> SystemConfig:
     config = get_or_create(session)
     config.auto_mark_known_good = enabled
@@ -262,6 +278,7 @@ def get_effective_config(session: Session) -> dict:
         "has_backup_s3_secret_key": bool(settings.backup_s3_secret_key),
         "has_backup_s3": bool(settings.backup_s3_bucket),
         "auto_mark_known_good": auto_mark_known_good_enabled(session),
+        "external_libraries_enabled": external_libraries_enabled(session),
     }
 
 

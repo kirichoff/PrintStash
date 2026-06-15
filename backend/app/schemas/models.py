@@ -51,6 +51,7 @@ class FileRead(BaseModel):
     revision_status: Optional[FileRevisionStatus] = None
     revision_notes: Optional[str] = None
     is_recommended: bool = False
+    is_external: bool = False
     uploaded_at: datetime
     metadata: Optional[MetadataRead] = None
 

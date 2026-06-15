@@ -300,6 +300,7 @@ def _file_reads_with_revisions(
             revision_status=f.revision_status,
             revision_notes=f.revision_notes,
             is_recommended=f.is_recommended,
+            is_external=f.is_external,
             uploaded_at=f.uploaded_at,
             metadata=metadata_read(session, md, profiles) if md else None,
         )
@@ -610,6 +611,7 @@ def export_payload(session: Session, user: User) -> dict:
                     revision_status=file_row.revision_status,
                     revision_notes=file_row.revision_notes,
                     is_recommended=file_row.is_recommended,
+                    is_external=file_row.is_external,
                     uploaded_at=file_row.uploaded_at,
                     metadata=metadata_read(session, metadata, profiles)
                     if metadata

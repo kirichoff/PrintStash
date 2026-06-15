@@ -1,0 +1,32 @@
+import { getJson, sendAction, sendJson } from "@/lib/api/request";
+import {
+  ExternalLibrary,
+  ExternalLibraryCreate,
+  ExternalLibraryUpdate,
+} from "@/types";
+import { IngestResponse } from "@/types/models";
+
+export function listExternalLibraries(): Promise<ExternalLibrary[]> {
+  return getJson<ExternalLibrary[]>("/api/v1/libraries", { fresh: true });
+}
+
+export function createExternalLibrary(
+  body: ExternalLibraryCreate,
+): Promise<ExternalLibrary> {
+  return sendJson<ExternalLibrary>("/api/v1/libraries", "POST", body);
+}
+
+export function updateExternalLibrary(
+  id: number,
+  body: ExternalLibraryUpdate,
+): Promise<ExternalLibrary> {
+  return sendJson<ExternalLibrary>(`/api/v1/libraries/${id}`, "PATCH", body);
+}
+
+export function deleteExternalLibrary(id: number): Promise<void> {
+  return sendAction(`/api/v1/libraries/${id}`, "DELETE");
+}
+
+export function scanExternalLibrary(id: number): Promise<IngestResponse> {
+  return sendJson<IngestResponse>(`/api/v1/libraries/${id}/scan`, "POST", {});
+}

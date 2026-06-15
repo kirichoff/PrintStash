@@ -15,10 +15,12 @@ import {
   createTag,
   getJobStatus,
   getModel,
+  getVaultConfig,
   ingestArchive,
   ingestModel,
   ingestOrca,
   ingestUrl,
+  listExternalLibraries,
   selectArchiveEntries,
 } from "@/lib/api";
 import { useCollections, useTags } from "@/lib/queries";
@@ -27,7 +29,12 @@ import { createTask, updateTask } from "@/lib/task-center";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
 import { formatBytes } from "@/lib/format";
-import { ArchiveManifest, CollectionRead, IngestJobStatus } from "@/types";
+import {
+  ArchiveManifest,
+  CollectionRead,
+  ExternalLibrary,
+  IngestJobStatus,
+} from "@/types";
 
 type UploadMode = "files" | "url" | "zip";
 
@@ -88,6 +95,10 @@ export function UploadModal({
   const [tagInput, setTagInput] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  // NAS write-back: when mirroring is enabled, new uploads can target a library
+  // instead of vault storage. Empty string = vault.
+  const [libraries, setLibraries] = useState<ExternalLibrary[]>([]);
+  const [targetLibraryId, setTargetLibraryId] = useState<number | "">("");
   // Shared taxonomy lists from the TanStack Query cache (deduped with the grid
   // and detail views; refetched after any create/delete).
   const { data: collections = [] } = useCollections();
@@ -110,6 +121,27 @@ export function UploadModal({
     }
     setCollectionPath("");
   }, [open, defaultCollection, user?.is_superuser, writableCollections]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getVaultConfig()
+      .then((cfg) => {
+        if (cancelled || !cfg.external_libraries_enabled) {
+          setLibraries([]);
+          return;
+        }
+        return listExternalLibraries().then((libs) => {
+          if (!cancelled) setLibraries(libs.filter((l) => l.enabled));
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setLibraries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -170,6 +202,7 @@ export function UploadModal({
     setCollectionPath(defaultCollection ?? "");
     setSelectedTags([]);
     setTagInput("");
+    setTargetLibraryId("");
     setSubmitting(false);
   }
 
@@ -259,6 +292,7 @@ export function UploadModal({
     name,
     collection,
     tagsForUpload,
+    libraryId,
   }: {
     taskId: string;
     mesh: File | null;
@@ -266,7 +300,11 @@ export function UploadModal({
     name: string;
     collection: string;
     tagsForUpload: string[];
+    libraryId: number | "";
   }) {
+    const appendLibrary = (fd: FormData) => {
+      if (libraryId !== "") fd.append("target_library_id", String(libraryId));
+    };
     try {
       if (mesh) {
         updateTask(taskId, {
@@ -279,6 +317,7 @@ export function UploadModal({
         meshFd.append("model_name", name || mesh.name);
         if (collection) meshFd.append("collection", collection);
         if (tagsForUpload.length) meshFd.append("tags", tagsForUpload.join(","));
+        appendLibrary(meshFd);
         const meshRes = await ingestModel(meshFd);
 
         updateTask(taskId, {
@@ -316,6 +355,7 @@ export function UploadModal({
         if (collection) gcodeFd.append("collection", collection);
         if (tagsForUpload.length) gcodeFd.append("tags", tagsForUpload.join(","));
         gcodeFd.append("source_hash", full.hash);
+        appendLibrary(gcodeFd);
         const gcodeRes = await ingestOrca(gcodeFd);
         await pollJob(gcodeRes.job_id, taskId, {
           progressStart: 70,
@@ -340,6 +380,7 @@ export function UploadModal({
         fd.append("model_name", name || gcode.name);
         if (collection) fd.append("collection", collection);
         if (tagsForUpload.length) fd.append("tags", tagsForUpload.join(","));
+        appendLibrary(fd);
         const res = await ingestOrca(fd);
         await pollJob(res.job_id, taskId, {
           progressStart: 45,
@@ -521,6 +562,7 @@ export function UploadModal({
       name: modelName,
       collection: collectionPath,
       tagsForUpload: [...selectedTags],
+      libraryId: targetLibraryId,
     });
     reset();
     onClose();
@@ -785,6 +827,35 @@ export function UploadModal({
                   )}
                 </div>
               </div>
+
+              {/* Destination (NAS write-back) — only when mirroring is enabled */}
+              {mode === "files" && libraries.length > 0 && (
+                <div>
+                  <label className="block font-mono text-xs text-[var(--on-surface-variant)] tracking-wider uppercase mb-2">
+                    Store in
+                  </label>
+                  <select
+                    value={targetLibraryId}
+                    onChange={(e) =>
+                      setTargetLibraryId(
+                        e.target.value === "" ? "" : Number(e.target.value),
+                      )
+                    }
+                    className="w-full h-10 bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-sm border border-[var(--outline-variant)] rounded px-3 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+                  >
+                    <option value="">Vault storage</option>
+                    {libraries.map((lib) => (
+                      <option key={lib.id} value={lib.id}>
+                        {lib.name} (NAS folder)
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 font-mono text-[10px] text-[var(--on-surface-variant)]/70">
+                    NAS libraries write the file into the folder; revisions to a
+                    linked model always follow that model automatically.
+                  </p>
+                </div>
+              )}
 
               {/* Tags */}
               <div>
