@@ -235,7 +235,7 @@ deliberately not a full manufacturing platform. Set expectations accordingly:
 
 - **Bambu LAN is beta** and limited to local status plus pause/resume/cancel.
   Upload, send-to-print, remote file inventory, and remote-file start are
-  **not** implemented for Bambu yet. Moonraker/Klipper is the fully supported
+  **not** implemented for Bambu yet, issues are wellcome. Moonraker/Klipper is the fully supported
   provider.
 - **Hardware coverage is still thin.** Provider behavior needs more real-world
   validation across printers, firmware versions, and network/auth setups.
