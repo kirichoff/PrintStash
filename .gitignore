@@ -55,3 +55,6 @@ frontend/test-results/
 frontend/playwright-report/
 .playwright-mcp/
 screenshots/gif-frames/
+
+# Windows "downloaded from internet" metadata streams (WSL surfaces these)
+*:Zone.Identifier

@@ -22,7 +22,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from app.core.logging import get_logger
-from app.core.time import utcnow
+from app.core.time import ensure_utc, utcnow
 from app.db.models import (
     ExternalLibrary,
     ExternalLibraryCollectionMode,
@@ -404,7 +404,10 @@ def libraries_due_for_scan(session: Session) -> list[int]:
         if lib.last_scanned_at is None:
             due.append(lib.id)
             continue
-        elapsed_min = (now - lib.last_scanned_at).total_seconds() / 60.0
+        # last_scanned_at is naive when read back from the DB; normalise before
+        # subtracting from the aware ``now`` (otherwise the periodic scheduler
+        # raises TypeError and silently stops scanning after the first run).
+        elapsed_min = (now - ensure_utc(lib.last_scanned_at)).total_seconds() / 60.0
         if elapsed_min >= lib.scan_interval_minutes:
             due.append(lib.id)
     return due

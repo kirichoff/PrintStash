@@ -13,3 +13,16 @@ def utcnow() -> datetime:
     aware datetimes coming from the DB or external APIs.
     """
     return datetime.now(timezone.utc)
+
+
+def ensure_utc(value: datetime) -> datetime:
+    """Normalise a ``datetime`` to timezone-aware UTC.
+
+    Datetime columns persist as naive values (no ``timezone=True``), so a value
+    read back from the DB is naive even though we always *write* aware UTC. Use
+    this before any Python-side arithmetic/comparison against :func:`utcnow` to
+    avoid ``can't subtract offset-naive and offset-aware datetimes``.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
