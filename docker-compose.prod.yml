@@ -1,16 +1,35 @@
-# Default deployment: pulls the prebuilt images published to GHCR on each
-# release. Just `docker compose up -d` — no build step required. Pin a specific
-# version with PRINTSTASH_VERSION in .env (defaults to the current release).
-# Contributors who want to build from source can use docker-compose.build.yml.
+# Production deployment (hardened, standalone).
+#
+# Differences from the default docker-compose.yml:
+#   - Only the frontend is published, and it binds to 127.0.0.1 — put a TLS
+#     reverse proxy (Caddy, Traefik, nginx, …) in front of it.
+#   - The API is NOT published to the host; the frontend proxies /api/v1 to it
+#     over the internal network, so it never needs a host port.
+#   - Log rotation is capped so a long-running deployment can't fill the disk.
+#
+# Usage (standalone — do not combine with docker-compose.yml):
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Set at minimum a strong VAULT_JWT_SECRET in .env (e.g. `openssl rand -hex 32`).
+# Pin the release with PRINTSTASH_VERSION (defaults to the current release).
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   frontend:
     image: ghcr.io/xiao-villamor/printstash-frontend:${PRINTSTASH_VERSION:-0.6.2}
     container_name: printstash-frontend
     restart: unless-stopped
+    logging: *default-logging
+    # Bind to localhost only — terminate TLS in a reverse proxy in front of this.
+    # If your proxy runs on the same Docker network, you can drop this mapping
+    # entirely and reach the service as `frontend:3000`.
     ports:
-      - "3000:3000"
-    # The SPA is served by nginx, which proxies /api/v1 (incl. WebSockets) to
-    # the api service same-origin — so no browser-side API/WS URL is needed.
+      - "127.0.0.1:${PRINTSTASH_HTTP_PORT:-3000}:3000"
     environment:
       NGINX_CLIENT_MAX_BODY_SIZE: ${VAULT_MAX_UPLOAD_MB:-512}m
     networks:
@@ -23,18 +42,19 @@ services:
     image: ghcr.io/xiao-villamor/printstash-api:${PRINTSTASH_VERSION:-0.6.2}
     container_name: printstash-api
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    logging: *default-logging
+    # No host port: the API is reachable only inside the Docker network, where
+    # the frontend proxies /api/v1 (incl. WebSockets) to it.
+    expose:
+      - "8000"
     environment:
       VAULT_STORAGE_BACKEND: ${VAULT_STORAGE_BACKEND:-local}
       VAULT_DATA_DIR: /data/files
       VAULT_THUMB_DIR: /data/thumbs
       VAULT_STAGING_DIR: /data/staging
-      # DB path must always point at the persistent volume — never use ${VAULT_DB_URL}
-      # here because a local-dev shell export (e.g. sqlite:///./dev.sqlite) would
-      # silently redirect the DB outside the volume and wipe state on every rebuild.
-      # Postgres users: set VAULT_DB_URL via docker-compose.override.yml instead.
-      VAULT_DB_URL: sqlite:////data/db/printstash.sqlite
+      # SQLite on the persistent volume by default. For Postgres, set VAULT_DB_URL
+      # here and add a postgres service (see docker-compose.yml for an example).
+      VAULT_DB_URL: ${VAULT_DB_URL:-sqlite:////data/db/printstash.sqlite}
       VAULT_BACKUP_DIR: /data/backups
       VAULT_BACKUP_RETENTION_DAYS: ${VAULT_BACKUP_RETENTION_DAYS:-30}
       VAULT_BACKUP_S3_BUCKET: ${VAULT_BACKUP_S3_BUCKET:-}
@@ -52,7 +72,7 @@ services:
       VAULT_S3_LIFECYCLE_EXPIRATION_DAYS: ${VAULT_S3_LIFECYCLE_EXPIRATION_DAYS:-0}
       VAULT_S3_LIFECYCLE_TRANSITION_DAYS: ${VAULT_S3_LIFECYCLE_TRANSITION_DAYS:-0}
       VAULT_S3_TRANSITION_STORAGE_CLASS: ${VAULT_S3_TRANSITION_STORAGE_CLASS:-STANDARD_IA}
-      VAULT_JWT_SECRET: ${VAULT_JWT_SECRET:-changeme_jwt_secret_please_change}
+      VAULT_JWT_SECRET: ${VAULT_JWT_SECRET:?set a strong VAULT_JWT_SECRET in .env}
       VAULT_ACCESS_TOKEN_EXPIRE_MINUTES: ${VAULT_ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       VAULT_MAX_UPLOAD_MB: ${VAULT_MAX_UPLOAD_MB:-512}
       VAULT_LOG_LEVEL: ${VAULT_LOG_LEVEL:-INFO}
@@ -78,53 +98,6 @@ services:
         uv run alembic upgrade head &&
         uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log --proxy-headers
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: printstash-postgres
-    restart: unless-stopped
-    profiles:
-      - postgres
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-printstash}
-      POSTGRES_USER: ${POSTGRES_USER:-printstash}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-printstash}
-    ports:
-      - "5432:5432"
-    volumes:
-      - printstash_postgres:/var/lib/postgresql/data
-    networks:
-      - printstash_net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-printstash} -d ${POSTGRES_DB:-printstash}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  minio:
-    image: minio/minio:latest
-    container_name: printstash-minio
-    restart: unless-stopped
-    profiles:
-      - s3
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - printstash_minio:/data
-    networks:
-      - printstash_net
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
 networks:
   printstash_net:
     driver: bridge
@@ -135,5 +108,3 @@ volumes:
   printstash_db:
   printstash_staging:
   printstash_backups:
-  printstash_postgres:
-  printstash_minio:

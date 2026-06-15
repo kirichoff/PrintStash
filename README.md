@@ -187,6 +187,8 @@ by capability:
 
 Requirements: Docker and Docker Compose.
 
+The default `docker-compose.yml` pulls prebuilt images from GHCR — no build step.
+
 ```bash
 git clone https://github.com/xiao-villamor/PrintStash.git
 cd PrintStash
@@ -195,8 +197,18 @@ cp .env.example .env
 # Edit .env and set a strong, random value for VAULT_JWT_SECRET,
 # e.g. `openssl rand -hex 32`.
 
-docker compose up -d --build
+docker compose up -d
 ```
+
+For a hardened production setup (API kept internal, frontend bound to localhost
+behind your own TLS reverse proxy), use the production compose instead:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+To build the images from source instead of pulling (contributors), layer the
+build overlay: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 
 Open:
 

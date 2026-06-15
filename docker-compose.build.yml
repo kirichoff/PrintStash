@@ -1,0 +1,17 @@
+# Build-from-source overlay (for contributors / local development).
+#
+# The default docker-compose.yml pulls prebuilt GHCR images. Layer this file on
+# top to build the api and frontend from the local source tree instead:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
