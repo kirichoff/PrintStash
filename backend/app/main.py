@@ -63,10 +63,12 @@ async def lifespan(app: FastAPI):
     hub = PrinterHub()
     app.state.printer_hub = hub
     app.state.gc_task = asyncio.create_task(_gc_loop())
+    app.state.external_scan_task = asyncio.create_task(_external_scan_loop())
     await hub.start_all()
     yield
     logger.info("shutting down printer hub")
     app.state.gc_task.cancel()
+    app.state.external_scan_task.cancel()
     await hub.stop_all()
     from app.services.moonraker import close_http_client
 
@@ -82,6 +84,35 @@ async def _gc_loop() -> None:
             await asyncio.to_thread(gc_soft_deleted)
         except Exception:
             logger.exception("scheduled GC failed")
+
+
+async def _external_scan_loop() -> None:
+    """Poll enabled external (NAS) libraries and scan those whose interval elapsed.
+
+    No-op while the ``external_libraries_enabled`` opt-in is off. All blocking DB
+    and filesystem work runs in a worker thread to keep the event loop free.
+    """
+    while True:
+        await asyncio.sleep(60)
+        try:
+            await asyncio.to_thread(_run_due_external_scans)
+        except Exception:
+            logger.exception("external library scan tick failed")
+
+
+def _run_due_external_scans() -> None:
+    from app.services import external_library
+    from app.services.runtime_config import external_libraries_enabled
+
+    with get_session_factory().scoped_session() as session:
+        if not external_libraries_enabled(session):
+            return
+        due = external_library.libraries_due_for_scan(session)
+    for library_id in due:
+        try:
+            external_library.scan_library(library_id)
+        except Exception:
+            logger.exception("scheduled scan failed for library %s", library_id)
 
 
 app = FastAPI(

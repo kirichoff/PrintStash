@@ -11,6 +11,9 @@ from sqlmodel import Session, select
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import (
+    Collection,
+    ExternalLibrary,
+    ExternalLibraryCollectionMode,
     File,
     FileRevisionStatus,
     FileType,
@@ -99,6 +102,49 @@ def _apply_taxonomy(
         session.commit()
 
 
+def resolve_or_create_model(
+    session: Session,
+    *,
+    dedup_hash: str,
+    model_name: str,
+    source_url: str | None = None,
+    actor: User | None = None,
+) -> tuple[Model, bool]:
+    """Look up a Model by content hash, creating one when absent.
+
+    Returns ``(model, created)``. On a dedup hit the model is un-trashed and,
+    when *actor* is supplied, the caller's EDIT permission on its collection is
+    enforced (system callers such as the library scanner pass ``actor=None``).
+    Shared by the upload pipeline and the external-library scan engine so both
+    agree on model identity.
+    """
+    existing = session.exec(select(Model).where(Model.hash == dedup_hash)).first()
+    if existing is None:
+        base_slug = storage.slugify(model_name)
+        slug = storage.ensure_unique_slug(
+            base_slug, lambda s: _model_exists_with_slug(session, s)
+        )
+        model = Model(
+            name=model_name, slug=slug, hash=dedup_hash, source_url=source_url
+        )
+        session.add(model)
+        session.commit()
+        session.refresh(model)
+        return model, True
+
+    if actor is not None:
+        rbac.require_model_collection_role(
+            session, actor, existing.collection_id, CollectionRole.EDIT
+        )
+    existing.deleted_at = None
+    existing.deleted_by = None
+    existing.updated_at = utcnow()
+    session.add(existing)
+    session.commit()
+    session.refresh(existing)
+    return existing, False
+
+
 def persist_artifact(
     session: Session,
     *,
@@ -114,21 +160,52 @@ def persist_artifact(
     revision_status: FileRevisionStatus | None = None,
     revision_notes: str | None = None,
     is_recommended: bool = False,
+    move_blob: bool = True,
+    dest_key_override: str | None = None,
+    is_external: bool = False,
+    external_library_id: int | None = None,
+    source_mtime: float | None = None,
 ) -> File:
     """Persist a parsed, staged artifact onto *model* — the deep core shared
     by background ingestion and synchronous revision attachment.
 
     Owns: version allocation, the canonical blob move, the File row, the
     thumbnail write (+ model thumbnail selection), and the Metadata row.
+
+    Destination modes:
+    - **Vault** (default): write into vault storage at ``blob_key(...)`` via
+      ``move_in``.
+    - **External index-in-place** (scan): ``move_blob=False`` with
+      ``dest_key_override`` set to the file's existing on-disk path — nothing is
+      moved; ``is_external``/``external_library_id``/``source_mtime`` are recorded.
+    - **External write-back** (web upload/revision into a NAS library): pass the
+      computed NAS destination as ``dest_key_override`` (caller makes it
+      collision-safe) with ``move_blob=True`` and the external markers; the staged
+      upload is moved onto the library root.
     """
     assert model.id is not None
     backend = get_backend()
 
     version = _next_version_for_model(session, model.id)
-    dest_key = backend.blob_key(model.slug, version, original_filename)
+    dest_key = (
+        dest_key_override
+        if dest_key_override is not None
+        else backend.blob_key(model.slug, version, original_filename)
+    )
 
-    backend.move_in(staged_path, dest_key)
+    if move_blob:
+        backend.move_in(staged_path, dest_key)
     size_bytes = backend.stat_size(dest_key)
+
+    # For write-back into a NAS library, capture the on-disk mtime of the file we
+    # just wrote so the next scan recognises it as unchanged (no re-import).
+    if is_external and source_mtime is None:
+        direct = backend.direct_path(dest_key)
+        if direct is not None:
+            try:
+                source_mtime = direct.stat().st_mtime
+            except OSError:
+                source_mtime = None
 
     if file_type == FileType.GCODE and not is_recommended:
         # A model with G-code always has exactly one recommended revision:
@@ -158,6 +235,9 @@ def persist_artifact(
         revision_status=revision_status,
         revision_notes=revision_notes,
         is_recommended=is_recommended,
+        is_external=is_external,
+        external_library_id=external_library_id,
+        source_mtime=source_mtime,
     )
     session.add(file_row)
     session.commit()
@@ -182,6 +262,90 @@ def persist_artifact(
     return file_row
 
 
+@dataclass
+class WriteTarget:
+    """Resolved destination for a blob about to be persisted.
+
+    ``dest_key=None`` means the default vault location (``blob_key``); a non-None
+    value is an absolute path under a NAS library root (write-back).
+    """
+
+    dest_key: str | None
+    is_external: bool
+    external_library_id: int | None
+    source_mtime: float | None
+
+
+def _collision_safe_path(directory: Path, filename: str) -> Path:
+    """Return a path in *directory* for *filename* that does not clobber an
+    existing file (append -2, -3, ...). We never overwrite bytes on the NAS."""
+    candidate = directory / filename
+    if not candidate.exists():
+        return candidate
+    stem, suffix = Path(filename).stem, Path(filename).suffix
+    n = 2
+    while True:
+        candidate = directory / f"{stem}-{n}{suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
+def resolve_write_target(
+    session: Session,
+    *,
+    model: Model,
+    original_filename: str,
+    collection: Optional[str],
+    target_library_id: int | None,
+) -> WriteTarget:
+    """Decide whether a new blob is written back into a NAS library or vault.
+
+    Rules: a model that already has external (NAS-linked) files keeps new
+    files/revisions in that same library (write-back follows the model); a
+    brand-new model uses the upload's chosen ``target_library_id``; otherwise the
+    blob goes to vault storage. When the feature is disabled everything is vault.
+    """
+    from app.services.runtime_config import external_libraries_enabled
+
+    vault = WriteTarget(None, False, None, None)
+    if not external_libraries_enabled(session):
+        return vault
+
+    library_id: int | None = None
+    existing_ext = session.exec(
+        select(File).where(
+            File.model_id == model.id,
+            File.is_external == True,  # noqa: E712
+            live(File),
+        )
+    ).first()
+    if existing_ext is not None and existing_ext.external_library_id is not None:
+        library_id = existing_ext.external_library_id
+    elif target_library_id is not None:
+        library_id = target_library_id
+
+    if library_id is None:
+        return vault
+
+    library = session.get(ExternalLibrary, library_id)
+    if library is None:
+        return vault
+
+    root = Path(library.root_path)
+    subpath = ""
+    if (
+        library.collection_mode == ExternalLibraryCollectionMode.MIRROR
+        and model.collection_id is not None
+    ):
+        coll = session.get(Collection, model.collection_id)
+        if coll is not None:
+            subpath = coll.path
+    dest_dir = root / subpath if subpath else root
+    dest_path = _collision_safe_path(dest_dir, original_filename)
+    return WriteTarget(str(dest_path), True, library_id, None)
+
+
 def run_ingestion_pipeline(
     *,
     job_id: str,
@@ -195,6 +359,7 @@ def run_ingestion_pipeline(
     actor_user_id: int | None = None,
     session_factory: SessionFactory | None = None,
     source_url: Optional[str] = None,
+    target_library_id: int | None = None,
 ) -> None:
     """Full ingestion pipeline.
 
@@ -251,44 +416,33 @@ def run_ingestion_pipeline(
             actor = (
                 session.get(User, actor_user_id) if actor_user_id is not None else None
             )
-            existing = session.exec(
-                select(Model).where(Model.hash == dedup_hash)
-            ).first()
-
-            if existing is None:
-                base_slug = storage.slugify(model_name)
-                slug = storage.ensure_unique_slug(
-                    base_slug, lambda s: _model_exists_with_slug(session, s)
-                )
-                model = Model(
-                    name=model_name, slug=slug, hash=dedup_hash, source_url=source_url
-                )
-                session.add(model)
-                session.commit()
-                session.refresh(model)
-                logger.info(
-                    "ingest[%s] new model id=%s slug=%s", job_id, model.id, model.slug
-                )
-            else:
-                if actor is not None:
-                    rbac.require_model_collection_role(
-                        session,
-                        actor,
-                        existing.collection_id,
-                        CollectionRole.EDIT,
-                    )
-                model = existing
-                model.deleted_at = None
-                model.deleted_by = None
-                model.updated_at = utcnow()
-                session.add(model)
-                session.commit()
-                session.refresh(model)
-                logger.info("ingest[%s] dedup hit model_id=%s", job_id, model.id)
+            model, created = resolve_or_create_model(
+                session,
+                dedup_hash=dedup_hash,
+                model_name=model_name,
+                source_url=source_url,
+                actor=actor,
+            )
+            logger.info(
+                "ingest[%s] %s model_id=%s slug=%s",
+                job_id,
+                "new" if created else "dedup hit",
+                model.id,
+                model.slug,
+            )
 
             assert model.id is not None
 
             _apply_taxonomy(session, model, collection, tags)
+
+            # Resolve where the blob lands: a NAS library (write-back) or vault.
+            dest = resolve_write_target(
+                session,
+                model=model,
+                original_filename=original_filename,
+                collection=collection,
+                target_library_id=target_library_id,
+            )
 
             file_row = persist_artifact(
                 session,
@@ -300,6 +454,10 @@ def run_ingestion_pipeline(
                 meta=meta,
                 thumb_bytes=thumb_bytes,
                 overwrite_thumbnail=strategy.overwrite_thumbnail,
+                dest_key_override=dest.dest_key,
+                is_external=dest.is_external,
+                external_library_id=dest.external_library_id,
+                source_mtime=dest.source_mtime,
             )
             assert file_row.id is not None
 
@@ -371,6 +529,7 @@ def ingest_orca_gcode(
     actor_user_id: int | None = None,
     session_factory: SessionFactory | None = None,
     source_url: Optional[str] = None,
+    target_library_id: int | None = None,
 ) -> None:
     """Public entry point for G-code ingestion (called from the OrcaSlicer router)."""
     run_ingestion_pipeline(
@@ -385,6 +544,7 @@ def ingest_orca_gcode(
         actor_user_id=actor_user_id,
         session_factory=session_factory,
         source_url=source_url,
+        target_library_id=target_library_id,
     )
 
 
@@ -401,6 +561,7 @@ def ingest_mesh(
     actor_user_id: int | None = None,
     session_factory: SessionFactory | None = None,
     source_url: Optional[str] = None,
+    target_library_id: int | None = None,
 ) -> None:
     """Public entry point for mesh ingestion (called from the model upload router)."""
     run_ingestion_pipeline(
@@ -415,6 +576,7 @@ def ingest_mesh(
         actor_user_id=actor_user_id,
         session_factory=session_factory,
         source_url=source_url,
+        target_library_id=target_library_id,
     )
 
 
@@ -434,6 +596,15 @@ def add_gcode_revision_to_model(
     blob_hash = sha256_file(staged_path)
     meta, thumb_bytes = _gcode_strategy().process(staged_path)
 
+    # Revisions follow the model: if it lives in a NAS library, write back there.
+    dest = resolve_write_target(
+        session,
+        model=model,
+        original_filename=original_filename,
+        collection=None,
+        target_library_id=None,
+    )
+
     file_row = persist_artifact(
         session,
         model=model,
@@ -452,6 +623,10 @@ def add_gcode_revision_to_model(
         if revision_notes and revision_notes.strip()
         else None,
         is_recommended=is_recommended,
+        dest_key_override=dest.dest_key,
+        is_external=dest.is_external,
+        external_library_id=dest.external_library_id,
+        source_mtime=dest.source_mtime,
     )
     assert file_row.id is not None
 

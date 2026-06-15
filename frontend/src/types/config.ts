@@ -69,6 +69,7 @@ export interface VaultConfigRead {
   has_backup_s3_secret_key: boolean;
   has_backup_s3: boolean;
   auto_mark_known_good: boolean;
+  external_libraries_enabled: boolean;
 }
 
 export interface VaultConfigUpdate {
@@ -88,4 +89,48 @@ export interface VaultConfigUpdate {
   backup_s3_access_key?: string;
   backup_s3_secret_key?: string;
   auto_mark_known_good?: boolean;
+  external_libraries_enabled?: boolean;
+}
+
+export type ExternalLibraryCollectionMode = "mirror" | "single";
+
+export interface ExternalLibraryScanSummary {
+  added: number;
+  updated: number;
+  removed: number;
+  skipped: number;
+  errors: string[];
+  error: string | null;
+  aborted: boolean;
+}
+
+export interface ExternalLibrary {
+  id: number;
+  name: string;
+  root_path: string;
+  enabled: boolean;
+  scan_interval_minutes: number;
+  collection_mode: ExternalLibraryCollectionMode;
+  target_collection_id: number | null;
+  last_scanned_at: string | null;
+  last_scan_status: "ok" | "error" | "running" | null;
+  last_scan_summary: ExternalLibraryScanSummary | null;
+}
+
+export interface ExternalLibraryCreate {
+  name: string;
+  root_path: string;
+  enabled?: boolean;
+  scan_interval_minutes?: number;
+  collection_mode?: ExternalLibraryCollectionMode;
+  target_collection_id?: number | null;
+}
+
+export interface ExternalLibraryUpdate {
+  name?: string;
+  root_path?: string;
+  enabled?: boolean;
+  scan_interval_minutes?: number;
+  collection_mode?: ExternalLibraryCollectionMode;
+  target_collection_id?: number | null;
 }

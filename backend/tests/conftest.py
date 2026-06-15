@@ -49,6 +49,7 @@ _TRUNCATE_TABLES_ORDER = [
     "tags",
     "metadata",
     "models",
+    "external_libraries",
     "collection_permissions",
     "collections",
     "api_keys",

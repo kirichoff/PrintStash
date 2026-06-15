@@ -74,6 +74,35 @@ A WebP preview stored under `thumbnail_key()` (`{file_id}.webp`);
 through. Pre-WebP installs left PNGs under `legacy_thumbnail_key()` —
 read/delete only, never written.
 
+### External libraries (NAS folder mirroring)
+
+**External library**:
+A user-managed folder (typically on a NAS) that PrintStash mirrors *in place* —
+the folder is the source of truth. Files are indexed where they live; only the
+generated thumbnail + metadata are stored by the vault. Opt-in and OFF by
+default (`SystemConfig.external_libraries_enabled`). Owned by
+`services/external_library`.
+
+**Linked file**:
+An Artifact with `File.is_external = true`: its blob lives on an external root
+(`File.path` is that absolute path), not in vault storage. PrintStash never
+overwrites or deletes a linked file's bytes — trash/GC skip external blobs.
+_Avoid_: "imported file" (that means a vault-owned copy).
+
+**Mirror scan**:
+`scan_library()` reconciling the index with the folder — new files indexed,
+removed files trashed, changed files (size/mtime → re-hash) refreshed in place.
+Safety rule: a scan **aborts without deleting** when the root is missing/
+unreadable, or empty while live indexed files exist (an unmounted NAS must never
+trigger mass deletion). Manual (`POST /libraries/{id}/scan`) or the periodic
+`_external_scan_loop` in `main.py`.
+
+**Write-back**:
+Web uploads/revisions routed into a library folder instead of vault storage
+(`ingestion.resolve_write_target`). Revisions follow their model's library
+automatically; new uploads pick a target in the upload modal. Collision-safe —
+write-back only *adds* files, never overwrites.
+
 ## Flagged ambiguities
 
 - **"Model"** also names ORM classes (`db/models.py`) and printer hardware

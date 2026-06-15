@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, FileText } from "lucide-react";
+import { Download, FileText, FolderSync } from "lucide-react";
 
 import { downloadAuthenticatedFile } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
@@ -28,8 +28,17 @@ export function FilesTab({ sourceFiles }: { sourceFiles: FileRead[] }) {
             <div className="flex items-center gap-3 min-w-0">
               <FileText className="h-5 w-5 flex-shrink-0 text-[var(--outline)] group-hover:text-[var(--primary)]" />
               <div className="min-w-0">
-                <p className="text-sm text-[var(--on-surface)] font-medium truncate">
-                  {f.original_filename}
+                <p className="flex items-center gap-2 text-sm text-[var(--on-surface)] font-medium truncate">
+                  <span className="truncate">{f.original_filename}</span>
+                  {f.is_external && (
+                    <span
+                      title="Stored in a linked NAS folder; synced both ways"
+                      className="inline-flex items-center gap-1 rounded-full border border-[var(--primary)]/40 bg-[var(--primary)]/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-[var(--primary)]"
+                    >
+                      <FolderSync className="h-3 w-3" />
+                      Linked
+                    </span>
+                  )}
                 </p>
                 <p className="font-mono text-[11px] text-[var(--on-surface-variant)]">
                   {formatBytes(f.size_bytes)} · v{f.version} · Source

@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   Files,
+  FolderSync,
   FolderTree,
   HardDrive,
   Info,
@@ -28,6 +29,7 @@ import {
   Users,
 } from "lucide-react";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { ExternalLibrariesPanel } from "@/components/external-libraries-panel";
 import { StorageConfigCard } from "@/components/storage-config-card";
 import { BrandMark } from "@/components/brand-mark";
 import {
@@ -86,7 +88,14 @@ interface HealthResponse {
   version: string;
 }
 
-type SettingsSection = "overview" | "access" | "storage" | "design" | "trash" | "about";
+type SettingsSection =
+  | "overview"
+  | "access"
+  | "storage"
+  | "libraries"
+  | "design"
+  | "trash"
+  | "about";
 
 const SETTINGS_SECTIONS: {
   id: SettingsSection;
@@ -96,6 +105,7 @@ const SETTINGS_SECTIONS: {
   { id: "overview", label: "Overview", icon: Server },
   { id: "access", label: "Users & Access", icon: Users },
   { id: "storage", label: "Storage", icon: HardDrive },
+  { id: "libraries", label: "NAS folders", icon: FolderSync },
   { id: "design", label: "Design", icon: Palette },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "about", label: "About", icon: Info },
@@ -1118,6 +1128,12 @@ export function SettingsPanel() {
               </button>
             }
           />
+        </div>
+      )}
+
+      {activeSection === "libraries" && (
+        <div className="space-y-6">
+          <ExternalLibrariesPanel canEdit={!!user?.is_superuser} />
         </div>
       )}
 

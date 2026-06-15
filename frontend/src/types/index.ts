@@ -78,4 +78,9 @@ export type {
   SetupResponse,
   VaultConfigRead,
   VaultConfigUpdate,
+  ExternalLibrary,
+  ExternalLibraryCreate,
+  ExternalLibraryUpdate,
+  ExternalLibraryCollectionMode,
+  ExternalLibraryScanSummary,
 } from "./config";

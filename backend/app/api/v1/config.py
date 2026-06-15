@@ -37,12 +37,14 @@ class VaultConfigRead(BaseModel):
     has_backup_s3_secret_key: bool = False
     has_backup_s3: bool = False
     auto_mark_known_good: bool = True
+    external_libraries_enabled: bool = False
 
 
 class VaultConfigUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     auto_mark_known_good: Optional[bool] = None
+    external_libraries_enabled: Optional[bool] = None
 
     storage_backend: Optional[str] = None
     data_dir: Optional[str] = None
@@ -106,6 +108,11 @@ def update_config(
 
     if body.auto_mark_known_good is not None:
         runtime_config.set_auto_mark_known_good(session, body.auto_mark_known_good)
+
+    if body.external_libraries_enabled is not None:
+        runtime_config.set_external_libraries_enabled(
+            session, body.external_libraries_enabled
+        )
 
     runtime_config.update_config(
         session,
