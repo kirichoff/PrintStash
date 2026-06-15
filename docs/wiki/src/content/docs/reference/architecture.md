@@ -98,6 +98,37 @@ WebSocket. The hub is what makes the live status badge and reconnect indicator
 work, and it's a background task — which is exactly the kind of context the
 session-injection decision below was made for.
 
+## Shared volumes: scanning and watching
+
+A [shared volume](/PrintStash/guides/shared-volumes/) is a folder PrintStash
+indexes in place. One service, `services/external_library`, owns the reconcile:
+`scan_library()` walks the folder, diffs it against the index, and applies
+adds/updates/removes — with the safety guards that abort instead of mass-deleting
+when a root is missing or unexpectedly empty. Every trigger funnels through this
+one function, so they all share the same guarantees.
+
+There are three triggers, layered so the reliable path always works and the fast
+path is purely additive:
+
+- **Scheduled scans.** A 60-second tick in the app lifespan checks each enabled
+  volume's cron schedule (`croniter`) and runs the ones that are due. This is the
+  baseline and works on any filesystem, including network mounts.
+- **Manual scans.** The `POST /libraries/{id}/scan` endpoint queues a one-off scan
+  as a background task and reports progress through the job registry.
+- **Real-time watching.** A long-lived **LibraryWatcher** (wired into the lifespan
+  alongside the PrinterHub) keeps one `watchfiles` watcher per eligible volume. A
+  burst of filesystem events is debounced and then triggers the same
+  `scan_library()` — the watcher never re-implements indexing, so the guards come
+  for free.
+
+Watching is only started where it works. `detect_fs_kind()` classifies the root
+(reading `/proc/self/mountinfo`) as local, network, or unknown; under the default
+`AUTO` mode only local filesystems are watched, because the kernel doesn't deliver
+inotify events for NFS/SMB/CIFS. The watcher set is reconciled against the DB both
+on a periodic tick and immediately after a create/update/delete, and a failed
+watcher is isolated — it logs and falls back to the schedule rather than crashing
+startup.
+
 ## Soft-delete scopes
 
 Trash isn't a flag you check by hand. Live vs. trashed rows are expressed only
@@ -114,7 +145,8 @@ here because they shape day-to-day code.
 
 ### ADR-0001 — SessionFactory via ContextVar
 
-Background tasks (the ingestion pipeline, the PrinterHub) need a database session,
+Background tasks (the ingestion pipeline, the PrinterHub, the shared-volume scan
+loop and LibraryWatcher) need a database session,
 but they don't live inside a request, so they can't rely on FastAPI's dependency
 injection. Rather than importing a module-level engine — a global singleton that
 tests end up fighting — sessions are provided through a `SessionFactory` protocol

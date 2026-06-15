@@ -90,14 +90,17 @@ implementation work can stay aligned with the actual app.
 
 ## Settings
 
-- `/settings` sections: Overview, Access, Storage, Appearance, Trash, About.
+- `/settings` sections: Overview, Users & Access, Storage, Shared volumes,
+  Design, Trash, About.
 - Overview shows vault stats, file/source/G-code counts, storage backend usage,
   configured printers, DB/indexed size, service health, app version, and
   metadata-only JSON/CSV export.
 - Access manages named API keys, one-time API key display/copy, active key list,
   revocation, and username+API-key login guidance.
 - Storage exposes runtime storage configuration and manual full backup.
-- Appearance controls model-card metric slots and model-detail metadata
+- Shared volumes manages mirrored server/NAS folders: enable toggle, add/edit
+  volume, scan schedule, watch mode, collection mode, and manual scan.
+- Design controls model-card metric slots and model-detail metadata
   visibility preferences, with reset actions.
 - Trash controls retention days, purge-expired action, deleted-model list,
   restore, and permanent delete confirmation.

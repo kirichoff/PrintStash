@@ -88,6 +88,7 @@ by capability:
 | Capability | Simple model vault | PrintStash |
 | --- | --- | --- |
 | Source models | Stores STL/3MF/OBJ files | Stores source files plus every G-code revision under one model |
+| Storage model | Copies files into its own store | Vault store **or** index a server folder / NAS in place (shared volumes), synced on a schedule and watched in real time |
 | Preview | Thumbnail or mesh preview | Browser 3D preview and G-code toolpath preview |
 | Slicer data | Usually manual notes | Extracts useful G-code metadata: slicer, printer profile, material, layer height, nozzle, infill, temperatures, estimated time, filament length/weight/cost |
 | Versions | Duplicate filenames or folders | Revision labels, notes, status, compare view, and recommended/known-good marker |
@@ -107,6 +108,18 @@ by capability:
   in one place rather than scattered across folders.
 - Nested collections, flat tags, search, filters, thumbnails, grid/list views,
   sorting, breadcrumbs, and drag-and-drop between collections.
+
+**Shared volumes (mirror a folder or NAS)**
+- Point PrintStash at a folder on the server or a NAS and it indexes files **in
+  place** — no copying, no second source of truth; only thumbnails and metadata
+  are stored in the vault.
+- Two-way sync: scans pick up added, removed, and edited files, and web uploads
+  and revisions write back into the folder (never overwriting existing bytes).
+- Keep it current with a per-volume schedule (presets or custom cron), manual
+  "Scan now", and optional real-time watching of local folders.
+- Network folders (NFS/SMB) can't deliver filesystem events, so watching
+  auto-detects the filesystem and falls back to the schedule — with a per-volume
+  override. An unmounted share can never trigger a mass delete.
 
 **Preview and inspect**
 - A browser 3D viewer for source meshes — solid, X-ray, and wireframe modes,
