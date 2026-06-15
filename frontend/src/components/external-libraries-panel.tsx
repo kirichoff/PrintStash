@@ -22,6 +22,7 @@ import { toast } from "@/lib/toast";
 import type {
   ExternalLibrary,
   ExternalLibraryCollectionMode,
+  ExternalLibraryWatchMode,
 } from "@/types";
 
 const BTN_PRIMARY =
@@ -30,6 +31,89 @@ const BTN_SECONDARY =
   "inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border border-border text-muted-foreground hover:bg-muted transition-colors text-xs font-medium uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed";
 const INPUT =
   "w-full px-3 py-2 bg-background border border-border rounded text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent disabled:opacity-50";
+
+// Cron presets surfaced as a dropdown; "" = manual only. Anything not in this
+// list shows the "Custom" option with a raw cron input.
+const SCHEDULE_PRESETS: { label: string; cron: string }[] = [
+  { label: "Manual only", cron: "" },
+  { label: "Hourly", cron: "0 * * * *" },
+  { label: "Every 6 hours", cron: "0 */6 * * *" },
+  { label: "Daily (midnight)", cron: "0 0 * * *" },
+  { label: "Weekly (Sunday)", cron: "0 0 * * 0" },
+];
+const PRESET_CRONS = SCHEDULE_PRESETS.map((p) => p.cron);
+const CUSTOM_SENTINEL = "__custom__";
+
+const WATCH_OPTIONS: { value: ExternalLibraryWatchMode; label: string }[] = [
+  { value: "auto", label: "Auto (watch local folders)" },
+  { value: "events", label: "On (force watching)" },
+  { value: "off", label: "Off (schedule only)" },
+];
+
+function describeSchedule(cron: string): string {
+  if (!cron) return "Manual only";
+  const preset = SCHEDULE_PRESETS.find((p) => p.cron === cron);
+  return preset ? preset.label : `Custom (${cron})`;
+}
+
+function watchStatus(lib: ExternalLibrary): string {
+  if (!lib.enabled) return "Paused";
+  if (lib.watch_active) {
+    return lib.fs_kind === "network"
+      ? "Watching (forced — polling network folder)"
+      : "Watching (real-time)";
+  }
+  if (lib.watch_mode === "off") return "Watching off — scheduled scans only";
+  if (lib.fs_kind === "network")
+    return "Network folder — scheduled scans only";
+  if (lib.fs_kind === "unknown")
+    return "Unknown filesystem — scheduled scans only";
+  return "Scheduled scans only";
+}
+
+function ScheduleControl({
+  value,
+  onChange,
+  disabled,
+  inputClass,
+}: {
+  value: string;
+  onChange: (cron: string) => void;
+  disabled?: boolean;
+  inputClass: string;
+}) {
+  const isPreset = PRESET_CRONS.includes(value);
+  return (
+    <div className="flex flex-col gap-2">
+      <select
+        className={inputClass}
+        value={isPreset ? value : CUSTOM_SENTINEL}
+        disabled={disabled}
+        onChange={(e) => {
+          const next = e.target.value;
+          // Switching to custom keeps a sensible editable starting point.
+          onChange(next === CUSTOM_SENTINEL ? "0 */2 * * *" : next);
+        }}
+      >
+        {SCHEDULE_PRESETS.map((p) => (
+          <option key={p.cron || "manual"} value={p.cron}>
+            {p.label}
+          </option>
+        ))}
+        <option value={CUSTOM_SENTINEL}>Custom cron…</option>
+      </select>
+      {!isPreset && (
+        <input
+          className={`${inputClass} font-mono`}
+          placeholder="*/30 * * * * (min hour dom mon dow)"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return "Never";
@@ -68,7 +152,8 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
   // Add-library draft.
   const [name, setName] = useState("");
   const [rootPath, setRootPath] = useState("");
-  const [interval, setInterval] = useState(60);
+  const [scanSchedule, setScanSchedule] = useState("0 * * * *");
+  const [watchMode, setWatchMode] = useState<ExternalLibraryWatchMode>("auto");
   const [mode, setMode] = useState<ExternalLibraryCollectionMode>("mirror");
 
   const refresh = useCallback(async () => {
@@ -99,7 +184,9 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
     setEnabled(next);
     try {
       await updateVaultConfig({ external_libraries_enabled: next });
-      toast.success(next ? "NAS mirroring enabled." : "NAS mirroring disabled.");
+      toast.success(
+        next ? "Shared volumes enabled." : "Shared volumes disabled.",
+      );
       if (next) await refresh();
     } catch (e) {
       setEnabled(!next);
@@ -119,12 +206,14 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
       await createExternalLibrary({
         name: name.trim(),
         root_path: rootPath.trim(),
-        scan_interval_minutes: Math.max(1, interval),
+        scan_schedule: scanSchedule,
+        watch_mode: watchMode,
         collection_mode: mode,
       });
       setName("");
       setRootPath("");
-      setInterval(60);
+      setScanSchedule("0 * * * *");
+      setWatchMode("auto");
       setMode("mirror");
       toast.success("Library added.");
       await refresh();
@@ -162,11 +251,26 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
     }
   }
 
+  async function handleUpdate(
+    lib: ExternalLibrary,
+    patch: { scan_schedule?: string; watch_mode?: ExternalLibraryWatchMode },
+  ) {
+    setBusyId(lib.id);
+    try {
+      await updateExternalLibrary(lib.id, patch);
+      await refresh();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function handleDelete(lib: ExternalLibrary) {
     setBusyId(lib.id);
     try {
       await deleteExternalLibrary(lib.id);
-      toast.success(`Removed "${lib.name}". NAS files were not touched.`);
+      toast.success(`Removed "${lib.name}". Files on the volume were not touched.`);
       await refresh();
     } catch (e) {
       toast.error(e);
@@ -187,12 +291,12 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
           </div>
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-foreground">
-              External libraries (NAS folders)
+              Shared volumes
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Mirror a folder (e.g. on a NAS) in place — files are indexed where they
-              live, never copied. Scans reflect adds/removes/edits, and web uploads
-              write back into the folder. Off by default.
+              Mirror a folder — on the server or a NAS — in place: files are indexed
+              where they live, never copied. Local folders can be watched in real
+              time; all folders support scheduled and manual scans. Off by default.
             </p>
           </div>
         </div>
@@ -251,9 +355,41 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                           {lib.collection_mode === "mirror"
                             ? "Mirrors subfolders → collections"
                             : "Single collection"}{" "}
-                          · every {lib.scan_interval_minutes} min · last scan{" "}
+                          · {describeSchedule(lib.scan_schedule)} · last scan{" "}
                           {formatDate(lib.last_scanned_at)}
                         </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {watchStatus(lib)}
+                        </p>
+                        {canEdit && (
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2 max-w-md">
+                            <ScheduleControl
+                              value={lib.scan_schedule}
+                              disabled={busy}
+                              inputClass={`${INPUT} !py-1.5 text-xs`}
+                              onChange={(cron) =>
+                                handleUpdate(lib, { scan_schedule: cron })
+                              }
+                            />
+                            <select
+                              className={`${INPUT} !py-1.5 text-xs self-start`}
+                              value={lib.watch_mode}
+                              disabled={busy}
+                              onChange={(e) =>
+                                handleUpdate(lib, {
+                                  watch_mode: e.target
+                                    .value as ExternalLibraryWatchMode,
+                                })
+                              }
+                            >
+                              {WATCH_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         {lib.last_scan_status === "error" && (
                           <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--destructive,#dc2626)]">
                             <AlertTriangle className="h-3 w-3" />
@@ -335,17 +471,31 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                 disabled={!canEdit}
                 onChange={(e) => setRootPath(e.target.value)}
               />
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                Scan every
-                <input
-                  className={`${INPUT} w-20`}
-                  type="number"
-                  min={1}
-                  value={interval}
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                Scan schedule
+                <ScheduleControl
+                  value={scanSchedule}
                   disabled={!canEdit}
-                  onChange={(e) => setInterval(Number(e.target.value))}
+                  inputClass={INPUT}
+                  onChange={setScanSchedule}
                 />
-                min
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                Real-time watching
+                <select
+                  className={INPUT}
+                  value={watchMode}
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    setWatchMode(e.target.value as ExternalLibraryWatchMode)
+                  }
+                >
+                  {WATCH_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <select
                 className={INPUT}
@@ -359,6 +509,11 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                 <option value="single">Single collection (flat)</option>
               </select>
             </div>
+            <p className="text-[11px] text-muted-foreground">
+              Watching gives near-real-time updates on local folders. Network
+              folders (NAS over NFS/SMB) don't deliver file events, so they fall
+              back to the schedule above.
+            </p>
             <div className="flex justify-end">
               <button
                 type="button"
@@ -380,7 +535,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
         title="Remove external library?"
         description={
           deleteTarget
-            ? `"${deleteTarget.name}" will be removed and its indexed models moved to trash. The files on the NAS folder are never touched.`
+            ? `"${deleteTarget.name}" will be removed and its indexed models moved to trash. The files on the shared volume are never touched.`
             : ""
         }
         confirmLabel="Remove"

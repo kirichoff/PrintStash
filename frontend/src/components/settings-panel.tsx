@@ -107,7 +107,7 @@ const SETTINGS_SECTIONS: {
   { id: "overview", label: "Overview", icon: Server },
   { id: "access", label: "Users & Access", icon: Users },
   { id: "storage", label: "Storage", icon: HardDrive },
-  { id: "libraries", label: "NAS folders", icon: FolderSync },
+  { id: "libraries", label: "Shared volumes", icon: FolderSync },
   { id: "design", label: "Design", icon: Palette },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "about", label: "About", icon: Info },

@@ -38,8 +38,47 @@ disk:
   content really changed, the metadata and thumbnail are rebuilt; if only the
   timestamp moved, PrintStash just records the new signature.
 
-Scans run automatically on the interval you set per library (default every 60
-minutes), and you can also press **Scan now** at any time.
+### When scans run
+
+You have three ways to keep the index in sync, and they stack:
+
+- **Scheduled scans** — each library has a schedule, set from a preset (hourly,
+  every 6 hours, daily, weekly) or a custom **cron** expression. Choose **Manual
+  only** to disable scheduled scans entirely.
+- **Manual scans** — press **Scan now** at any time.
+- **Real-time watching** *(local folders only)* — PrintStash can watch the folder
+  and reconcile within a few seconds of a change, so you don't have to wait for
+  the next scheduled scan.
+
+#### Real-time watching and why network folders are different
+
+Real-time watching relies on the operating system pushing filesystem events
+(inotify on Linux). **Those events are not delivered for files on a network
+mount** — NFS, SMB/CIFS, and similar. This is a kernel limitation, not a
+PrintStash one (Immich and other tools have the same caveat). So:
+
+- On a **local folder** (a real disk on the server, a bind-mounted local
+  directory), watching works and is the default.
+- On a **NAS / network folder**, watching is automatically skipped and the
+  library falls back to its **schedule** — set a schedule you're comfortable
+  with (e.g. hourly) instead.
+
+The **Watching** control per library lets you override this:
+
+- **Auto** *(default)* — watch only when the folder is on a local filesystem.
+- **On (force watching)** — watch even on a network folder. PrintStash falls back
+  to periodic stat-polling, which works but is heavier than native events.
+- **Off** — never watch; rely on the schedule and manual scans.
+
+The library row shows the detected filesystem and whether watching is active.
+
+:::caution
+Watching a very large local tree can exhaust the kernel's inotify watch limit
+(an `ENOSPC` error). If you hit this, raise `fs.inotify.max_user_watches` on the
+host to comfortably above the number of files you're watching, e.g.
+`sudo sysctl fs.inotify.max_user_watches=524288` (persist it in
+`/etc/sysctl.conf`).
+:::
 
 ### Write-back keeps the folder complete
 
@@ -148,7 +187,10 @@ docker compose up -d
 2. Click **Add a folder** and fill in:
    - **Name** — anything memorable, e.g. `NAS models`.
    - **Absolute folder path** — the **container** path, e.g. `/mnt/nas/3d`.
-   - **Scan interval** — how often to auto-scan, in minutes.
+   - **Scan schedule** — a preset (hourly/daily/…), a custom cron expression, or
+     **Manual only**.
+   - **Real-time watching** — Auto / On / Off (see above; network folders fall
+     back to the schedule).
    - **Collection mode** — mirror subfolders or a single flat collection.
 3. Save. PrintStash validates that the path exists and is readable, then runs an
    initial scan. Use **Scan now** to re-sync on demand.

@@ -86,5 +86,7 @@ export type {
   ExternalLibraryCreate,
   ExternalLibraryUpdate,
   ExternalLibraryCollectionMode,
+  ExternalLibraryWatchMode,
+  ExternalLibraryFsKind,
   ExternalLibraryScanSummary,
 } from "./config";

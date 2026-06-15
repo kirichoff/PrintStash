@@ -16,9 +16,11 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
+from croniter import croniter
 from sqlmodel import Session, select
 
 from app.core.logging import get_logger
@@ -27,6 +29,7 @@ from app.db.models import (
     ExternalLibrary,
     ExternalLibraryCollectionMode,
     ExternalLibraryScanStatus,
+    ExternalLibraryWatchMode,
     File,
     FileType,
     Metadata,
@@ -50,6 +53,105 @@ from app.services.storage_backend import get_backend
 logger = get_logger(__name__)
 
 _MTIME_TOLERANCE_S = 1e-6
+
+FsKind = Literal["local", "network", "unknown"]
+
+# Filesystem types that do NOT deliver reliable inotify events. Real-time
+# watching is disabled for these; they fall back to scheduled scans.
+_NETWORK_FSTYPES = {
+    "nfs",
+    "nfs4",
+    "cifs",
+    "smbfs",
+    "smb3",
+    "afs",
+    "ncpfs",
+    "9p",
+}
+# Filesystem types that support inotify and are safe to watch.
+_LOCAL_FSTYPES = {
+    "ext2",
+    "ext3",
+    "ext4",
+    "xfs",
+    "btrfs",
+    "zfs",
+    "f2fs",
+    "reiserfs",
+    "jfs",
+    "overlay",
+    "tmpfs",
+}
+
+
+def detect_fs_kind(path: str | os.PathLike[str]) -> FsKind:
+    """Classify the filesystem backing *path* as local / network / unknown.
+
+    Used to decide whether real-time watching can work (it can't on network
+    mounts). Reads ``/proc/self/mountinfo`` on Linux; anything else (other OS,
+    parse failure, fuse, virtiofs, …) returns ``"unknown"`` so the caller treats
+    it as "schedule only" unless the user explicitly forces watching.
+    """
+    target = os.path.realpath(str(path))
+    try:
+        with open("/proc/self/mountinfo", encoding="utf-8") as fh:
+            entries = fh.readlines()
+    except OSError:
+        return "unknown"
+
+    best_mount = ""
+    best_fstype = ""
+    for line in entries:
+        # Format: ... mount_point ... - fstype source super_opts
+        parts = line.split(" - ", 1)
+        if len(parts) != 2:
+            continue
+        left = parts[0].split()
+        right = parts[1].split()
+        if len(left) < 5 or not right:
+            continue
+        mount_point = left[4]
+        fstype = right[0]
+        if target == mount_point or target.startswith(mount_point.rstrip("/") + "/"):
+            if len(mount_point) >= len(best_mount):
+                best_mount = mount_point
+                best_fstype = fstype
+
+    if not best_fstype:
+        return "unknown"
+    base = best_fstype.split(".", 1)[0].lower()  # e.g. "fuse.sshfs" -> "fuse"
+    if base in _NETWORK_FSTYPES or "smb" in base or "cifs" in base:
+        return "network"
+    if base in _LOCAL_FSTYPES:
+        return "local"
+    return "unknown"
+
+
+def should_watch(library: ExternalLibrary, fs_kind: FsKind) -> bool:
+    """Whether real-time watching is active for *library* given its watch mode."""
+    if not library.enabled:
+        return False
+    if library.watch_mode == ExternalLibraryWatchMode.OFF:
+        return False
+    if library.watch_mode == ExternalLibraryWatchMode.EVENTS:
+        return True
+    # AUTO: only watch local filesystems.
+    return fs_kind == "local"
+
+
+def is_due(schedule: str, last_scanned_at: Optional[datetime], now: datetime) -> bool:
+    """True if a cron *schedule* has fired since *last_scanned_at*.
+
+    Empty/invalid schedules are manual-only and never due. A library that has
+    never been scanned is due as soon as it has a valid schedule.
+    """
+    if not schedule or not croniter.is_valid(schedule):
+        return False
+    if last_scanned_at is None:
+        return True
+    base = ensure_utc(last_scanned_at)
+    next_fire = croniter(schedule, base).get_next(datetime)
+    return next_fire <= now
 
 
 @dataclass
@@ -284,6 +386,12 @@ def scan_library(
                 registry.update(job_id, state="failed", error=summary.error)
             return summary.as_dict()
 
+        # Refresh the detected filesystem class so the UI / watcher know whether
+        # real-time watching can work for this root.
+        library.fs_kind = detect_fs_kind(root)
+        session.add(library)
+        session.commit()
+
         disk = _walk(root)
 
         live_files = session.exec(
@@ -393,7 +501,12 @@ def purge_library_index(session: Session, library_id: int) -> int:
 
 
 def libraries_due_for_scan(session: Session) -> list[int]:
-    """IDs of enabled libraries whose scan interval has elapsed (or never ran)."""
+    """IDs of enabled libraries whose cron schedule has fired (or never ran).
+
+    Manual-only libraries (empty ``scan_schedule``) are never returned here; they
+    only scan via ``POST /libraries/{id}/scan``. Libraries already RUNNING are
+    skipped to avoid overlapping scans.
+    """
     now = utcnow()
     due: list[int] = []
     for lib in session.exec(select(ExternalLibrary).where(ExternalLibrary.enabled == True)).all():  # noqa: E712
@@ -401,13 +514,8 @@ def libraries_due_for_scan(session: Session) -> list[int]:
             continue
         if lib.last_scan_status == ExternalLibraryScanStatus.RUNNING:
             continue
-        if lib.last_scanned_at is None:
-            due.append(lib.id)
-            continue
-        # last_scanned_at is naive when read back from the DB; normalise before
-        # subtracting from the aware ``now`` (otherwise the periodic scheduler
-        # raises TypeError and silently stops scanning after the first run).
-        elapsed_min = (now - ensure_utc(lib.last_scanned_at)).total_seconds() / 60.0
-        if elapsed_min >= lib.scan_interval_minutes:
+        # last_scanned_at is naive when read back from the DB; ``is_due``
+        # normalises it before comparing against the aware ``now``.
+        if is_due(lib.scan_schedule, lib.last_scanned_at, now):
             due.append(lib.id)
     return due

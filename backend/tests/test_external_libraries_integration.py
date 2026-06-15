@@ -561,18 +561,18 @@ def test_scheduler_selects_only_due_libraries(
     now = utcnow()
 
     never = _make_library(db_session, tmp_path / "never", enabled=True)
-    recent = _make_library(
+    manual = _make_library(
         db_session,
-        tmp_path / "recent",
+        tmp_path / "manual",
         enabled=True,
-        scan_interval_minutes=60,
-        last_scanned_at=now - timedelta(minutes=5),
+        scan_schedule="",  # manual only → never auto-due
+        last_scanned_at=now - timedelta(hours=2),
     )
     stale = _make_library(
         db_session,
         tmp_path / "stale",
         enabled=True,
-        scan_interval_minutes=30,
+        scan_schedule="0 * * * *",  # hourly; 2h elapsed → a boundary has passed
         last_scanned_at=now - timedelta(hours=2),
     )
     disabled = _make_library(db_session, tmp_path / "disabled", enabled=False)
@@ -586,8 +586,8 @@ def test_scheduler_selects_only_due_libraries(
     due = external_library.libraries_due_for_scan(db_session)
 
     assert never.id in due  # never scanned → due immediately
-    assert stale.id in due  # interval elapsed → due
-    assert recent.id not in due  # within interval → not yet
+    assert stale.id in due  # cron boundary elapsed → due
+    assert manual.id not in due  # manual only → never auto-due
     assert disabled.id not in due  # disabled → never
     assert running.id not in due  # already scanning → skipped
 

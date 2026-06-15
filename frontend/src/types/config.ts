@@ -96,6 +96,12 @@ export interface VaultConfigUpdate {
 
 export type ExternalLibraryCollectionMode = "mirror" | "single";
 
+// auto: watch only on local filesystems; events: always watch; off: never watch.
+export type ExternalLibraryWatchMode = "auto" | "events" | "off";
+
+// Detected filesystem class backing the root path.
+export type ExternalLibraryFsKind = "local" | "network" | "unknown";
+
 export interface ExternalLibraryScanSummary {
   added: number;
   updated: number;
@@ -112,6 +118,10 @@ export interface ExternalLibrary {
   root_path: string;
   enabled: boolean;
   scan_interval_minutes: number;
+  scan_schedule: string;
+  watch_mode: ExternalLibraryWatchMode;
+  fs_kind: ExternalLibraryFsKind | null;
+  watch_active: boolean;
   collection_mode: ExternalLibraryCollectionMode;
   target_collection_id: number | null;
   last_scanned_at: string | null;
@@ -123,7 +133,8 @@ export interface ExternalLibraryCreate {
   name: string;
   root_path: string;
   enabled?: boolean;
-  scan_interval_minutes?: number;
+  scan_schedule?: string;
+  watch_mode?: ExternalLibraryWatchMode;
   collection_mode?: ExternalLibraryCollectionMode;
   target_collection_id?: number | null;
 }
@@ -132,7 +143,8 @@ export interface ExternalLibraryUpdate {
   name?: string;
   root_path?: string;
   enabled?: boolean;
-  scan_interval_minutes?: number;
+  scan_schedule?: string;
+  watch_mode?: ExternalLibraryWatchMode;
   collection_mode?: ExternalLibraryCollectionMode;
   target_collection_id?: number | null;
 }
