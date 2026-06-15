@@ -179,6 +179,61 @@ const modelList = [
   },
 ];
 
+// Mutable server state a test can flip before navigating (workers: 1, serial).
+const state = { externalLibrariesEnabled: false };
+
+export function setExternalLibrariesEnabled(value: boolean): void {
+  state.externalLibrariesEnabled = value;
+}
+
+function vaultConfig() {
+  return {
+    storage_backend: "local",
+    data_dir: "/data/files",
+    thumb_dir: "/data/thumbs",
+    s3_bucket: "",
+    s3_endpoint_url: "",
+    s3_region: "",
+    s3_access_key: "",
+    s3_secret_key: "",
+    has_s3_access_key: false,
+    has_s3_secret_key: false,
+    backup_retention_days: 30,
+    trash_retention_days: 30,
+    backup_s3_bucket: "",
+    backup_s3_endpoint_url: "",
+    backup_s3_region: "",
+    backup_s3_access_key: "",
+    backup_s3_secret_key: "",
+    has_backup_s3_access_key: false,
+    has_backup_s3_secret_key: false,
+    has_backup_s3: false,
+    auto_mark_known_good: true,
+    external_libraries_enabled: state.externalLibrariesEnabled,
+  };
+}
+
+const externalLibrary = {
+  id: 1,
+  name: "nas-main",
+  root_path: "/mnt/nas/models",
+  enabled: true,
+  scan_interval_minutes: 60,
+  collection_mode: "mirror",
+  target_collection_id: null,
+  last_scanned_at: now,
+  last_scan_status: "ok",
+  last_scan_summary: {
+    added: 3,
+    updated: 0,
+    removed: 0,
+    skipped: 1,
+    errors: [],
+    error: null,
+    aborted: false,
+  },
+};
+
 const printerFiles = [
   {
     id: 1,
@@ -403,6 +458,36 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       state: "completed",
       model_id: model.id,
       file_id: 2,
+      error: null,
+      started_at: now,
+      finished_at: now,
+    });
+    return;
+  }
+  if (url.pathname === "/api/v1/config") {
+    if (req.method === "PUT") {
+      drainRequest(req, () => sendJson(res, vaultConfig()));
+      return;
+    }
+    sendJson(res, vaultConfig());
+    return;
+  }
+  if (url.pathname === "/api/v1/libraries") {
+    sendJson(res, state.externalLibrariesEnabled ? [externalLibrary] : []);
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/v1/libraries/1/scan") {
+    drainRequest(req, () => {
+      sendJson(res, { job_id: "scan-job-1", state: "pending", message: "library scan queued" }, 202);
+    });
+    return;
+  }
+  if (url.pathname === "/api/v1/ingest/jobs/scan-job-1") {
+    sendJson(res, {
+      job_id: "scan-job-1",
+      state: "completed",
+      model_id: null,
+      file_id: null,
       error: null,
       started_at: now,
       finished_at: now,

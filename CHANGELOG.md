@@ -37,9 +37,14 @@ where they live and stores only thumbnails and metadata.
   comparison (`last_scanned_at` reads back from the DB without tzinfo), which
   the scan loop swallowed — silently stopping scheduled scans after each
   library's first run. Normalised via `core.time.ensure_utc`.
+- **Fixed:** the frontend e2e suite broke once the upload modal began probing
+  `/api/v1/config` for the NAS feature flag — the mock API now serves the vault
+  config (and `/libraries`), and a new e2e case covers the upload modal's NAS
+  write-back destination selector.
 - Real-use-case test suites for NAS mirroring (safety invariants, write-back,
   reconcile, scheduler, full API round trip) and for ingestion/revisions driven
-  by real STL/3MF/g-code fixtures.
+  by real STL/3MF/g-code fixtures. Frontend unit tests pin the External
+  Libraries API client and the `external_libraries_enabled` config flag.
 
 ## 0.5.0 - Import, CAD, Sharing & Measured Prints
 
