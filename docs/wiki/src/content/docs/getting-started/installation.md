@@ -16,13 +16,31 @@ cd PrintStash
 cp .env.example .env
 # Open .env and change VAULT_JWT_SECRET to a long random string.
 
-docker compose up -d --build
+docker compose up -d
 ```
 
-The first build can take a few minutes because it pulls base images and builds
-the frontend. When it is done, you should have two main containers running:
+The default `docker-compose.yml` **pulls prebuilt images** from GHCR — no build
+step. The first `up` downloads a few hundred MB of images; after that it's
+instant. When it's done you should have two main containers running,
 `printstash-api` and `printstash-frontend`, plus named volumes for the database,
 files, thumbnails, and backups.
+
+:::note
+The stack starts even without a `.env` — every variable has a default — but the
+default `VAULT_JWT_SECRET` is an insecure placeholder. Set your own before the
+app is reachable from anything but localhost (see below).
+:::
+
+Two variations on the same images:
+
+```bash
+# Hardened production: API stays internal, frontend bound to 127.0.0.1 for a
+# TLS reverse proxy in front.
+docker compose -f docker-compose.prod.yml up -d
+
+# Build from source instead of pulling (contributors):
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
 
 | Service      | URL                                  | What it is                       |
 | ------------ | ------------------------------------ | -------------------------------- |
