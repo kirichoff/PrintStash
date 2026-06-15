@@ -24,6 +24,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: "0.6.1",
     date: "Jun 2026",
     changes: [
+      "Import from URL now accepts Printables, MakerWorld, and Thingiverse model pages — paste the page you're on, no need to find the direct download link",
       "Fixed the About tab showing the previous release instead of the current one",
       "Fixed 3D model previews taking 20-30s to load — STL files now serve near-instantly",
     ],

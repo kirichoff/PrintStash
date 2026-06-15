@@ -4,6 +4,15 @@
 
 A small patch release.
 
+### Highlights
+
+- **Paste a model page to import.** Import from URL previously accepted only
+  direct file/`.zip` links — pasting the Printables/MakerWorld/Thingiverse page
+  you were looking at failed. The server now resolves the page to its
+  downloadable asset (Printables, MakerWorld, and Thingiverse), keeping the
+  original page as the model's source URL. MakerWorld/Thingiverse downloads that
+  require a login accept an optional session cookie.
+
 ### Reliability
 
 - **Fixed:** the Settings → About "Latest changes" card stayed on the previous
