@@ -146,6 +146,11 @@
   }
   html {
     font-family: 'Inter', var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    /* Always reserve the scrollbar gutter so a page that scrolls the document
+       (or toggles between short/tall content) never changes the viewport width.
+       This stops the full-width top bar from resizing when a tall settings tab
+       (Storage / User access / Design) introduces a scrollbar. */
+    scrollbar-gutter: stable;
   }
   body {
     @apply bg-background text-foreground antialiased;
