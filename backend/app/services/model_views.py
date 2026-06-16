@@ -366,7 +366,10 @@ def list_items(
         stmt = stmt.where(Model.collection_id.in_(matching_cat_ids))  # type: ignore[union-attr]
 
     if q:
-        stmt = stmt.where(Model.name.contains(q))  # type: ignore[attr-defined]
+        # ilike, not contains/LIKE: LIKE is case-sensitive on PostgreSQL (only
+        # SQLite folds case), so plain contains() would make library search
+        # behave differently per backend. ilike is case-insensitive on both.
+        stmt = stmt.where(Model.name.ilike(f"%{q}%"))  # type: ignore[attr-defined]
 
     if tags:
         for slug in (t.strip().lower() for t in tags if t.strip()):
@@ -388,7 +391,14 @@ def list_items(
     elif printer_presence == "none":
         stmt = stmt.where(Model.id.not_in(present_model_ids))  # type: ignore[attr-defined]
 
-    stmt = stmt.order_by(Model.updated_at.desc()).offset(offset).limit(limit)  # type: ignore[attr-defined]
+    # Model.id is the stable tiebreaker: without it, models sharing an
+    # updated_at (e.g. a batch ZIP import) sort non-deterministically, so
+    # pagination can repeat or skip rows across page boundaries.
+    stmt = (
+        stmt.order_by(Model.updated_at.desc(), Model.id.desc())  # type: ignore[attr-defined]
+        .offset(offset)
+        .limit(limit)
+    )
     rows = session.exec(stmt).all()
     model_ids = [m.id for m in rows if m.id is not None]
     if not model_ids:
@@ -755,7 +765,9 @@ def list_trashed(
     stmt = (
         select(Model)
         .where(trashed(Model))
-        .order_by(Model.deleted_at.desc())  # type: ignore[attr-defined]
+        # Stable tiebreaker on id: a bulk trash gives many rows the same
+        # deleted_at, which would otherwise paginate non-deterministically.
+        .order_by(Model.deleted_at.desc(), Model.id.desc())  # type: ignore[attr-defined]
         .offset(offset)
         .limit(limit)
     )

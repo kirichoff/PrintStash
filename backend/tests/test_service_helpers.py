@@ -12,10 +12,19 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.db.models import FilamentProfile, Metadata, PrintJob
+from pathlib import Path
+
+from app.db.models import (
+    ExternalLibrary,
+    ExternalLibraryCollectionMode,
+    FilamentProfile,
+    Metadata,
+    PrintJob,
+)
 from app.services import importer as imp
 from app.services import model_views as mv
-from app.services.external_library import is_due
+from app.services.external_library import _collection_path_for, _walk, is_due
+from app.services.ingestion import _collision_safe_path
 from app.services.moonraker import MoonrakerClient
 
 
@@ -262,6 +271,76 @@ class TestCsvCell:
         assert row["top_shell_layers"] == "0"
         assert row["size_bytes"] == "0"
         assert row["slicer_name"] == ""  # truly absent stays blank
+
+
+# --------------------------------------------------------------------------- #
+# ingestion — collision-safe NAS write path
+# --------------------------------------------------------------------------- #
+class TestCollisionSafePath:
+    def test_returns_name_when_free(self, tmp_path: Path) -> None:
+        assert _collision_safe_path(tmp_path, "model.stl").name == "model.stl"
+
+    def test_appends_next_free_suffix(self, tmp_path: Path) -> None:
+        (tmp_path / "model.stl").write_text("x")
+        assert _collision_safe_path(tmp_path, "model.stl").name == "model-2.stl"
+        (tmp_path / "model-2.stl").write_text("x")
+        assert _collision_safe_path(tmp_path, "model.stl").name == "model-3.stl"
+
+    def test_keeps_suffix_when_disambiguating(self, tmp_path: Path) -> None:
+        (tmp_path / "part.3mf").write_text("x")
+        out = _collision_safe_path(tmp_path, "part.3mf")
+        assert out.suffix == ".3mf" and out.stem == "part-2"
+
+    def test_handles_extensionless_name(self, tmp_path: Path) -> None:
+        (tmp_path / "README").write_text("x")
+        assert _collision_safe_path(tmp_path, "README").name == "README-2"
+
+
+# --------------------------------------------------------------------------- #
+# external_library — filesystem walk + mirror-mode collection mapping
+# --------------------------------------------------------------------------- #
+class TestWalk:
+    def test_includes_supported_suffixes_case_insensitively(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "a.stl").write_text("x")
+        (tmp_path / "b.STL").write_text("x")  # uppercase ext still counts
+        (tmp_path / "c.txt").write_text("x")  # unsupported, ignored
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "d.3mf").write_text("x")  # recurses
+
+        names = {Path(k).name for k in _walk(tmp_path)}
+        assert names == {"a.stl", "b.STL", "d.3mf"}
+
+    def test_empty_dir_yields_nothing(self, tmp_path: Path) -> None:
+        assert _walk(tmp_path) == {}
+
+
+class TestCollectionPathForMirror:
+    def _lib(self, root: str) -> ExternalLibrary:
+        return ExternalLibrary(
+            name="L",
+            root_path=root,
+            collection_mode=ExternalLibraryCollectionMode.MIRROR,
+        )
+
+    def test_nested_dirs_become_collection_path(self) -> None:
+        lib = self._lib("/nas/lib")
+        out = _collection_path_for(None, lib, Path("/nas/lib/Functional/Brackets/x.stl"))
+        assert out == "Functional/Brackets"
+
+    def test_root_level_file_has_no_collection(self) -> None:
+        lib = self._lib("/nas/lib")
+        assert _collection_path_for(None, lib, Path("/nas/lib/x.stl")) is None
+
+    def test_file_outside_root_returns_none(self) -> None:
+        lib = self._lib("/nas/lib")
+        assert _collection_path_for(None, lib, Path("/elsewhere/x.stl")) is None
+
+    def test_trailing_slash_on_root_is_tolerated(self) -> None:
+        lib = self._lib("/nas/lib/")
+        out = _collection_path_for(None, lib, Path("/nas/lib/Toys/x.stl"))
+        assert out == "Toys"
 
 
 # --------------------------------------------------------------------------- #
