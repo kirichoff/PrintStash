@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.4 - Backup restore and download
+
+### Added
+
+- **Restore from the UI.** Settings -> Storage now lists available backups and
+  lets an admin restore one with a destructive confirmation step.
+- **Download backups to your computer.** Each listed backup has a Download
+  action, and admins can also fetch an archive from
+  `/api/v1/backups/{id}/download`.
+
 ## 0.6.3 - Reliability & correctness hardening
 
 A maintenance release focused on edge-case correctness across importing,

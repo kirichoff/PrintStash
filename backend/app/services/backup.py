@@ -392,6 +392,14 @@ def get_backup(backup_id: str) -> BackupMeta | None:
     return None
 
 
+def get_backup_archive_path(backup_id: str) -> Path:
+    """Return a local archive path, downloading cloud-only backups first."""
+    meta = get_backup(backup_id)
+    if meta is None:
+        raise FileNotFoundError(f"backup {backup_id} not found")
+    return _download_backup_to_local(meta)
+
+
 # ---------------------------------------------------------------------------
 # Delete
 # ---------------------------------------------------------------------------

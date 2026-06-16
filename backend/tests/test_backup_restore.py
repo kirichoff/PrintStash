@@ -18,13 +18,15 @@ from pathlib import Path
 from typing import Iterator
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import app.services.backup as backup
 import app.services.storage_backend as storage_backend
 from app.core.config import _overlay
-from app.db.models import File, FileType, Model
+from app.db.models import File, FileType, Model, User
 from app.db.session import SQLiteSessionFactory, override_session_factory
+from app.services.auth import create_access_token, hash_password
 from app.services.storage_backend import get_backend
 
 
@@ -128,6 +130,21 @@ def _read_model_names(env: BackupEnv) -> list[str]:
         eng.dispose()
 
 
+def _auth_headers(env: BackupEnv) -> dict[str, str]:
+    with env.new_session() as session:
+        user = User(
+            username="backup-admin",
+            hashed_password=hash_password("Password123"),
+            is_active=True,
+            is_superuser=True,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        token = create_access_token(user.id, user.username, scope="admin")
+    return {"Authorization": f"Bearer {token}"}
+
+
 # ---------------------------------------------------------------------------
 # Create
 # ---------------------------------------------------------------------------
@@ -187,6 +204,20 @@ def test_backup_appears_in_list_and_get(backup_env: BackupEnv):
     assert fetched is not None
     assert fetched.id == meta.id
     assert fetched.file_count == 1
+
+
+def test_download_backup_archive_endpoint(client: TestClient, backup_env: BackupEnv):
+    _seed_model_with_blob(backup_env, name="Widget", content=b"x")
+    meta = backup.create_backup()
+
+    resp = client.get(
+        f"/api/v1/backups/{meta.id}/download",
+        headers=_auth_headers(backup_env),
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.content.startswith(b"\x1f\x8b")
+    assert Path(meta.path).name in resp.headers["content-disposition"]
 
 
 # ---------------------------------------------------------------------------

@@ -29,8 +29,8 @@ shipped nightly to R2.
 
 Always take a fresh one before anything risky — upgrades especially.
 
-From the UI: **Settings → Storage**, review the backup destination, and trigger a
-full backup.
+From the UI: **Settings -> Storage**, review the backup destination, trigger a
+full backup, or download an existing archive to your computer.
 
 From the API:
 
@@ -40,6 +40,13 @@ curl -X POST \
   http://localhost:8000/api/v1/backups
 ```
 
+```bash
+curl -L \
+  -H "Authorization: Bearer <admin-token>" \
+  -o printstash-backup.tar.gz \
+  http://localhost:8000/api/v1/backups/<backup-id>/download
+```
+
 Old archives are pruned according to `VAULT_BACKUP_RETENTION_DAYS` (default 30;
 set `0` to keep them forever).
 
@@ -47,6 +54,15 @@ set `0` to keep them forever).
 
 Restoring **replaces** the current database and files with the contents of an
 archive, so treat it as a deliberate operation:
+
+1. Stop slicer hooks and any automation that uploads files, so nothing arrives
+   mid-restore.
+2. Open **Settings -> Storage**, refresh the backup list, and restore the
+   archive you want to recover.
+3. Restart the full stack.
+4. Run the smoke checks below.
+
+For API-only recovery:
 
 1. Stop slicer hooks and any automation that uploads files, so nothing arrives
    mid-restore.

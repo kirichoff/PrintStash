@@ -21,6 +21,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.6.4",
+    date: "Jun 2026",
+    changes: [
+      "Settings -> Storage now lists available backups with one-click download to your computer",
+      "Backups can be restored from the UI with a destructive confirmation step",
+      "Admins can download backup archives through the API at /api/v1/backups/{id}/download",
+    ],
+  },
+  {
     version: "0.6.3",
     date: "Jun 2026",
     changes: [
