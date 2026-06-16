@@ -155,6 +155,14 @@ by capability:
 - Provider diagnostics cover capabilities, configuration, and connectivity.
 - Bambu LAN status and pause/resume/cancel, in beta.
 
+**Statistics and cost insights**
+- A Statistics dashboard (admin-only) turns completed prints into trends: total
+  cost, prints, filament used, average filament per print, and total print time.
+- A cost / filament / prints time series with selectable area, line, or bar
+  charts, plus top collections and most-used filaments breakdowns.
+- Period filter (7/30/90 days, 1 year, all time) and a configurable display
+  currency (Settings → Design) applied across cost figures.
+
 **Users, access, and administration**
 - A first-run setup wizard creates the first admin account. There is no default
   password.
@@ -185,7 +193,10 @@ by capability:
 > `VAULT_JWT_SECRET` from its placeholder default first.
 > See [Security](#security).
 
-Requirements: Docker and Docker Compose.
+Requirements: Docker and Docker Compose. Prebuilt images are published for
+`linux/amd64` and `linux/arm64` (Raspberry Pi 4/5, ARM NAS, Apple-silicon VMs).
+On ARM, STEP/STP files upload and store but don't get a 3D preview — see
+[Known Limitations](#known-limitations--beta-notes).
 
 The default `docker-compose.yml` pulls prebuilt images from GHCR — no build step.
 
@@ -272,6 +283,10 @@ deliberately not a full manufacturing platform. Set expectations accordingly:
   does not validate firmware macros, acceleration, pressure advance, or safety.
 - **Not for direct public exposure.** It is designed for trusted self-hosted
   networks (see [Security](#security)).
+- **ARM has no STEP preview.** Images run on `linux/amd64` and `linux/arm64`, but
+  the OpenCASCADE tessellation dependency ships no Linux ARM wheel, so on ARM
+  STEP/STP files upload and store without a generated 3D preview. All other file
+  types and features are identical across architectures.
 
 Full detail — including non-goals — lives in
 [docs/known-limitations.md](./docs/known-limitations.md).

@@ -7,6 +7,12 @@ the server *or* a NAS), with proper scheduling and optional real-time syncing.
 
 ### Highlights
 
+- **Statistics dashboard.** A new admin-only Statistics page turns completed
+  prints into trends — total cost, prints, filament used, average filament per
+  print, and total print time — with a cost/filament/prints time series
+  (area/line/bar), top collections, and most-used filaments, filtered by period
+  (7/30/90 days, 1 year, all time). A configurable display **currency**
+  (Settings → Design) is applied across all cost figures.
 - **Cron-based scheduling.** Each volume's scan runs on a schedule you pick from
   a preset (hourly, every 6 hours, daily, weekly) or a custom cron expression —
   or set it to **Manual only**. This replaces the fixed "every N minutes" field;

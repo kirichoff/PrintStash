@@ -28,19 +28,26 @@ is already on the printer.
 
 ## What it does today
 
-- **Ingest:** STL, 3MF, OBJ, and G-code via the web UI, the REST API, or the
-  OrcaSlicer push hook. Files are deduplicated by content hash, so re-uploading
-  the same mesh doesn't create clutter.
+- **Ingest:** STL, 3MF, OBJ, STEP/STP, and G-code via the web UI, the REST API,
+  or the OrcaSlicer push hook — plus import from a URL or `.zip` (including
+  Printables/MakerWorld/Thingiverse model pages). Files are deduplicated by
+  content hash, so re-uploading the same mesh doesn't create clutter.
 - **Organize:** hierarchical collections, flat tags, full-text search, sortable
   grid/list views, and drag-and-drop between collections.
+- **Mirror folders & NAS:** point PrintStash at a server folder or NAS share and
+  it indexes files in place (shared volumes) with two-way write-back, scheduled
+  scans, and optional real-time watching.
 - **Inspect:** an in-browser mesh viewer (solid / x-ray / wireframe) and a
   client-side G-code toolpath viewer that scrubs layer by layer.
 - **Track revisions:** every model with G-code has exactly one *recommended*
   revision. Label the others `known_good`, `needs_test`, or `failed`, add notes,
   and compare two revisions' settings side by side.
 - **Talk to printers:** Moonraker/Klipper with live status, send-to-print,
-  remote file sync, and print-history import. Bambu LAN status and controls are
-  in beta.
+  remote file sync, and print-history import with measured filament and cost.
+  Bambu LAN status and controls are in beta.
+- **Measure:** a Statistics dashboard turns completed prints into cost,
+  filament, and print-time trends, and share a single model via an expiring,
+  read-only public link.
 - **Stay portable:** metadata export to JSON/CSV, full backup/restore, audit
   logs, and a health endpoint — all on SQLite by default, Postgres and S3/R2
   optional.

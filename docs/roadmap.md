@@ -8,17 +8,23 @@ Roadmap feedback belongs in
 [the public roadmap discussion](https://github.com/xiao-villamor/PrintStash/discussions/1).
 Issues are better for confirmed bugs or scoped implementation work.
 
-## Current Release: Initial Self-Hosted Release
+## Current Release: 0.6.x — Self-Hosted Library
 
 Production hardening is in place. The app is useful for local-first 3D print
-library workflows, installable through Docker Compose, and ready for real
-homelab feedback. SQLite plus local filesystem storage remain the default path.
-Postgres, S3/R2-compatible storage, cloud backups, and provider adapters are
-available as optional deployment paths.
+library workflows, installable through Docker Compose (the default compose pulls
+prebuilt GHCR images; a build overlay is available for contributors), and ready
+for real homelab feedback. SQLite plus local filesystem storage remain the
+default path. Postgres, S3/R2-compatible storage, cloud backups, and provider
+adapters are available as optional deployment paths.
 
 Developed features in the current app:
 
-- STL, 3MF, OBJ, and G-code ingestion through the web UI, REST API, and OrcaSlicer post-processing hook
+- STL, 3MF, OBJ, STEP/STP, and G-code ingestion through the web UI, REST API, and OrcaSlicer post-processing hook
+- Import from URL or `.zip` (including Printables/MakerWorld/Thingiverse model pages resolved to their downloadable asset), SSRF-guarded and zip-slip/zip-bomb protected
+- Shared volumes: mirror a server folder or NAS in place with two-way write-back, per-volume cron scheduling, and optional real-time watching with network-aware fallback
+- Public, expiring, read-only share links to a single model (view-only by default; opt-in original-file download)
+- Print statistics dashboard (cost, filament, prints, print time; time series + top collections/filaments) with a configurable display currency
+- Measured prints: real filament + duration and per-print cost captured from Moonraker, with auto known-good revision promotion
 - G-code parser coverage for OrcaSlicer, PrusaSlicer, Bambu Studio, Cura, and Klipper/Orca samples
 - Content-hash deduplication, logical model grouping, version history, thumbnails, cached STL conversion for 3MF/OBJ preview, and in-browser mesh/G-code previews
 - Categories, tags, search, model editing, printer-presence filters, model-to-printer file badges, collection counts, collection moves, and drag-and-drop library organization

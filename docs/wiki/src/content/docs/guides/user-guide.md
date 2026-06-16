@@ -93,7 +93,17 @@ checks, and which actions aren't supported. PrintStash is Moonraker-first; Bambu
 LAN is beta and limited to status plus pause/resume/cancel. The full breakdown is
 in [Printers & providers](/PrintStash/guides/printers/).
 
-## 6. Get your data back out
+## 6. See what you've printed
+
+Once print history is flowing in (from Moonraker imports or manual logs), open
+**Statistics** (admin-only) for the picture across your whole library. Pick a
+period — 7/30/90 days, 1 year, or all time — and you get total cost, prints,
+filament used, average filament per print, and total print time, plus a
+cost/filament/prints trend (area, line, or bar) and breakdowns of your busiest
+collections and most-used filaments. Cost is shown in the display currency you
+set in **Settings → Design**.
+
+## 7. Get your data back out
 
 Your library should not be a trap. From **Settings → Overview**, export
 metadata as JSON or CSV. JSON keeps the full library context; CSV gives one row

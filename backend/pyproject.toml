@@ -9,7 +9,11 @@ dependencies = [
     "asyncpg>=0.29",
     "bcrypt>=5.0.0",
     "boto3>=1.35",
-    "cascadio>=0.0.14",
+    # STEP/STP tessellation (OpenCASCADE). Wheel-only with no Linux aarch64
+    # build, so it is excluded there; STEP preview/thumbnails degrade gracefully
+    # on ARM Linux while the rest of the app builds and runs. See
+    # docs/known-limitations.md.
+    "cascadio>=0.0.14; sys_platform != 'linux' or platform_machine != 'aarch64'",
     "croniter>=3.0",
     "fastapi>=0.115",
     "httpx>=0.27",

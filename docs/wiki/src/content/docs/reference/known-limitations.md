@@ -29,6 +29,10 @@ manufacturing platform.
   secrets, and network-level care.
 - There is no default admin account. If setup cannot complete, fix setup rather
   than looking for bundled credentials.
+- Images are published for `linux/amd64` and `linux/arm64`. On ARM, STEP/STP
+  preview and thumbnailing are unavailable (the OpenCASCADE dependency has no
+  Linux ARM wheel); STEP files still upload and store, they just don't get a
+  generated mesh preview. All other file types and features are identical.
 
 ## Data and metadata
 

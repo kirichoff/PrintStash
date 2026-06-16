@@ -6,8 +6,8 @@ implementation work can stay aligned with the actual app.
 
 ## App Shell
 
-- Shared authenticated layout with vault, organize, profiles, printers, and
-  settings navigation.
+- Shared authenticated layout with vault, organize, profiles, printers,
+  statistics (admin-only), and settings navigation.
 - Top bar search, profile menu, theme-aware favicon, and task notifications for
   background upload/ingestion jobs.
 - Auth-aware write controls show sign-in requirements instead of failing
@@ -87,6 +87,15 @@ implementation work can stay aligned with the actual app.
 - Printer presets expose slicer preset name, printer model, nozzle diameter,
   notes, usage count, create/update/delete actions, and detected-profile
   preservation rules.
+
+## Statistics
+
+- `/statistics` (admin-only) dashboard built from completed print jobs.
+- Period selector (7d/30d/90d/1y/all) plus metric cards for total cost, prints,
+  filament used, average filament per print, and total print time.
+- Cost/filament/prints time series with switchable area/line/bar chart types,
+  and top-collections / most-used-filaments bar charts.
+- Cost figures use the display currency configured in Settings → Design.
 
 ## Settings
 
