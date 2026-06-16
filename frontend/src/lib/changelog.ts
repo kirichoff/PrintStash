@@ -21,6 +21,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.6.3",
+    date: "Jun 2026",
+    changes: [
+      "Bambu printers now report paused and finished prints correctly, and their print history follows the full job lifecycle",
+      "Reprinting the same file records a new history entry instead of overwriting the previous print's outcome",
+      "Library and trash lists page reliably — no more repeated or skipped models after a bulk import",
+      "Model search is now case-insensitive on PostgreSQL, matching SQLite",
+      "More accurate G-code details: fractional time estimates, Cura filament length, and genuine zero values (0% infill, an unheated bed) are no longer dropped",
+      "Import hardening: look-alike domains are no longer mistaken for MakerWorld, and downloaded filenames are preserved in full",
+    ],
+  },
+  {
     version: "0.6.2",
     date: "Jun 2026",
     changes: [
