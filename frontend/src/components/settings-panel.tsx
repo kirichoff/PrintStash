@@ -1506,19 +1506,6 @@ export function SettingsPanel() {
                   </svg>
                   GitHub
                 </a>
-                <a
-                  href={`https://github.com/${GITHUB_REPO}/stargazers`}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  title="Star on GitHub"
-                >
-                  {/* remote shields.io badge */}
-                  <img
-                    src={`https://img.shields.io/github/stars/${GITHUB_REPO}?style=flat&logo=github&label=Stars&color=2563eb`}
-                    alt="GitHub stars"
-                    className="h-[22px]"
-                  />
-                </a>
               </div>
             </div>
           </div>
