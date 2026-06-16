@@ -260,6 +260,42 @@ def test_restore_recovers_blob_bytes(backup_env: BackupEnv):
     assert Path(key).read_bytes() == content
 
 
+def test_download_then_restore_endpoint_round_trip(
+    client: TestClient, backup_env: BackupEnv
+):
+    content = b"solid endpoint widget\nendsolid\n"
+    _model_id, key = _seed_model_with_blob(
+        backup_env, name="Endpoint Widget", content=content
+    )
+    headers = _auth_headers(backup_env)
+
+    create = client.post("/api/v1/backups", headers=headers)
+    assert create.status_code == 202, create.text
+    backup_id = create.json()["backup_id"]
+
+    download = client.get(f"/api/v1/backups/{backup_id}/download", headers=headers)
+    assert download.status_code == 200, download.text
+    assert download.content.startswith(b"\x1f\x8b")
+    assert f"{backup_id}.tar.gz" in download.headers["content-disposition"]
+
+    # Disaster: remove both catalog row and stored bytes, then restore via API.
+    with backup_env.new_session() as session:
+        for m in session.exec(select(Model).where(Model.name == "Endpoint Widget")):
+            session.delete(m)
+        session.commit()
+    Path(key).unlink()
+
+    assert "Endpoint Widget" not in _read_model_names(backup_env)
+    assert not Path(key).exists()
+
+    restore = client.post(f"/api/v1/backups/{backup_id}/restore", headers=headers)
+    assert restore.status_code == 200, restore.text
+    assert restore.json() == {"backup_id": backup_id, "restored_files": 1}
+
+    assert "Endpoint Widget" in _read_model_names(backup_env)
+    assert Path(key).read_bytes() == content
+
+
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
