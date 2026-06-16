@@ -114,14 +114,28 @@ def _backup_sqlite_copy() -> bytes:
     return db_path.read_bytes()
 
 
-def _find_blob_keys() -> list[str]:
+def _find_blobs() -> list[tuple[str, int]]:
+    """Return ``(key, size_bytes)`` for every distinct, still-present blob.
+
+    One ``stat_size`` per key doubles as the existence check (it raises when the
+    key is gone), and surfacing the size lets ``create_backup`` build the
+    manifest *before* streaming the file bodies.
+    """
     from sqlmodel import select
 
     with get_session_factory().session() as session:
         rows = session.exec(select(FileModel.path)).all()
     keys = list(dict.fromkeys(rows))
-    valid = [k for k in keys if get_backend().exists(k)]
-    return valid
+    backend = get_backend()
+    out: list[tuple[str, int]] = []
+    for key in keys:
+        try:
+            out.append((key, backend.stat_size(key)))
+        except Exception:
+            # Missing/unreadable blob — skip it (matches the previous exists()
+            # filter), the DB row stays and restore simply won't have its bytes.
+            logger.warning("backup: skipping unreadable blob %s", key, exc_info=True)
+    return out
 
 
 def _add_file_to_tar(tar: tarfile.TarFile, key: str, arcname: str) -> int:
@@ -148,52 +162,67 @@ def create_backup() -> BackupMeta:
     ts = timestamp.isoformat()
 
     db_sql = _backup_sqlite_copy()
-    blob_keys = _find_blob_keys()
+    blobs = _find_blobs()
     backend_name = settings.storage_backend
-
-    manifest = {
-        "version": MANIFEST_VERSION,
-        "created_at": ts,
-        "app_version": settings.app_version,
-        "storage_backend": backend_name,
-    }
 
     archive_name = (
         f"{_BACKUP_NAME_PREFIX}{timestamp.strftime('%Y%m%d-%H%M%S')}-{backup_id}.tar.gz"
     )
     archive_path = settings.backup_dir / archive_name
 
-    total_size = 0
+    # Map each tar entry back to the exact storage key it came from. Keys can be
+    # absolute paths (local backend) or prefixed object keys (S3), neither of
+    # which survives the tar arcname transform below — so restore relies on this
+    # map instead of trying to reverse it.
+    file_entries: list[dict[str, str]] = [
+        {"arc": f"files/{key.replace('vault-data/', '').lstrip('/')}", "key": key}
+        for key, _size in blobs
+    ]
+    total_size = len(db_sql) + sum(size for _key, size in blobs)
 
+    # Build the manifest up front and write it as the FIRST archive member.
+    # Writing it last forced list_backups() to stream the entire archive (the
+    # manifest sat behind every blob) just to read a few metadata fields; as the
+    # first member a streaming read stops after one small entry.
+    manifest = {
+        "version": MANIFEST_VERSION,
+        "created_at": ts,
+        "app_version": settings.app_version,
+        "storage_backend": backend_name,
+        "file_count": len(file_entries),
+        "total_size_bytes": total_size,
+        "files": file_entries,
+    }
+    manifest_bytes = json.dumps(manifest, indent=2).encode("utf-8")
+
+    written_files = 0
     with gzip.open(archive_path, "wb") as gz:
         with tarfile.open(fileobj=gz, mode="w|") as tar:
-            db_info = tarfile.TarInfo(name="db.sqlite3")
-            db_info.size = len(db_sql)
-            tar.addfile(db_info, io.BytesIO(db_sql))
-            total_size += len(db_sql)
-
-            for key in blob_keys:
-                try:
-                    arcname = f"files/{key.replace('vault-data/', '').lstrip('/')}"
-                    size = _add_file_to_tar(tar, key, arcname)
-                    total_size += size
-                except Exception:
-                    logger.warning("backup: skipped key %s", key, exc_info=True)
-                    continue
-
-            manifest["file_count"] = len(blob_keys)
-            manifest["total_size_bytes"] = total_size
-            manifest_bytes = json.dumps(manifest, indent=2).encode("utf-8")
             man_info = tarfile.TarInfo(name="manifest.json")
             man_info.size = len(manifest_bytes)
             tar.addfile(man_info, io.BytesIO(manifest_bytes))
+
+            db_info = tarfile.TarInfo(name="db.sqlite3")
+            db_info.size = len(db_sql)
+            tar.addfile(db_info, io.BytesIO(db_sql))
+
+            for entry in file_entries:
+                try:
+                    _add_file_to_tar(tar, entry["key"], entry["arc"])
+                    written_files += 1
+                except Exception:
+                    # A blob that vanished between stat and stream stays listed
+                    # in the manifest but is simply absent from the archive;
+                    # restore iterates real members, so it degrades cleanly.
+                    logger.warning("backup: skipped key %s", entry["key"], exc_info=True)
+                    continue
 
     final_size = archive_path.stat().st_size
 
     logger.info(
         "backup %s created locally: %d files, %.1f MiB",
         backup_id,
-        len(blob_keys),
+        written_files,
         final_size / (1024 * 1024),
     )
 
@@ -212,7 +241,7 @@ def create_backup() -> BackupMeta:
         created_at=ts,
         size_bytes=final_size,
         storage_backend=backend_name,
-        file_count=len(blob_keys),
+        file_count=len(file_entries),
         app_version=settings.app_version,
         path=str(archive_path),
         location="local",
@@ -339,7 +368,12 @@ def _read_manifest(archive_path: Path) -> BackupMeta | None:
                         return None
                     manifest = json.loads(f.read().decode("utf-8"))
                     return BackupMeta(
-                        id=archive_path.stem.rsplit("-", 1)[-1],
+                        # ``.stem`` only strips ``.gz`` from ``*.tar.gz`` and
+                        # would leave a ``.tar`` suffix on the id, so the id here
+                        # would not match the one ``create_backup`` returns.
+                        id=archive_path.name.removesuffix(".tar.gz").rsplit("-", 1)[
+                            -1
+                        ],
                         created_at=manifest["created_at"],
                         size_bytes=archive_path.stat().st_size,
                         storage_backend=manifest.get("storage_backend", "local"),
@@ -426,6 +460,36 @@ def _download_backup_to_local(meta: BackupMeta) -> Path:
     raise FileNotFoundError(f"backup {meta.id} not found locally or in S3")
 
 
+def _has_member(tar: tarfile.TarFile, name: str) -> bool:
+    try:
+        tar.getmember(name)
+        return True
+    except KeyError:
+        return False
+
+
+def _restore_key_map(tar: tarfile.TarFile) -> dict[str, str]:
+    """Return the arcname → original storage key map from the archive manifest.
+
+    Empty for legacy archives that predate the map; callers fall back to the
+    arcname transform in that case.
+    """
+    if not _has_member(tar, "manifest.json"):
+        return {}
+    f = tar.extractfile("manifest.json")
+    if f is None:
+        return {}
+    try:
+        manifest = json.loads(f.read().decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return {
+        entry["arc"]: entry["key"]
+        for entry in manifest.get("files", [])
+        if "arc" in entry and "key" in entry
+    }
+
+
 def restore_backup(backup_id: str) -> dict:
     """Restore a backup: replace the DB and all files from the archive.
 
@@ -439,20 +503,26 @@ def restore_backup(backup_id: str) -> dict:
     archive_path = _download_backup_to_local(meta)
     restored_files = 0
 
-    with gzip.open(archive_path, "rb") as gz:
-        with tarfile.open(fileobj=gz, mode="r|") as tar:
-            for member in tar:
-                f = tar.extractfile(member)
-                if f is None:
-                    continue
-                data = f.read()
+    # Seekable read so the manifest (written last) can be consulted before the
+    # file members are written, regardless of their order in the archive.
+    with tarfile.open(archive_path, mode="r:gz") as tar:
+        arc_to_key = _restore_key_map(tar)
 
-                if member.name == "db.sqlite3":
-                    _restore_database(data)
-                elif member.name.startswith("files/") and member.name != "files/":
-                    key = member.name[len("files/") :]
-                    get_backend().write_bytes(data, key)
-                    restored_files += 1
+        db_member = tar.extractfile("db.sqlite3") if _has_member(tar, "db.sqlite3") else None
+        if db_member is not None:
+            _restore_database(db_member.read())
+
+        for member in tar.getmembers():
+            if not member.name.startswith("files/") or member.name == "files/":
+                continue
+            f = tar.extractfile(member)
+            if f is None:
+                continue
+            # Prefer the exact key the manifest recorded; fall back to the legacy
+            # arcname transform for archives created before the map existed.
+            key = arc_to_key.get(member.name, member.name[len("files/") :])
+            get_backend().write_bytes(f.read(), key)
+            restored_files += 1
 
     logger.info("backup %s restored: %d files", backup_id, restored_files)
 

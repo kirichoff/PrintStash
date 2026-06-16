@@ -239,9 +239,25 @@ class BambuLanProvider:
         except Exception as exc:
             raise ProviderError(str(exc), code="provider_transport_error") from exc
 
+    # Bambu's print.gcode_state uses its own vocabulary (RUNNING/PAUSE/FINISH/
+    # …). The rest of the pipeline — the coarse status map *and* the PrintJob
+    # lifecycle sync — speaks Moonraker's print_stats.state terms, so translate
+    # here. Without this, a paused or finished Bambu print read as UNKNOWN and
+    # its job never transitioned to PAUSED/COMPLETED.
+    _STATE_TO_MOONRAKER = {
+        "idle": "standby",
+        "prepare": "standby",
+        "slicing": "standby",
+        "running": "printing",
+        "pause": "paused",
+        "finish": "complete",
+        "failed": "error",
+    }
+
     def _normalize_status(self, report: dict[str, Any]) -> dict[str, Any]:
         print_report = report.get("print", {})
-        gcode_state = str(print_report.get("gcode_state", "")).lower()
+        raw_state = str(print_report.get("gcode_state", "")).lower()
+        gcode_state = self._STATE_TO_MOONRAKER.get(raw_state, raw_state)
         progress = float(print_report.get("mc_percent", 0.0) or 0.0) / 100.0
         filename = print_report.get("subtask_name") or print_report.get("project_id")
         return {

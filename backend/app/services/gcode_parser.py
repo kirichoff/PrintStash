@@ -116,8 +116,16 @@ _PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     ),
 }
 
-_DURATION_RE = re.compile(r"(\d+)\s*([dhms])", re.IGNORECASE)
+# Values may be fractional ("1.5h"); matching only the integer part would turn
+# "1.5h" into "5h". Capture the whole number and scale as a float.
+_DURATION_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([dhms])", re.IGNORECASE)
 _DURATION_UNITS = {"d": 86400, "h": 3600, "m": 60, "s": 1}
+
+# Cura reports filament as a length in *metres* ("Filament used: 1.234m"); every
+# other source the parser knows is already in mm. Detect the metres line — the
+# colon may be padded ("Filament used : 1.234 m") — so the mm conversion only
+# fires when there really is a metres figure.
+_CURA_METERS_RE = re.compile(r"filament used\s*:\s*[\d.]+\s*m", re.IGNORECASE)
 
 
 def parse_duration(s: str) -> Optional[int]:
@@ -128,13 +136,14 @@ def parse_duration(s: str) -> Optional[int]:
     if not matches:
         # try plain integer seconds
         try:
-            return int(float(s.strip()))
+            seconds = int(float(s.strip()))
         except (ValueError, TypeError):
             return None
-    total = 0
+        return seconds if seconds >= 0 else None
+    total = 0.0
     for value, unit in matches:
-        total += int(value) * _DURATION_UNITS[unit.lower()]
-    return total
+        total += float(value) * _DURATION_UNITS[unit.lower()]
+    return int(total)
 
 
 def _read_window(path: Path) -> str:
@@ -247,7 +256,7 @@ def parse(path: Path) -> Dict[str, Any]:
             or key in {"filament_cost", "infill_percent"}
         ):
             out[key] = _to_float(value)
-            if key == "filament_length_mm" and "filament used:" in text.lower():
+            if key == "filament_length_mm" and _CURA_METERS_RE.search(text):
                 out[key] = out[key] * 1000 if out[key] is not None else None
         elif key in {"wall_loops", "top_shell_layers", "bottom_shell_layers"}:
             out[key] = _to_int(value)

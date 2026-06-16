@@ -50,6 +50,12 @@ _END_RE = re.compile(r";\s*thumbnail end", re.IGNORECASE)
 # bodies routinely run to hundreds of MB.
 _MAX_COMMAND_LINES = 2048
 
+# Cap on base64 lines accumulated within a single block. A real thumbnail (even
+# a 640x480 plate preview) is well under this; the limit stops an unterminated
+# "thumbnail begin" — a truncated or malicious file with no matching "end" —
+# from buffering the entire G-code body into memory.
+_MAX_BLOCK_LINES = 8192
+
 
 def _iter_blocks(path: Path):
     """Yield (width, height, base64_string) for each embedded thumbnail block."""
@@ -77,6 +83,17 @@ def _iter_blocks(path: Path):
 
             if _END_RE.search(line):
                 yield width, height, "".join(buf)
+                in_block = False
+                buf = []
+                continue
+
+            if len(buf) >= _MAX_BLOCK_LINES:
+                # No "thumbnail end" in sight — abandon this runaway block rather
+                # than buffer the rest of the file, and resume normal scanning.
+                logger.warning(
+                    "thumbnail: abandoning unterminated thumbnail block in %s",
+                    path.name,
+                )
                 in_block = False
                 buf = []
                 continue

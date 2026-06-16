@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.6.3 - Reliability & correctness hardening
+
+A maintenance release focused on edge-case correctness across importing,
+printing, library browsing, and backups, plus a large expansion of the
+automated test suite (backend 351 → 547 tests; frontend 85 → 93).
+
+### Fixed
+
+- **Bambu printers now report paused/finished state.** A Bambu printer that
+  paused or finished a print showed as "Unknown" and its job never advanced to
+  Paused/Completed, because Bambu's state words (`RUNNING`/`PAUSE`/`FINISH`)
+  weren't translated into the vocabulary the rest of the app uses. Bambu status
+  and job tracking now follow the full print lifecycle.
+- **Reprinting the same file keeps your history.** Starting a second print of a
+  file that was already printed once revived the first (completed) job instead
+  of recording a new one, erasing the earlier print's outcome. Each run is now
+  its own history entry.
+- **Library and trash lists page reliably.** They could repeat or skip a model
+  between pages when many shared the same timestamp (e.g. right after a bulk ZIP
+  import). Ordering now has a stable tiebreaker.
+- **Search is case-insensitive on PostgreSQL.** Model-name search matched case
+  only on SQLite; it now behaves identically on PostgreSQL.
+- **G-code metadata edge cases.** Fractional time estimates (`1.5h`) parse
+  correctly (previously read as 5h); Cura filament length converts from metres
+  even when the comment spacing differs; and a genuine `0` (0% infill, an
+  unheated 0 °C bed) is shown and exported instead of being dropped as blank.
+- **Imports.** Page URLs from look-alike domains (e.g. `evilmakerworld.com`) are
+  no longer treated as MakerWorld; downloaded filenames containing a semicolon
+  are preserved in full; and archive entries using Windows-style `..\..\`
+  traversal are rejected.
+- **Printer file timestamps** from Moonraker are stored as UTC rather than the
+  server's local time.
+
+### Hardening
+
+- A malformed G-code with an unterminated embedded-thumbnail block no longer
+  buffers the entire file into memory during import.
+- A printer-side filename that resembles a Vault revision marker can no longer
+  be matched ahead of the genuine trailing marker.
+
+### Performance
+
+- Listing cloud (S3/R2) backups no longer streams each full archive just to read
+  its manifest — the manifest is now the first entry, so only a small header is
+  read per backup.
+
+### Internal
+
+- Substantially expanded unit coverage: G-code parsing, import resolvers and the
+  SSRF/zip-slip guards, cost & filament maths, collection-RBAC boundaries, the
+  backup round-trip and archive layout, external-library scanner helpers,
+  printer-file correlation, embedded-3MF thumbnails, and the frontend formatters.
+
 ## 0.6.2 - Shared volumes: scheduling + real-time watching
 
 External Libraries grow up: the feature is now **Shared volumes** (a folder on

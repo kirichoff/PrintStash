@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 import csv
 import io
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -366,7 +366,10 @@ def list_items(
         stmt = stmt.where(Model.collection_id.in_(matching_cat_ids))  # type: ignore[union-attr]
 
     if q:
-        stmt = stmt.where(Model.name.contains(q))  # type: ignore[attr-defined]
+        # ilike, not contains/LIKE: LIKE is case-sensitive on PostgreSQL (only
+        # SQLite folds case), so plain contains() would make library search
+        # behave differently per backend. ilike is case-insensitive on both.
+        stmt = stmt.where(Model.name.ilike(f"%{q}%"))  # type: ignore[attr-defined]
 
     if tags:
         for slug in (t.strip().lower() for t in tags if t.strip()):
@@ -388,7 +391,14 @@ def list_items(
     elif printer_presence == "none":
         stmt = stmt.where(Model.id.not_in(present_model_ids))  # type: ignore[attr-defined]
 
-    stmt = stmt.order_by(Model.updated_at.desc()).offset(offset).limit(limit)  # type: ignore[attr-defined]
+    # Model.id is the stable tiebreaker: without it, models sharing an
+    # updated_at (e.g. a batch ZIP import) sort non-deterministically, so
+    # pagination can repeat or skip rows across page boundaries.
+    stmt = (
+        stmt.order_by(Model.updated_at.desc(), Model.id.desc())  # type: ignore[attr-defined]
+        .offset(offset)
+        .limit(limit)
+    )
     rows = session.exec(stmt).all()
     model_ids = [m.id for m in rows if m.id is not None]
     if not model_ids:
@@ -667,6 +677,16 @@ def export_payload(session: Session, user: User) -> dict:
     }
 
 
+def _csv_cell(value: Any) -> Any:
+    """Render a CSV cell, preserving a legitimate ``0`` / ``False``.
+
+    A plain ``value or ""`` collapses real zeros — 0 % infill (vase mode), a
+    0 °C unheated bed, 0 top-shell layers (open-top print) — into blanks. Only
+    ``None`` (genuinely absent) should become an empty cell.
+    """
+    return "" if value is None else value
+
+
 def export_csv(payload: dict) -> str:
     out = io.StringIO()
     writer = csv.DictWriter(out, fieldnames=_EXPORT_CSV_FIELDS)
@@ -694,33 +714,36 @@ def export_csv(payload: dict) -> str:
                     "revision_notes": file_row.get("revision_notes") or "",
                     "is_recommended": file_row["is_recommended"],
                     "uploaded_at": file_row["uploaded_at"],
-                    "slicer_name": metadata.get("slicer_name") or "",
-                    "slicer_version": metadata.get("slicer_version") or "",
-                    "printer_model": metadata.get("printer_model") or "",
-                    "nozzle_diameter_mm": metadata.get("nozzle_diameter_mm") or "",
-                    "layer_height_mm": metadata.get("layer_height_mm") or "",
-                    "first_layer_height_mm": metadata.get("first_layer_height_mm")
-                    or "",
-                    "infill_percent": metadata.get("infill_percent") or "",
-                    "wall_loops": metadata.get("wall_loops") or "",
-                    "top_shell_layers": metadata.get("top_shell_layers") or "",
-                    "bottom_shell_layers": metadata.get("bottom_shell_layers") or "",
-                    "support_material": metadata.get("support_material")
-                    if metadata.get("support_material") is not None
-                    else "",
-                    "nozzle_temperature_c": metadata.get("nozzle_temperature_c") or "",
-                    "bed_temperature_c": metadata.get("bed_temperature_c") or "",
-                    "estimated_time_s": metadata.get("estimated_time_s") or "",
-                    "filament_weight_g": metadata.get("filament_weight_g") or "",
-                    "filament_length_mm": metadata.get("filament_length_mm") or "",
-                    "filament_cost": metadata.get("filament_cost") or "",
-                    "material_type": metadata.get("material_type") or "",
-                    "material_brand": metadata.get("material_brand") or "",
-                    "bbox_x_mm": metadata.get("bbox_x_mm") or "",
-                    "bbox_y_mm": metadata.get("bbox_y_mm") or "",
-                    "bbox_z_mm": metadata.get("bbox_z_mm") or "",
-                    "volume_mm3": metadata.get("volume_mm3") or "",
-                    "triangle_count": metadata.get("triangle_count") or "",
+                    "slicer_name": _csv_cell(metadata.get("slicer_name")),
+                    "slicer_version": _csv_cell(metadata.get("slicer_version")),
+                    "printer_model": _csv_cell(metadata.get("printer_model")),
+                    "nozzle_diameter_mm": _csv_cell(metadata.get("nozzle_diameter_mm")),
+                    "layer_height_mm": _csv_cell(metadata.get("layer_height_mm")),
+                    "first_layer_height_mm": _csv_cell(
+                        metadata.get("first_layer_height_mm")
+                    ),
+                    "infill_percent": _csv_cell(metadata.get("infill_percent")),
+                    "wall_loops": _csv_cell(metadata.get("wall_loops")),
+                    "top_shell_layers": _csv_cell(metadata.get("top_shell_layers")),
+                    "bottom_shell_layers": _csv_cell(
+                        metadata.get("bottom_shell_layers")
+                    ),
+                    "support_material": _csv_cell(metadata.get("support_material")),
+                    "nozzle_temperature_c": _csv_cell(
+                        metadata.get("nozzle_temperature_c")
+                    ),
+                    "bed_temperature_c": _csv_cell(metadata.get("bed_temperature_c")),
+                    "estimated_time_s": _csv_cell(metadata.get("estimated_time_s")),
+                    "filament_weight_g": _csv_cell(metadata.get("filament_weight_g")),
+                    "filament_length_mm": _csv_cell(metadata.get("filament_length_mm")),
+                    "filament_cost": _csv_cell(metadata.get("filament_cost")),
+                    "material_type": _csv_cell(metadata.get("material_type")),
+                    "material_brand": _csv_cell(metadata.get("material_brand")),
+                    "bbox_x_mm": _csv_cell(metadata.get("bbox_x_mm")),
+                    "bbox_y_mm": _csv_cell(metadata.get("bbox_y_mm")),
+                    "bbox_z_mm": _csv_cell(metadata.get("bbox_z_mm")),
+                    "volume_mm3": _csv_cell(metadata.get("volume_mm3")),
+                    "triangle_count": _csv_cell(metadata.get("triangle_count")),
                 }
             )
     return out.getvalue()
@@ -742,7 +765,9 @@ def list_trashed(
     stmt = (
         select(Model)
         .where(trashed(Model))
-        .order_by(Model.deleted_at.desc())  # type: ignore[attr-defined]
+        # Stable tiebreaker on id: a bulk trash gives many rows the same
+        # deleted_at, which would otherwise paginate non-deterministically.
+        .order_by(Model.deleted_at.desc(), Model.id.desc())  # type: ignore[attr-defined]
         .offset(offset)
         .limit(limit)
     )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import PurePosixPath
 import re
 from typing import Any
@@ -13,8 +13,17 @@ from app.core.time import utcnow
 from app.db.models import File, FileType, PrintJob, PrinterFile
 from app.db.scopes import live
 
+# The vault marker is appended by build_traceable_remote_filename as the LAST
+# "__"-delimited segment, right before the extension:
+#   <stem>__vault-f<id>-<sha><ext>
+# Anchoring the match to the end (optionally followed by a single extension)
+# means a decoy "vault-f..." embedded earlier in a user-chosen stem can't be
+# matched ahead of the genuine trailing marker. The sha check in
+# _find_marker_match remains the authority, but this stops the *wrong* file id
+# from ever being consulted.
 _VAULT_MARKER_RE = re.compile(
-    r"(?:^|__)vault-f(?P<file_id>\d+)-(?P<sha>[a-fA-F0-9]{8,64})(?:\.|$|[-_])"
+    r"__vault-f(?P<file_id>\d+)-(?P<sha>[a-fA-F0-9]{8,64})(?=\.[^.]+$|$)",
+    re.IGNORECASE,
 )
 
 
@@ -38,7 +47,10 @@ def _remote_modified(raw: dict[str, Any]) -> datetime | None:
     if value is None:
         return None
     try:
-        return datetime.fromtimestamp(float(value))
+        # Moonraker reports a UTC Unix timestamp. Pin the tz so we don't get a
+        # server-local naive time (off by the host's UTC offset), matching the
+        # aware-UTC convention used everywhere else.
+        return datetime.fromtimestamp(float(value), tz=timezone.utc)
     except (TypeError, ValueError, OSError):
         return None
 

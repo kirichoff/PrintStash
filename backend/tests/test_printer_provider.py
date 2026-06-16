@@ -74,9 +74,57 @@ class TestBambuLanProvider:
                 }
             }
         )
-        assert out["print_stats"]["state"] == "running"
+        # RUNNING is translated to Moonraker's "printing" vocabulary.
+        assert out["print_stats"]["state"] == "printing"
         assert out["print_stats"]["filename"] == "cube.gcode"
         assert out["virtual_sdcard"]["progress"] == pytest.approx(0.45)
+
+    @pytest.mark.parametrize(
+        "bambu_state, moonraker_state",
+        [
+            ("RUNNING", "printing"),
+            ("PAUSE", "paused"),  # regression: was passed through as "pause"
+            ("FINISH", "complete"),  # regression: was "finish" -> UNKNOWN downstream
+            ("FAILED", "error"),
+            ("IDLE", "standby"),
+            ("PREPARE", "standby"),
+            ("SLICING", "standby"),
+        ],
+    )
+    def test_normalize_status_translates_bambu_vocabulary(
+        self, bambu_state, moonraker_state
+    ):
+        provider = BambuLanProvider("192.168.1.50", "SN123", "acc")
+        out = provider._normalize_status({"print": {"gcode_state": bambu_state}})
+        assert out["print_stats"]["state"] == moonraker_state
+
+    def test_normalize_status_progress_is_clamped(self):
+        provider = BambuLanProvider("192.168.1.50", "SN123", "acc")
+        # Out-of-range mc_percent must not escape the 0..1 progress band.
+        assert (
+            provider._normalize_status({"print": {"mc_percent": 150}})["virtual_sdcard"][
+                "progress"
+            ]
+            == 1.0
+        )
+        assert (
+            provider._normalize_status({"print": {"mc_percent": None}})[
+                "virtual_sdcard"
+            ]["progress"]
+            == 0.0
+        )
+
+    def test_normalized_bambu_states_are_known_to_status_map(self):
+        # Every translated state must resolve to a concrete (non-UNKNOWN)
+        # PrinterStatus, proving the provider and hub vocabularies agree.
+        from app.db.models import PrinterStatus
+        from app.services.printer_hub import _derive_printer_status
+
+        provider = BambuLanProvider("192.168.1.50", "SN123", "acc")
+        for bambu_state in ("RUNNING", "PAUSE", "FINISH", "FAILED", "IDLE"):
+            snap = provider._normalize_status({"print": {"gcode_state": bambu_state}})
+            _, vault_status = _derive_printer_status(snap)
+            assert vault_status != PrinterStatus.UNKNOWN, bambu_state
 
     def test_pause_resume_cancel_commands(self):
         provider = BambuLanProvider("192.168.1.50", "SN123", "acc")
