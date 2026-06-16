@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: How the pieces fit together: request flow, the ingestion pipeline, and the decisions behind them.
+description: "How the pieces fit together: request flow, the ingestion pipeline, and the decisions behind them."
 ---
 
 PrintStash is a FastAPI backend and a Vite/React single-page app, packaged for
