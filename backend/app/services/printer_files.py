@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import PurePosixPath
 import re
 from typing import Any
@@ -38,7 +38,10 @@ def _remote_modified(raw: dict[str, Any]) -> datetime | None:
     if value is None:
         return None
     try:
-        return datetime.fromtimestamp(float(value))
+        # Moonraker reports a UTC Unix timestamp. Pin the tz so we don't get a
+        # server-local naive time (off by the host's UTC offset), matching the
+        # aware-UTC convention used everywhere else.
+        return datetime.fromtimestamp(float(value), tz=timezone.utc)
     except (TypeError, ValueError, OSError):
         return None
 

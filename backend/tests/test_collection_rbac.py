@@ -79,6 +79,53 @@ def test_effective_role_inherits_from_parent(db_session: Session) -> None:
     assert child.id in rbac.accessible_collection_ids(db_session, user)
 
 
+def test_grant_does_not_leak_to_prefix_sibling(db_session: Session) -> None:
+    """A grant on 'func' must not reach a sibling 'func-tools' that merely
+    shares the string prefix — inheritance is path-segment based, not substring."""
+    user = _user(db_session, "viewer")
+    func = taxonomy.resolve_or_create_collection(db_session, "Func")
+    func_tools = taxonomy.resolve_or_create_collection(db_session, "Func Tools")
+    assert func is not None and func_tools is not None
+    assert func.path == "func" and func_tools.path == "func-tools"
+
+    _grant(db_session, user, func.id, CollectionRole.ADMIN)
+
+    assert rbac.effective_collection_role(db_session, user, func.id) == CollectionRole.ADMIN
+    assert rbac.effective_collection_role(db_session, user, func_tools.id) is None
+    assert func_tools.id not in rbac.accessible_collection_ids(db_session, user)
+
+
+def test_grant_on_child_does_not_leak_up_to_parent(db_session: Session) -> None:
+    """Permissions inherit downward (parent→child), never upward."""
+    user = _user(db_session, "viewer")
+    parent = taxonomy.resolve_or_create_collection(db_session, "Shared")
+    child = taxonomy.resolve_or_create_collection(db_session, "Shared/Fixtures")
+    assert parent is not None and child is not None
+
+    _grant(db_session, user, child.id, CollectionRole.ADMIN)
+
+    assert rbac.effective_collection_role(db_session, user, child.id) == CollectionRole.ADMIN
+    assert rbac.effective_collection_role(db_session, user, parent.id) is None
+    assert parent.id not in rbac.accessible_collection_ids(db_session, user)
+
+
+def test_trashed_collection_grants_no_role(db_session: Session) -> None:
+    """A grant on a collection that has been trashed must not grant access."""
+    user = _user(db_session, "viewer")
+    coll = taxonomy.resolve_or_create_collection(db_session, "Temp")
+    assert coll is not None
+    _grant(db_session, user, coll.id, CollectionRole.EDIT)
+    assert rbac.effective_collection_role(db_session, user, coll.id) == CollectionRole.EDIT
+
+    from app.core.time import utcnow
+
+    coll.deleted_at = utcnow()
+    db_session.add(coll)
+    db_session.commit()
+
+    assert rbac.effective_collection_role(db_session, user, coll.id) is None
+
+
 def test_model_reads_filter_denied_collections(
     client: TestClient,
     db_session: Session,
