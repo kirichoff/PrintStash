@@ -51,6 +51,24 @@ class TestTraceableFilename:
         assert len(name) <= 512
         assert pf._VAULT_MARKER_RE.search(name) is not None
 
+    def test_trailing_marker_wins_over_decoy_in_stem(self) -> None:
+        # A user-chosen stem that itself looks like a marker must not be matched
+        # ahead of the genuine trailing marker.
+        spoof = "vault-f99-deadbeef12__vault-f42-abcdef012345.gcode"
+        match = pf._VAULT_MARKER_RE.search(spoof)
+        assert match is not None
+        assert match.group("file_id") == "42"
+
+    def test_bare_lookalike_without_delimiter_is_not_a_marker(self) -> None:
+        # No "__" delimiter => not a vault-generated marker (e.g. an external
+        # file a user happened to name this way).
+        assert pf._VAULT_MARKER_RE.search("vault-f99-deadbeef12.gcode") is None
+
+    def test_build_from_lookalike_stem_still_matches_real_id(self) -> None:
+        f = _FakeFile(7, "vault-f99-deadbeef12.gcode", "cafe" * 16)
+        match = pf._VAULT_MARKER_RE.search(build_traceable_remote_filename(f))
+        assert match is not None and match.group("file_id") == "7"
+
 
 class TestRemoteFieldParsers:
     def test_remote_name_prefers_path_and_strips_leading_slash(self) -> None:

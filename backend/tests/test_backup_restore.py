@@ -160,6 +160,22 @@ def test_create_backup_archive_contents(backup_env: BackupEnv):
     assert sum(1 for n in names if n.startswith("files/") and n != "files/") == 2
 
 
+def test_manifest_is_first_archive_member(backup_env: BackupEnv):
+    """The manifest must be the first entry so listing (a streaming read) can
+    stop after one small member instead of pulling the whole archive."""
+    import gzip
+    import tarfile
+
+    _seed_model_with_blob(backup_env, name="Widget", content=b"solid widget\n")
+    _seed_model_with_blob(backup_env, name="Gadget", content=b"solid gadget\n")
+    meta = backup.create_backup()
+
+    with gzip.open(Path(meta.path), "rb") as gz:
+        with tarfile.open(fileobj=gz, mode="r|") as tar:
+            first = next(iter(tar))
+    assert first.name == "manifest.json"
+
+
 def test_backup_appears_in_list_and_get(backup_env: BackupEnv):
     _seed_model_with_blob(backup_env, name="Widget", content=b"x")
     meta = backup.create_backup()
