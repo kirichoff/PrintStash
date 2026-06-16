@@ -23,7 +23,7 @@ import time
 import uuid
 import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Optional
 from urllib.parse import unquote, urlparse, urlsplit
 
@@ -143,10 +143,17 @@ async def download_to_staging(url: str) -> tuple[Path, str]:
 def _content_disposition_name(resp) -> str | None:
     cd = resp.headers.get("content-disposition", "")
     marker = "filename="
-    if marker in cd:
-        raw = cd.split(marker, 1)[1].strip().strip('"').split(";")[0]
-        return Path(unquote(raw)).name or None
-    return None
+    if marker not in cd:
+        return None
+    raw = cd.split(marker, 1)[1].lstrip()
+    if raw.startswith('"'):
+        # Quoted-string: the value runs to the closing quote, so a ';' *inside*
+        # the quotes (e.g. filename="a;b.stl") is part of the name, not a param
+        # separator.
+        raw = raw[1:].split('"', 1)[0]
+    else:
+        raw = raw.split(";", 1)[0].strip()
+    return Path(unquote(raw)).name or None
 
 
 # ---------------------------------------------------------------------------
@@ -163,15 +170,20 @@ class ArchiveEntry:
 
 
 def _safe_entry_name(name: str) -> bool:
-    """Reject absolute paths, drive letters, and any '..' traversal."""
-    if not name or name.endswith("/"):
+    """Reject absolute paths, drive letters, and any '..' traversal.
+
+    Backslashes are normalised to '/' first so a Windows-style ``..\\..\\evil``
+    entry is caught on POSIX too (where ``\\`` is an ordinary filename char and
+    would otherwise hide the traversal from ``Path.parts``).
+    """
+    if not name or name.endswith(("/", "\\")):
         return False
     if name.startswith("/") or name.startswith("\\"):
         return False
-    p = Path(name)
-    if p.is_absolute() or ".." in p.parts:
-        return False
     if len(name) > 2 and name[1] == ":":  # windows drive letter
+        return False
+    p = PurePosixPath(name.replace("\\", "/"))
+    if p.is_absolute() or ".." in p.parts:
         return False
     return True
 

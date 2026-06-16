@@ -56,12 +56,12 @@ describe("formatDuration", () => {
 });
 
 describe("scalar formatters", () => {
-  it("suffix formatters render an em dash for falsy values", () => {
-    expect(formatMillimeters(0)).toBe("—");
+  it("render an em dash for null/undefined", () => {
+    expect(formatMillimeters(null)).toBe("—");
     expect(formatPercent(undefined)).toBe("—");
+    expect(formatPercent(null)).toBe("—");
     expect(formatGrams(null)).toBe("—");
-    expect(formatTemperature(0)).toBe("—");
-    expect(formatCost(0)).toBe("—");
+    expect(formatTemperature(undefined)).toBe("—");
   });
 
   it("apply their unit suffix to real values", () => {
@@ -70,6 +70,19 @@ describe("scalar formatters", () => {
     expect(formatGrams(15)).toBe("15g");
     expect(formatTemperature(210)).toBe("210°C");
     expect(formatCost(24.5)).toBe("24.50");
+  });
+
+  it("preserve a meaningful zero for percent and temperature", () => {
+    // 0% infill (vase mode) and a 0 °C unheated bed are real measurements, not
+    // missing data — they must not collapse to an em dash.
+    expect(formatPercent(0)).toBe("0%");
+    expect(formatTemperature(0)).toBe("0°C");
+  });
+
+  it("treat a zero as missing for grams/mm/cost (0 there means no data)", () => {
+    expect(formatGrams(0)).toBe("—");
+    expect(formatMillimeters(0)).toBe("—");
+    expect(formatCost(0)).toBe("—");
   });
 });
 

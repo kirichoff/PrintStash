@@ -93,7 +93,7 @@ def classify_page(url: str) -> Optional[str]:
     host = _host(url)
     if host in _PRINTABLES_HOSTS and _printables_id(url):
         return "printables"
-    if host.endswith("makerworld.com") and _makerworld_id(url):
+    if (host == "makerworld.com" or host.endswith(".makerworld.com")) and _makerworld_id(url):
         return "makerworld"
     if host in _THINGIVERSE_HOSTS and _thingiverse_id(url):
         return "thingiverse"

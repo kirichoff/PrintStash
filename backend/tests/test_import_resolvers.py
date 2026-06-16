@@ -39,6 +39,33 @@ def test_classify_page(url: str, expected) -> None:
     assert r.classify_page(url) == expected
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        # Regression: endswith("makerworld.com") used to classify look-alike
+        # hosts as MakerWorld pages.
+        "https://evilmakerworld.com/en/models/123",
+        "https://makerworld.com.attacker.test/models/123",
+        "https://notmakerworld.com/models/123",
+    ],
+)
+def test_classify_page_rejects_lookalike_makerworld_hosts(url: str) -> None:
+    assert r.classify_page(url) is None
+
+
+def test_classify_page_accepts_makerworld_subdomain() -> None:
+    assert r.classify_page("https://www.makerworld.com/en/models/123") == "makerworld"
+
+
+def test_classify_page_is_case_insensitive_on_host() -> None:
+    assert r.classify_page("https://WWW.PRINTABLES.COM/model/3161") == "printables"
+
+
+def test_classify_page_handles_garbage_input() -> None:
+    assert r.classify_page("not a url") is None
+    assert r.classify_page("") is None
+
+
 def test_id_extractors() -> None:
     assert r._printables_id("https://www.printables.com/model/3161-3d-benchy/files") == "3161"
     assert r._makerworld_id("https://makerworld.com/en/models/1123776-x") == "1123776"
@@ -69,6 +96,33 @@ def test_pick_printables_pack_prefers_model_files() -> None:
     # Falls back to the first pack with an id when there's no MODEL_FILES pack.
     assert r._pick_printables_pack([{"id": 7, "fileType": "GCODE"}]) == "7"
     assert r._pick_printables_pack([]) is None
+
+
+def test_first_download_url_keyed_link_beats_deep_fallback() -> None:
+    # A keyed url anywhere wins over a model-looking bare string.
+    data = {"files": ["https://cdn.test/a.stl"], "meta": {"url": "https://cdn.test/real.zip"}}
+    assert r._first_download_url(data) == "https://cdn.test/real.zip"
+
+
+def test_first_download_url_ignores_non_http_keyed_values() -> None:
+    # A relative or non-http "url" must not be returned as a download link.
+    data = {"url": "/local/path.zip", "links": ["https://cdn.test/model.stl"]}
+    assert r._first_download_url(data) == "https://cdn.test/model.stl"
+
+
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("https://cdn.test/model.stl", True),
+        ("https://cdn.test/model.3MF", True),  # case-insensitive ext
+        ("https://cdn.test/get?file=model.stl", False),  # ext only in query
+        ("https://cdn.test/api/download/123", True),  # /download path
+        ("https://cdn.test/image.png", False),
+        ("https://cdn.test/about", False),
+    ],
+)
+def test_looks_like_download(url: str, expected: bool) -> None:
+    assert r._looks_like_download(url) is expected
 
 
 def test_extract_next_data_round_trips() -> None:

@@ -27,7 +27,9 @@ export function formatMillimeters(value: number | null | undefined): string {
 }
 
 export function formatPercent(value: number | null | undefined): string {
-  return value ? `${value}%` : "—";
+  // 0 is a real value (vase mode prints at 0% infill); only null/undefined
+  // means "unknown". Metadata uses null for missing, never 0, so this is safe.
+  return value == null ? "—" : `${value}%`;
 }
 
 export function formatGrams(value: number | null | undefined): string {
@@ -35,7 +37,9 @@ export function formatGrams(value: number | null | undefined): string {
 }
 
 export function formatTemperature(value: number | null | undefined): string {
-  return value ? `${value}°C` : "—";
+  // 0 is a real value (an unheated bed prints at 0 °C); only null/undefined
+  // means "unknown".
+  return value == null ? "—" : `${value}°C`;
 }
 
 export function formatCost(value: number | null | undefined): string {
