@@ -198,6 +198,18 @@ Requirements: Docker and Docker Compose. Prebuilt images are published for
 On ARM, STEP/STP files upload and store but don't get a 3D preview — see
 [Known Limitations](#known-limitations--beta-notes).
 
+A modest host is enough. As a starting point:
+
+| Resource | Minimum | Comfortable |
+| --- | --- | --- |
+| RAM | 1 GB | 2 GB+ |
+| CPU | 1 core | 2+ cores |
+| Disk | ~1 GB for images | + room for your library |
+
+SQLite + local disk is the default; thumbnailing large meshes is the most
+memory-hungry step, so give it 2 GB if you upload big STLs. Storage grows with
+your library — the files themselves dominate, the database stays small.
+
 The default `docker-compose.yml` pulls prebuilt images from GHCR — no build step.
 
 ```bash
@@ -220,6 +232,16 @@ docker compose -f docker-compose.prod.yml up -d
 
 To build the images from source instead of pulling (contributors), layer the
 build overlay: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+
+**Pin a version** for reproducible deploys. The compose files read
+`PRINTSTASH_VERSION` (the image tag); set it in `.env` and bump it to upgrade:
+
+```bash
+echo "PRINTSTASH_VERSION=0.6.2" >> .env   # pin; omit to track the compose default
+```
+
+There is no `latest` tag — releases are versioned, so an upgrade is always a
+deliberate tag bump. See [Upgrading](https://xiao-villamor.github.io/PrintStash/guides/upgrading/).
 
 Open:
 
@@ -306,7 +328,9 @@ discussion.
 Read [SECURITY.md](./SECURITY.md) before reporting vulnerabilities.
 PrintStash is designed for trusted self-hosted networks; do not expose it
 directly to the public internet without a reverse proxy, TLS, and your own
-access controls.
+access controls. The production compose (`docker-compose.prod.yml`) binds only
+the frontend to `127.0.0.1`; copy-pasteable Caddy / Traefik / nginx examples are
+in [Reverse proxy with TLS](https://xiao-villamor.github.io/PrintStash/getting-started/installation/#reverse-proxy-with-tls).
 
 ## License
 

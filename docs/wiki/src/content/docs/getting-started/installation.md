@@ -7,6 +7,18 @@ The normal install is Docker Compose. If Docker is already working on the host,
 you do not need to install Python, Node, or frontend tooling just to run
 PrintStash.
 
+## What you need
+
+- **Docker + Docker Compose** on a `linux/amd64` or `linux/arm64` host (Raspberry
+  Pi 4/5, ARM NAS, and Apple-silicon VMs all work; on ARM, STEP/STP files store
+  but don't get a 3D preview — see
+  [Known limitations](/PrintStash/reference/known-limitations/)).
+- **~1 GB RAM minimum, 2 GB comfortable** — thumbnailing large meshes is the
+  heaviest step; give it 2 GB if you upload big STLs.
+- **1–2 CPU cores.**
+- **Disk:** ~1 GB for the images, plus room for your library. The stored files
+  dominate; the SQLite database stays small.
+
 ## Quick start
 
 ```bash
@@ -98,6 +110,60 @@ reachable from outside your LAN, settle these:
   switch to Postgres and/or S3 only if you actually need them.
 - Plan backups *before* you need them. See
   [Backup & restore](/PrintStash/guides/backup-and-restore/).
+
+### Reverse proxy with TLS
+
+Use `docker-compose.prod.yml`: it publishes **only** the frontend and binds it to
+`127.0.0.1:3000`, so the containers aren't reachable except through your proxy.
+The frontend's nginx already proxies `/api/v1` and WebSocket traffic to the API,
+so the proxy has a single upstream — forward everything to `127.0.0.1:3000` and
+you're done. WebSockets (live printer status) must be allowed through; the
+examples below handle that automatically.
+
+**Caddy** (automatic Let's Encrypt TLS) — a two-line `Caddyfile`:
+
+```caddyfile
+printstash.example.com {
+    reverse_proxy 127.0.0.1:3000
+}
+```
+
+**Traefik** (labels on the frontend service, if you run Traefik in Docker):
+
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.printstash.rule=Host(`printstash.example.com`)"
+  - "traefik.http.routers.printstash.entrypoints=websecure"
+  - "traefik.http.routers.printstash.tls.certresolver=le"
+  - "traefik.http.services.printstash.loadbalancer.server.port=3000"
+```
+
+**nginx** — proxy a server block to the frontend, passing the upgrade headers so
+WebSockets work:
+
+```nginx
+server {
+    server_name printstash.example.com;
+    # listen 443 ssl;  # terminate TLS here (certbot, etc.)
+
+    client_max_body_size 512m;  # match VAULT_MAX_UPLOAD_MB
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+If you raise `VAULT_MAX_UPLOAD_MB`, raise the equivalent body-size limit on your
+proxy too (Caddy and Traefik don't cap by default; nginx does, via
+`client_max_body_size` above).
 
 ## Troubleshooting first boot
 
