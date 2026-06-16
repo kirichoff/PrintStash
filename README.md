@@ -42,61 +42,6 @@ Hardware reports, parser fixtures, install notes, docs fixes, and UX feedback
 are welcome in
 [Discussions](https://github.com/xiao-villamor/PrintStash/discussions) or issues.
 
-## Who Is This For?
-
-PrintStash targets people whose print output has outgrown their memory of it.
-
-If you run Klipper/Moonraker, live status, send-to-print, and imported print
-history sit next to the files instead of in a separate tab. OrcaSlicer,
-PrusaSlicer, Bambu Studio, and Cura users get every exported G-code captured
-with the slicer settings that produced it. On a homelab NAS or mini PC the whole
-thing runs locally, with no cloud account or subscription. And once a library of
-STLs, 3MFs, STEP files, and G-code has sprawled past the point of recall, it
-replaces the "which version actually printed well?" guesswork that otherwise
-lives in folder names.
-
-## How Is This Different?
-
-Most tools store *files*. PrintStash stores the printing context around a file
-and links it together:
-
-- **Models + G-code as revisions** — source meshes and every sliced G-code live
-  on one model, with version history and a recommended/known-good verdict.
-- **Slicer metadata, parsed** — layer height, material, nozzle/bed temps,
-  estimated time, filament weight, and cost extracted from the G-code itself.
-- **Printer presence + live status** — see what's on which printer right now, and
-  send a revision straight to it.
-- **Real print history** — measured filament and actual duration captured from
-  Moonraker when a print finishes, with per-print cost.
-- **Search across all of it** — find by model name, collection, tag, material,
-  slicer, printer, or print outcome — not just filename.
-- **Operations included** — full backup/restore, recycle bin recovery, multiple
-  users, and collection-level access control are part of the vault instead of
-  bolted-on scripts.
-
-It runs on your own hardware. No cloud account, no subscription, no telemetry.
-
-## PrintStash vs. a Simple Model Vault
-
-A simple model vault is a folder browser with thumbnails: upload a mesh, search
-by filename or tag. That holds up until you come back months later and the slicer
-settings, the version that printed cleanly, and the print history are all gone.
-
-PrintStash keeps the print as the unit of record, not the STL. The difference,
-by capability:
-
-| Capability | Simple model vault | PrintStash |
-| --- | --- | --- |
-| Source models | Stores STL/3MF/OBJ files | Stores source files plus every G-code revision under one model |
-| Storage model | Copies files into its own store | Vault store **or** index a server folder / NAS in place (shared volumes), synced on a schedule and watched in real time |
-| Preview | Thumbnail or mesh preview | Browser 3D preview and G-code toolpath preview |
-| Slicer data | Usually manual notes | Extracts useful G-code metadata: slicer, printer profile, material, layer height, nozzle, infill, temperatures, estimated time, filament length/weight/cost |
-| Versions | Duplicate filenames or folders | Revision labels, notes, status, compare view, and recommended/known-good marker |
-| Printer context | Separate from library | Moonraker/Klipper status, send-to-print, job tracking, and remote printer file inventory matched back to vault models |
-| Recovery | Manual file restore | Full backup/restore plus recycle bin with retention and purge controls |
-| Teams/families | One shared login or no auth | Multiple users, named API keys, admin tools, and collection-level RBAC |
-| Personalization | Fixed UI | Custom model-card metrics and model-detail metadata visibility |
-
 ## Features
 
 **Ingest and organize**
