@@ -21,6 +21,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.6.5",
+    date: "Jun 2026",
+    changes: [
+      "Fixed the app being unresponsive right after first-run setup — Upload, New collection, and the admin/settings menu now work immediately instead of needing a page reload",
+      "Faster first load: pages are code-split so the initial visit only downloads the screen you're on",
+      "Smaller production build — developer tooling no longer ships to end users",
+    ],
+  },
+  {
     version: "0.6.4",
     date: "Jun 2026",
     changes: [

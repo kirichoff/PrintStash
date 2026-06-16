@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.5 - First-run polish
+
+### Fixed
+
+- **The UI is interactive immediately after first-run setup.** Completing the
+  setup wizard logged you in by writing the token to local storage and firing an
+  in-tab auth event, but the auth provider only subscribed to that event when a
+  token already existed *at mount* — which is never the case on a brand-new
+  install. So the freshly created admin session wasn't observed: the app showed
+  the vault but treated you as signed out, leaving Upload, New collection, and
+  the admin/settings menu unresponsive until the JWT was picked up on the next
+  full page load (a reload, or the ~2 minute window before the next probe). The
+  provider now subscribes to auth changes unconditionally, so the setup login is
+  reflected right away. Covered by a regression test.
+
+### Changed
+
+- **Faster first paint.** Route components are now code-split with lazy imports,
+  so the initial load only ships the shell plus the landing route instead of
+  every page up front.
+- **React Query Devtools no longer ship in production.** They're lazily loaded
+  and gated to dev builds, trimming the production bundle.
+
 ## 0.6.4 - Backup restore and download
 
 ### Added
