@@ -74,7 +74,5 @@ Current intentional lint warnings:
 ## Release Content
 
 - Read `docs/known-limitations.md` and confirm the README links to it.
-- Read `docs/demo-walkthrough.md` and confirm current screenshots match the
-  story being shown.
 - Read `docs/community-starter-issues.md` and choose 3-5 issues to publish after
   the first tag.

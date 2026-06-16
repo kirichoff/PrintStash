@@ -5,8 +5,8 @@ description: What a backup contains, how to make one, and how to recover an inst
 
 PrintStash backs up the *whole* install, not just metadata. This is the path you
 use to move an install to new hardware, or to recover after a bad upgrade or a
-disk going sideways. (For getting just the metadata out — for analysis or
-migrating between tools — use the JSON/CSV export in
+disk going sideways. (If you only need the metadata out, for analysis or
+migrating between tools, use the JSON/CSV export in
 [the user guide](/PrintStash/guides/user-guide/#6-get-your-data-back-out)
 instead.)
 
@@ -21,13 +21,13 @@ A backup is a single `tar.gz` archive containing:
 
 Archives are written to `VAULT_BACKUP_DIR` (default `/data/backups`) first. If
 you've configured the `VAULT_BACKUP_S3_*` variables, the same archive is also
-uploaded to your backup bucket — which can be a completely different provider from
+uploaded to your backup bucket, which can be a completely different provider from
 your vault storage. A common, sensible setup is vault data on local disk, backups
 shipped nightly to R2.
 
 ## Make a backup
 
-Always take a fresh one before anything risky — upgrades especially.
+Always take a fresh one before anything risky, upgrades especially.
 
 From the UI: **Settings -> Storage**, review the backup destination, trigger a
 full backup, or download an existing archive to your computer.
@@ -86,7 +86,7 @@ For API-only recovery:
 
 If the app is too broken to drive the restore through the API:
 
-- For Docker, list your named volumes with `docker volume ls` — you're looking
+- For Docker, list your named volumes with `docker volume ls`; you're looking
   for `printstash_data`, `printstash_thumbs`, `printstash_db`, and
   `printstash_backups`.
 - Copy the SQLite DB and those data volumes somewhere safe *before* you
@@ -99,7 +99,7 @@ If the app is too broken to drive the restore through the API:
 ## Smoke checks after a restore
 
 - Sign in at `http://localhost:3000`.
-- Hit `http://localhost:8000/api/v1/health` — database, storage, backup, and
+- Hit `http://localhost:8000/api/v1/health`; database, storage, backup, and
   printer-provider components should all report in.
 - Confirm a known model appears in search with its metadata intact.
 - If you run Moonraker/Klipper, open a printer detail page and check live status.
@@ -109,7 +109,7 @@ If the app is too broken to drive the restore through the API:
 - **Home install:** restore the latest known-good archive, then re-upload (or
   re-push from the Orca hook) any exports made after that backup.
 - **Small farm:** restore, then verify each printer's status page before sending
-  new jobs — don't queue work onto a printer you haven't re-confirmed.
+  new jobs; don't queue work onto a printer you haven't re-confirmed.
 
 The matching upgrade steps and rollback expectations live in
 [Upgrading](/PrintStash/guides/upgrading/).

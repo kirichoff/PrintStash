@@ -4,7 +4,7 @@ description: Authentication, the endpoints you'll actually use, and an upload ex
 ---
 
 The same REST API under `/api/v1` powers the web UI, the OrcaSlicer hook, and any
-script you write — there's no separate "internal" surface. Interactive OpenAPI
+script you write; there's no separate "internal" surface. Interactive OpenAPI
 docs are served live by the backend, and they're the authoritative reference for
 request and response shapes:
 
@@ -27,7 +27,7 @@ Authorization: Bearer <token>
 
 There are two ways to get one:
 
-**1. Username + password** — what the UI does. Short-lived access tokens with
+**1. Username + password:** what the UI does. Short-lived access tokens with
 refresh-token rotation behind the scenes.
 
 ```bash
@@ -36,9 +36,9 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -d '{"username":"admin","password":"<your-password>"}'
 ```
 
-**2. Username + API key** — for scripts and automation, so you never bake an
+**2. Username + API key:** for scripts and automation, so you never bake an
 account password into a long-lived hook. Create a named key under **Settings →
-Access** (it's shown once — copy it then), then exchange it at the *same* login
+Access** (it's shown once, so copy it then), then exchange it at the *same* login
 endpoint for a Bearer token:
 
 ```bash
@@ -56,7 +56,7 @@ password, which is exactly why the Orca hook uses one.
 | ------ | ----------------------------------- | --------------------------------------- |
 | `GET`  | `/api/v1/health`                    | Liveness + component readiness (no auth).|
 | `POST` | `/api/v1/auth/login`                | Get an access token.                     |
-| `GET`  | `/api/v1/models`                    | List models — filters, search, paging.   |
+| `GET`  | `/api/v1/models`                    | List models with filters, search, paging.|
 | `GET`  | `/api/v1/models/{id}`               | Model detail with files and metadata.    |
 | `GET`  | `/api/v1/models/stats`              | Vault totals and breakdowns.             |
 | `GET`  | `/api/v1/models/export`             | Metadata export (`?format=json` or `csv`).|
@@ -88,7 +88,7 @@ and printer-provider subsystems.
 ## Upload example
 
 Upload a file with a Bearer token. The ingest pipeline hashes the content,
-deduplicates against what's already stored, and attaches the file to a model —
+deduplicates against what's already stored, and attaches the file to a model,
 creating one if this mesh is new:
 
 ```bash
@@ -98,7 +98,7 @@ curl -X POST http://localhost:8000/api/v1/ingest \
 ```
 
 Because dedup is by content hash, re-uploading the identical file is a no-op
-rather than a duplicate — handy when a hook fires twice.
+rather than a duplicate, handy when a hook fires twice.
 
 For automated pushes after every slice, use the OrcaSlicer hook described in the
 [user guide](/PrintStash/guides/user-guide/#skip-the-manual-upload-the-orcaslicer-hook).

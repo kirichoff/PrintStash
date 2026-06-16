@@ -110,7 +110,7 @@ backend/
 | `VAULT_LOG_LEVEL` | Python log level | `INFO` |
 
 > The first admin user is created via the web-based first-run wizard at
-> `/setup` — there is no env-driven default account. Storage paths above are
+> `/setup`; there is no env-driven default account. Storage paths above are
 > the defaults; the wizard can override `data_dir` / `thumb_dir` per install
 > and persists them in the `system_config` table.
 
@@ -202,4 +202,4 @@ VAULT_S3_SECRET_KEY=minioadmin
 uv run pytest tests
 ```
 
-Tests use `tmp_path` — they never touch the real data volume.
+Tests use `tmp_path`, so they never touch the real data volume.

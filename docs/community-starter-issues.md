@@ -137,5 +137,4 @@ for showing upload, metadata, revision history, search, and export.
 
 ### Technical Notes
 
-- The current demo walkthrough lives in `docs/demo-walkthrough.md`.
 - Screenshots live in `screenshots/`.

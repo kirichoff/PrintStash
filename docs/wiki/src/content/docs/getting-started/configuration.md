@@ -4,7 +4,7 @@ description: The environment variables that control storage, auth, uploads, and 
 ---
 
 Everything is configured through environment variables, normally via the `.env`
-file you copied from `.env.example`. Backend settings use the `VAULT_` prefix —
+file you copied from `.env.example`. Backend settings use the `VAULT_` prefix;
 that prefix is historical (the project started life as "Vault") and is kept for
 compatibility, so don't read anything into it.
 
@@ -19,7 +19,7 @@ it for reproducible deploys and bump it to upgrade; if unset it defaults to
 
 :::caution
 Change `VAULT_JWT_SECRET` before PrintStash is reachable from anything but
-localhost. It signs every auth token — anyone who knows it can mint a valid admin
+localhost. It signs every auth token; anyone who knows it can mint a valid admin
 token. Generate something long and random and treat it as a credential.
 :::
 
@@ -46,7 +46,7 @@ token. Generate something long and random and treat it as a credential.
 ### S3 / R2-compatible object storage
 
 Set `VAULT_STORAGE_BACKEND=s3` and supply credentials. This works with AWS S3
-and any S3-compatible service — Cloudflare R2, MinIO, Backblaze B2, and so on.
+and any S3-compatible service: Cloudflare R2, MinIO, Backblaze B2, and so on.
 Uploads above the multipart threshold are chunked, and downloads are served as
 short-lived presigned URLs so blobs never round-trip through the API process.
 
@@ -65,7 +65,7 @@ short-lived presigned URLs so blobs never round-trip through the API process.
 
 ## Database
 
-SQLite is the default and the best-tested path for a single-user home install —
+SQLite is the default and the best-tested path for a single-user home install:
 one file, no extra container, trivial to back up. Reach for Postgres when you're
 running multiple users or want concurrent writes to behave better under load:
 
@@ -94,7 +94,7 @@ outgrow it later.
 
 Backups can be mirrored to object storage with the `VAULT_BACKUP_S3_*` variables
 (`BUCKET`, `ENDPOINT_URL`, `REGION`, `ACCESS_KEY`, `SECRET_KEY`). This is
-**independent** of your vault storage backend — a common setup is keeping vault
+**independent** of your vault storage backend; a common setup is keeping vault
 data on local disk while shipping nightly backups off to R2. See
 [Backup & restore](/PrintStash/guides/backup-and-restore/).
 
@@ -112,6 +112,6 @@ same-origin, so no frontend environment variables are needed.
 **Settings are frozen at startup.** Environment values are read once when the
 process boots and never mutated afterward. A small set of values can be
 overridden at runtime through the admin UI overlay, but the environment is the
-source of truth on boot. This is a deliberate design choice — see
-[ADR-0002 in Architecture](/PrintStash/reference/architecture/#adr-0002--frozen-settings--runtime-overlay).
+source of truth on boot. This is a deliberate design choice; see
+[ADR-0002 in Architecture](/PrintStash/reference/architecture/#adr-0002-frozen-settings--runtime-overlay).
 :::

@@ -9,7 +9,7 @@ the old image around** until the new one has proven itself.
 
 ## Before you upgrade
 
-- Know where your data lives — the Docker volumes or local data directories.
+- Know where your data lives: the Docker volumes or local data directories.
 - Take a fresh backup. See [Backup & restore](/PrintStash/guides/backup-and-restore/).
 - Briefly stop slicer hooks and scheduled jobs so no uploads land during the
   migration window.
@@ -62,14 +62,14 @@ Then restart the backend and frontend dev servers.
 
 - Fresh installs use `sqlite:////data/db/printstash.sqlite`.
 - Some early installs still have `sqlite:////data/db/nexus3d.sqlite` from before
-  the rename. If you're upgrading an existing volume, **keep that `VAULT_DB_URL`**
-  — don't repoint it, or you'll start against an empty database.
+  the rename. If you're upgrading an existing volume, **keep that `VAULT_DB_URL`**;
+  don't repoint it, or you'll start against an empty database.
 - Always back up the SQLite file before running migrations.
 - Never edit the SQLite file while the API container is running.
 
 ## Rollback
 
-Schema downgrades are **not** the supported rollback path — backup restore is.
+Schema downgrades are **not** the supported rollback path; backup restore is.
 If an upgrade goes wrong:
 
 1. Stop the upgraded containers.

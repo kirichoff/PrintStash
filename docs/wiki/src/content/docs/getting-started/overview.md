@@ -29,7 +29,7 @@ is already on the printer.
 ## What it does today
 
 - **Ingest:** STL, 3MF, OBJ, STEP/STP, and G-code via the web UI, the REST API,
-  or the OrcaSlicer push hook — plus import from a URL or `.zip` (including
+  or the OrcaSlicer push hook, plus import from a URL or `.zip` (including
   Printables/MakerWorld/Thingiverse model pages). Files are deduplicated by
   content hash, so re-uploading the same mesh doesn't create clutter.
 - **Organize:** hierarchical collections, flat tags, full-text search, sortable
@@ -49,7 +49,7 @@ is already on the printer.
   filament, and print-time trends, and share a single model via an expiring,
   read-only public link.
 - **Stay portable:** metadata export to JSON/CSV, full backup/restore, audit
-  logs, and a health endpoint — all on SQLite by default, Postgres and S3/R2
+  logs, and a health endpoint, all on SQLite by default, with Postgres and S3/R2
   optional.
 
 ## How far along it is

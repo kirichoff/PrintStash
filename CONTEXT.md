@@ -2,8 +2,7 @@
 
 Self-hosted 3D printing asset manager: a vault of logical Models backed by
 versioned file artifacts, with slicer metadata, printer presence, and trash
-retention. This file pins the project's domain language; architecture
-decisions live in `docs/adr/`.
+retention. This file pins the project's domain language.
 
 ## Language
 

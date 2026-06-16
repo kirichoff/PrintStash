@@ -12,7 +12,7 @@ manufacturing platform.
 - Moonraker/Klipper is the primary supported provider, with live status,
   upload/send, optional start, remote file inventory sync, remote file start,
   pause/resume/cancel, and job history.
-- Bambu LAN support is beta — local status plus pause/resume/cancel only.
+- Bambu LAN support is beta: local status plus pause/resume/cancel only.
 - Bambu LAN upload, send-to-print, remote file inventory, and remote-file start
   are not implemented today.
 - Provider behavior still needs more real-world hardware validation across
@@ -40,7 +40,7 @@ manufacturing platform.
   Bambu Studio, Cura, and Klipper/Orca-style profiles.
 - Slicer metadata comments vary by slicer and profile; missing fields are
   expected and worth reporting with safe sample files.
-- Metadata export is metadata-only — no raw STL/3MF/G-code blobs, secrets, API
+- Metadata export is metadata-only: no raw STL/3MF/G-code blobs, secrets, API
   keys, or printer credentials.
 - Full backup/restore is available separately for moving or recovering an
   install.
