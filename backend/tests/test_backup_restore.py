@@ -237,6 +237,22 @@ def test_delete_unknown_backup_returns_false(backup_env: BackupEnv):
     assert backup.delete_backup("nope") is False
 
 
+def test_backup_id_round_trips_despite_timestamped_name(backup_env: BackupEnv):
+    """The archive name embeds a hyphenated timestamp before the id; the id
+    derived on list/get must still equal the one create_backup returned
+    (regression for the rsplit-based id extraction)."""
+    _seed_model_with_blob(backup_env, name="Widget", content=b"x")
+    meta = backup.create_backup()
+
+    # id is the trailing 12-hex token, not a timestamp fragment.
+    assert len(meta.id) == 12
+    assert all(c in "0123456789abcdef" for c in meta.id)
+    assert f"-{meta.id}.tar.gz" in Path(meta.path).name
+
+    fetched = backup.get_backup(meta.id)
+    assert fetched is not None and fetched.id == meta.id
+
+
 def test_purge_keeps_fresh_removes_old(
     backup_env: BackupEnv, monkeypatch: pytest.MonkeyPatch
 ):

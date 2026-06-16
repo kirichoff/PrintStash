@@ -202,6 +202,29 @@ class TestStateMapping:
         assert ms_state == "ready"
         assert vault_status == PrinterStatus.READY
 
+    def test_derive_status_print_stats_takes_precedence(self):
+        from app.services.printer_hub import _derive_printer_status
+
+        status = {
+            "print_stats": {"state": "printing"},
+            "webhooks": {"state": "ready"},
+        }
+        assert _derive_printer_status(status) == ("printing", PrinterStatus.PRINTING)
+
+    def test_derive_status_unknown_state_maps_to_unknown(self):
+        from app.services.printer_hub import _derive_printer_status
+
+        ms_state, vault_status = _derive_printer_status(
+            {"print_stats": {"state": "warming_up"}}
+        )
+        assert ms_state == "warming_up"
+        assert vault_status == PrinterStatus.UNKNOWN
+
+    def test_derive_status_empty_snapshot_is_unknown(self):
+        from app.services.printer_hub import _derive_printer_status
+
+        assert _derive_printer_status({}) == ("", PrinterStatus.UNKNOWN)
+
 
 class TestPrinterHubSyncActiveJob:
     def _setup_job(self, db_session):
@@ -337,6 +360,55 @@ class TestPrinterHubSyncActiveJob:
         assert model_id is not None
         assert db_session.get(File, file_id) is not None
         assert db_session.get(Model, model_id) is not None
+
+    def test_external_reprint_creates_new_job(self, hub):
+        """A second external print of the same file must not revive the first
+        (now-finished) job — it should create a fresh history row."""
+        from app.db.models import PrintJob, PrintJobState
+        from app.db.session import get_session_factory
+        from sqlmodel import select
+
+        async def _tick(state, progress, stats):
+            await hub._sync_active_job(7, state, "repeat.gcode", progress, stats)
+
+        # First external print: start -> complete.
+        asyncio.run(_tick("printing", 0.5, {"state": "printing"}))
+        asyncio.run(
+            _tick("complete", 1.0, {"state": "complete", "total_duration": 100})
+        )
+        # Second external print of the same file begins.
+        asyncio.run(_tick("printing", 0.1, {"state": "printing"}))
+
+        with get_session_factory().session() as session:
+            jobs = session.exec(
+                select(PrintJob)
+                .where(PrintJob.remote_filename == "repeat.gcode")
+                .order_by(PrintJob.created_at.asc())  # type: ignore[attr-defined]
+            ).all()
+        assert len(jobs) == 2, "second print should create a new job, not revive"
+        assert jobs[0].state == PrintJobState.COMPLETED  # first run preserved
+        assert jobs[0].finished_at is not None
+        assert jobs[1].state == PrintJobState.PRINTING  # new run
+
+    def test_repeated_complete_tick_does_not_duplicate(self, hub):
+        """A second 'complete' tick after a print finishes is idempotent — it
+        must match the existing finished row, not create a duplicate."""
+        from app.db.models import PrintJob
+        from app.db.session import get_session_factory
+        from sqlmodel import select
+
+        async def _tick(state, stats):
+            await hub._sync_active_job(8, state, "once.gcode", 1.0, stats)
+
+        asyncio.run(_tick("printing", {"state": "printing"}))
+        asyncio.run(_tick("complete", {"state": "complete", "total_duration": 50}))
+        asyncio.run(_tick("complete", {"state": "complete", "total_duration": 50}))
+
+        with get_session_factory().session() as session:
+            jobs = session.exec(
+                select(PrintJob).where(PrintJob.remote_filename == "once.gcode")
+            ).all()
+        assert len(jobs) == 1
 
     def test_sync_no_matching_row_standby_ignored(self, hub):
         """Standby state with no matching row should NOT create a job."""

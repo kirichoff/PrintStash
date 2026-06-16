@@ -345,6 +345,19 @@ class PrinterHub:
                 .order_by(PrintJob.created_at.desc())  # type: ignore[attr-defined]
             ).first()
 
+            # A finished job for this filename is history, not the live print.
+            # When the printer starts a *new* run of the same file (a fresh
+            # printing/paused tick), don't revive the completed row — fall
+            # through to create a new one. Terminal idempotent ticks
+            # (complete/cancelled/error) still match it, so no duplicate
+            # finished rows are created.
+            if (
+                job is not None
+                and job.finished_at is not None
+                and ms_state in ("printing", "paused")
+            ):
+                job = None
+
             if job is None:
                 # No vault-created job — check if printer is actively printing.
                 if ms_state in (
