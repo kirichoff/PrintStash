@@ -1,10 +1,10 @@
 # Default deployment: pulls the prebuilt images published to GHCR on each
 # release. Just `docker compose up -d` — no build step required. Pin a specific
-# version with PRINTSTASH_VERSION in .env (defaults to the current release).
+# version with PRINTSTASH_VERSION in .env (defaults to latest).
 # Contributors who want to build from source can use docker-compose.build.yml.
 services:
   frontend:
-    image: ghcr.io/xiao-villamor/printstash-frontend:${PRINTSTASH_VERSION:-0.6.2}
+    image: ghcr.io/xiao-villamor/printstash-frontend:${PRINTSTASH_VERSION:-latest}
     container_name: printstash-frontend
     restart: unless-stopped
     ports:
@@ -20,7 +20,7 @@ services:
         condition: service_healthy
 
   api:
-    image: ghcr.io/xiao-villamor/printstash-api:${PRINTSTASH_VERSION:-0.6.2}
+    image: ghcr.io/xiao-villamor/printstash-api:${PRINTSTASH_VERSION:-latest}
     container_name: printstash-api
     restart: unless-stopped
     ports:

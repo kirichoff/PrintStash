@@ -13,9 +13,9 @@ local disk with sensible defaults; the one value you *must* change is the JWT
 secret.
 
 One non-`VAULT_` variable is read by Docker Compose itself: `PRINTSTASH_VERSION`
-selects the image tag the default `docker-compose.yml` pulls (e.g. `0.6.2`). Pin
-it for reproducible deploys and bump it to upgrade; if unset it defaults to the
-release the compose file shipped with.
+selects the image tag the default `docker-compose.yml` pulls (e.g. `0.6.4`). Pin
+it for reproducible deploys and bump it to upgrade; if unset it defaults to
+`latest`.
 
 :::caution
 Change `VAULT_JWT_SECRET` before PrintStash is reachable from anything but

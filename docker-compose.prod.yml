@@ -11,7 +11,7 @@
 #   docker compose -f docker-compose.prod.yml up -d
 #
 # Set at minimum a strong VAULT_JWT_SECRET in .env (e.g. `openssl rand -hex 32`).
-# Pin the release with PRINTSTASH_VERSION (defaults to the current release).
+# Pin the release with PRINTSTASH_VERSION (defaults to latest).
 
 x-logging: &default-logging
   driver: json-file
@@ -21,7 +21,7 @@ x-logging: &default-logging
 
 services:
   frontend:
-    image: ghcr.io/xiao-villamor/printstash-frontend:${PRINTSTASH_VERSION:-0.6.2}
+    image: ghcr.io/xiao-villamor/printstash-frontend:${PRINTSTASH_VERSION:-latest}
     container_name: printstash-frontend
     restart: unless-stopped
     logging: *default-logging
@@ -39,7 +39,7 @@ services:
         condition: service_healthy
 
   api:
-    image: ghcr.io/xiao-villamor/printstash-api:${PRINTSTASH_VERSION:-0.6.2}
+    image: ghcr.io/xiao-villamor/printstash-api:${PRINTSTASH_VERSION:-latest}
     container_name: printstash-api
     restart: unless-stopped
     logging: *default-logging
