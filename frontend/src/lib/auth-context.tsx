@@ -39,12 +39,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let alive = true;
+    const off = onAuthChange(() => {
+      setUser(getUser());
+    });
+
     if (!isLoggedIn()) {
       setLoading(false);
-      return;
+      return off;
     }
+
     getMe()
       .then((u) => {
+        if (!alive) return;
         const stored: StoredUser = {
           id: u.id,
           username: u.username,
@@ -55,13 +62,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(stored);
       })
       .catch(() => {
+        if (!alive) return;
         clearLogin();
       })
-      .finally(() => setLoading(false));
-    const off = onAuthChange(() => {
-      setUser(getUser());
-    });
-    return off;
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+
+    return () => {
+      alive = false;
+      off();
+    };
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
