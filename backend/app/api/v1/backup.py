@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 
 from app.core.logging import get_logger
 from app.core.security import require_superuser
@@ -80,6 +81,26 @@ def get_backup(backup_id: str) -> dict:
         "app_version": meta.app_version,
         "location": meta.location,
     }
+
+
+@router.get(
+    "/{backup_id}/download",
+    dependencies=[Depends(require_superuser)],
+    summary="Download a backup archive",
+)
+def download_backup(backup_id: str) -> FileResponse:
+    try:
+        archive_path = backup.get_backup_archive_path(backup_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="backup_not_found")
+    except Exception as exc:
+        logger.exception("backup %s download failed", backup_id)
+        raise HTTPException(status_code=500, detail=str(exc))
+    return FileResponse(
+        archive_path,
+        media_type="application/gzip",
+        filename=archive_path.name,
+    )
 
 
 @router.delete(

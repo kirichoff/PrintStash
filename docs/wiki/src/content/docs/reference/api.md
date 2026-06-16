@@ -69,6 +69,7 @@ password, which is exactly why the Orca hook uses one.
 | `GET`  | `/api/v1/filament-profiles`         | List filament presets.                   |
 | `GET`  | `/api/v1/printer-profiles`          | List printer presets.                    |
 | `POST` | `/api/v1/backups`                   | Create a full backup (admin).            |
+| `GET`  | `/api/v1/backups/{id}/download`     | Download a backup archive (admin).       |
 | `GET`  | `/api/v1/admin/users`               | User administration (superuser).         |
 
 ## Health check

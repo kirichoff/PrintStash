@@ -40,8 +40,10 @@ import {
   createBackup,
   deactivateAdminUser,
   deleteCollectionPermission,
+  downloadBackup,
   downloadModelExport,
   getVaultConfig,
+  listBackups,
   listCollectionPermissions,
   listCollections,
   listApiKeys,
@@ -50,12 +52,14 @@ import {
   purgeExpiredTrash,
   purgeModel,
   resetAdminUserPassword,
+  restoreBackup,
   restoreModel,
   revokeApiKey,
   updateCollectionPermission,
   updateAdminUser,
   updateVaultConfig,
 } from "@/lib/api";
+import type { BackupMeta } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useVaultStats } from "@/lib/queries";
 import {
@@ -219,6 +223,11 @@ export function SettingsPanel() {
   const [currencyBusy, setCurrencyBusy] = useState(false);
   const [purgeTarget, setPurgeTarget] = useState<number | null>(null);
   const [backingUp, setBackingUp] = useState(false);
+  const [backups, setBackups] = useState<BackupMeta[]>([]);
+  const [backupsLoading, setBackupsLoading] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<BackupMeta | null>(null);
+  const [restoringBackup, setRestoringBackup] = useState(false);
+  const [downloadingBackup, setDownloadingBackup] = useState<string | null>(null);
   const [metadataPrefs, setMetadataPrefs] = useState<MetadataPreferences>(
     DEFAULT_METADATA_PREFERENCES,
   );
@@ -293,6 +302,27 @@ export function SettingsPanel() {
     }
   }, [activeSection, loadTrash]);
 
+  const loadBackups = useCallback(async () => {
+    if (!user?.is_superuser) {
+      setBackups([]);
+      return;
+    }
+    setBackupsLoading(true);
+    try {
+      setBackups(await listBackups());
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBackupsLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (activeSection === "storage") {
+      loadBackups();
+    }
+  }, [activeSection, loadBackups]);
+
   useEffect(() => {
     if (activeSection !== "design" || !user) return;
     let cancelled = false;
@@ -345,11 +375,43 @@ export function SettingsPanel() {
     try {
       const meta = await createBackup();
       const mb = (meta.size_bytes / 1024 / 1024).toFixed(1);
+      setBackups((current) => [
+        meta,
+        ...current.filter((item) => item.backup_id !== meta.backup_id),
+      ]);
       toast.success(`Backup created — ${meta.file_count} files, ${mb} MB`);
     } catch (e) {
       toast.error(e);
     } finally {
       setBackingUp(false);
+    }
+  }
+
+  async function confirmRestoreBackup() {
+    if (!restoreTarget) return;
+    const target = restoreTarget;
+    setRestoringBackup(true);
+    try {
+      const result = await restoreBackup(target.backup_id);
+      toast.success(`Backup restored — ${result.restored_files} files`);
+      setRestoreTarget(null);
+      window.setTimeout(() => window.location.reload(), 800);
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setRestoringBackup(false);
+    }
+  }
+
+  async function handleDownloadBackup(backupId: string) {
+    setDownloadingBackup(backupId);
+    try {
+      await downloadBackup(backupId);
+      toast.success("Backup download started.");
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setDownloadingBackup(null);
     }
   }
 
@@ -654,6 +716,15 @@ export function SettingsPanel() {
         title="Permanently delete?"
         description="This will delete the model and all its files immediately. This cannot be undone."
         confirmLabel="Delete forever"
+      />
+      <ConfirmModal
+        open={restoreTarget !== null}
+        onClose={() => setRestoreTarget(null)}
+        onConfirm={confirmRestoreBackup}
+        busy={restoringBackup}
+        title="Restore backup?"
+        description="This replaces the current database and stored files with the selected backup."
+        confirmLabel="Restore"
       />
 
       <div>
@@ -1139,7 +1210,7 @@ export function SettingsPanel() {
               <button
                 type="button"
                 onClick={handleBackupNow}
-                disabled={backingUp}
+                disabled={!user?.is_superuser || backingUp}
                 className={BTN_PRIMARY}
               >
                 {backingUp ? (
@@ -1150,6 +1221,97 @@ export function SettingsPanel() {
               </button>
             }
           />
+          <SettingsCard
+            icon={RotateCcw}
+            title="Restore backup"
+            description="Recover the vault database and stored files from a previous backup."
+            action={
+              <button
+                type="button"
+                onClick={loadBackups}
+                disabled={!user?.is_superuser || backupsLoading}
+                className={BTN_ICON}
+                title="Refresh backups"
+              >
+                <RefreshCw className={`h-4 w-4 ${backupsLoading ? "animate-spin" : ""}`} />
+              </button>
+            }
+          >
+            <div className="divide-y divide-border">
+              {!user?.is_superuser ? (
+                <p className="p-4 sm:p-5 text-sm text-muted-foreground">
+                  Superuser access is required.
+                </p>
+              ) : backupsLoading ? (
+                <p className="p-4 sm:p-5 text-sm text-muted-foreground">
+                  Loading...
+                </p>
+              ) : backups.length === 0 ? (
+                <p className="p-4 sm:p-5 text-sm text-muted-foreground">
+                  No backups found.
+                </p>
+              ) : (
+                backups.map((backup) => (
+                  <div
+                    key={backup.backup_id}
+                    className="grid gap-3 p-4 sm:p-5 lg:grid-cols-[1fr_auto] lg:items-center"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {formatDate(backup.created_at)}
+                        </p>
+                        <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border border-border text-muted-foreground">
+                          {backup.location}
+                        </span>
+                        <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border border-border text-muted-foreground">
+                          v{backup.app_version}
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                        {backup.backup_id}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {backup.file_count} files · {formatBytes(backup.size_bytes)} · {backup.storage_backend}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 lg:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadBackup(backup.backup_id)}
+                        disabled={
+                          downloadingBackup !== null ||
+                          restoringBackup ||
+                          backingUp
+                        }
+                        className={BTN_SECONDARY}
+                      >
+                        {downloadingBackup === backup.backup_id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5" />
+                        )}
+                        Download
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRestoreTarget(backup)}
+                        disabled={
+                          downloadingBackup !== null ||
+                          restoringBackup ||
+                          backingUp
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors text-xs font-medium uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Restore
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </SettingsCard>
         </div>
       )}
 

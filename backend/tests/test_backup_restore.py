@@ -18,13 +18,15 @@ from pathlib import Path
 from typing import Iterator
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import app.services.backup as backup
 import app.services.storage_backend as storage_backend
 from app.core.config import _overlay
-from app.db.models import File, FileType, Model
+from app.db.models import File, FileType, Model, User
 from app.db.session import SQLiteSessionFactory, override_session_factory
+from app.services.auth import create_access_token, hash_password
 from app.services.storage_backend import get_backend
 
 
@@ -128,6 +130,21 @@ def _read_model_names(env: BackupEnv) -> list[str]:
         eng.dispose()
 
 
+def _auth_headers(env: BackupEnv) -> dict[str, str]:
+    with env.new_session() as session:
+        user = User(
+            username="backup-admin",
+            hashed_password=hash_password("Password123"),
+            is_active=True,
+            is_superuser=True,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        token = create_access_token(user.id, user.username, scope="admin")
+    return {"Authorization": f"Bearer {token}"}
+
+
 # ---------------------------------------------------------------------------
 # Create
 # ---------------------------------------------------------------------------
@@ -189,6 +206,20 @@ def test_backup_appears_in_list_and_get(backup_env: BackupEnv):
     assert fetched.file_count == 1
 
 
+def test_download_backup_archive_endpoint(client: TestClient, backup_env: BackupEnv):
+    _seed_model_with_blob(backup_env, name="Widget", content=b"x")
+    meta = backup.create_backup()
+
+    resp = client.get(
+        f"/api/v1/backups/{meta.id}/download",
+        headers=_auth_headers(backup_env),
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.content.startswith(b"\x1f\x8b")
+    assert Path(meta.path).name in resp.headers["content-disposition"]
+
+
 # ---------------------------------------------------------------------------
 # Restore round trip
 # ---------------------------------------------------------------------------
@@ -226,6 +257,42 @@ def test_restore_recovers_blob_bytes(backup_env: BackupEnv):
     assert result["restored_files"] == 1
     # The blob the database references must be back, byte-for-byte.
     assert Path(key).exists(), "restored blob is missing at its storage key"
+    assert Path(key).read_bytes() == content
+
+
+def test_download_then_restore_endpoint_round_trip(
+    client: TestClient, backup_env: BackupEnv
+):
+    content = b"solid endpoint widget\nendsolid\n"
+    _model_id, key = _seed_model_with_blob(
+        backup_env, name="Endpoint Widget", content=content
+    )
+    headers = _auth_headers(backup_env)
+
+    create = client.post("/api/v1/backups", headers=headers)
+    assert create.status_code == 202, create.text
+    backup_id = create.json()["backup_id"]
+
+    download = client.get(f"/api/v1/backups/{backup_id}/download", headers=headers)
+    assert download.status_code == 200, download.text
+    assert download.content.startswith(b"\x1f\x8b")
+    assert f"{backup_id}.tar.gz" in download.headers["content-disposition"]
+
+    # Disaster: remove both catalog row and stored bytes, then restore via API.
+    with backup_env.new_session() as session:
+        for m in session.exec(select(Model).where(Model.name == "Endpoint Widget")):
+            session.delete(m)
+        session.commit()
+    Path(key).unlink()
+
+    assert "Endpoint Widget" not in _read_model_names(backup_env)
+    assert not Path(key).exists()
+
+    restore = client.post(f"/api/v1/backups/{backup_id}/restore", headers=headers)
+    assert restore.status_code == 200, restore.text
+    assert restore.json() == {"backup_id": backup_id, "restored_files": 1}
+
+    assert "Endpoint Widget" in _read_model_names(backup_env)
     assert Path(key).read_bytes() == content
 
 
