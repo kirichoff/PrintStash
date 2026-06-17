@@ -28,70 +28,99 @@ Developed features in the current app:
 - G-code parser coverage for OrcaSlicer, PrusaSlicer, Bambu Studio, Cura, and Klipper/Orca samples
 - Content-hash deduplication, logical model grouping, version history, thumbnails, cached STL conversion for 3MF/OBJ preview, and in-browser mesh/G-code previews
 - Categories, tags, search, model editing, printer-presence filters, model-to-printer file badges, collection counts, collection moves, and drag-and-drop library organization
-- G-code revision upload, labels, outcome status, notes, recommended marker, and metadata comparison
+- G-code revision upload, per-revision labels, outcome status, notes, recommended marker, and side-by-side metadata comparison
+- Filament and printer profiles (presets) for cost tracking and slicer defaults, managed from a dedicated Profiles page
+- "Open in slicer" deep-links for OrcaSlicer, Bambu Studio, and PrusaSlicer straight from a model file
 - Model print history with automatic Moonraker import for matching filenames and manual print-job logging
 - First-run setup wizard, JWT auth for UI/scripts, refresh/logout flow, per-user API keys, role-aware admin access, and audit logs
 - Alembic migrations, optional Postgres support, SQLite-to-Postgres migration script, and documented upgrade flow
 - Local and optional S3/R2 storage, multipart S3 uploads, pre-signed downloads, cached mesh conversion, lifecycle policy configuration, and backup/restore endpoints
 - Vault stats, storage usage reporting, configurable card metrics, trash retention controls, restore/purge actions, and thumbnail rebuild jobs
-- Operational health output for database, storage, backup, and printer provider readiness
+- Prometheus `/metrics` endpoint (request latency, ingestion counts, live printer status) and operational health output for database, storage, backup, background jobs, external-library scans, and printer provider readiness
 - Moonraker/Klipper provider with live status, upload/send, optional start, pause/resume/cancel, printer file inventory sync, remote-file start, and job history
 - Bambu LAN beta provider with local status plus pause/resume/cancel controls; upload/send, remote file inventory, and remote-file start remain unsupported
-- Responsive Vite/React UI for the library, model detail, upload, taxonomy management, settings, setup, printer list, and printer detail workflows
+- Responsive Vite/React UI with a light/dark theme toggle (system-preference aware), mobile bottom navigation, slide-out nav/filter drawers, and a floating action button across the library, model detail, upload, taxonomy, profiles, settings, setup, and printer workflows
 
-## Now: Release Validation and Feedback
+The releases below are intentionally small: each is meant to be a single,
+shippable step rather than a multi-month epic. Versions are indicative, not
+promises, and the order can shift with real-world feedback.
 
-Goal: keep the initial self-hosted release easy to install, easy to upgrade, and
-safe enough for real home use.
+## 0.6.x — Release Validation and Feedback (in progress)
+
+Goal: keep the self-hosted release easy to install, easy to upgrade, and safe
+enough for real home use.
 
 - Publish and validate tagged release notes and Docker image guidance
 - Collect real-world feedback from Docker/NAS/homelab installs
 - Exercise backup/restore, upgrade, and provider diagnostics on fresh installs
 - Add parser fixtures from more slicers and printer profiles as users share samples
 - Improve first-run setup and error messages where new users get stuck
-- Keep install/upgrade notes repeatable across tagged releases
+- Scheduled release backup/restore smoke checks
+- Upgrade notes for SQLite and optional Postgres installs
 
-## R1: Provider Maturity
+## 0.7 — Notifications and Event Hooks
+
+Goal: tell people when something happens without making them watch a dashboard.
+
+- Generic outbound webhooks for print-completed, print-failed, and printer-offline events
+- First-party targets: Discord, Telegram, and ntfy
+- Per-event and per-printer notification toggles
+- Delivery retry and a visible "last notification" status
+
+## 0.8 — Filament and Spool Inventory
+
+Goal: track what filament you actually have and what each print consumes.
+
+- Spool inventory with material, color, weight, and cost
+- Auto-decrement spool weight from measured prints (reuses Moonraker filament data)
+- Low-stock indicators and per-spool usage history
+- Optional Spoolman integration for people who already run it
+
+## 0.9 — Provider Maturity (Bambu + reliability)
 
 Goal: make printer integrations predictable across normal home setups.
 
 - Bambu LAN upload/send parity, with provider-safe guardrails
-- Broader hardware validation for provider-level diagnostics
 - More disconnect/reconnect coverage for mixed fleets
 - Clear UI states for unsupported printer actions
-- Hardware notes for tested Moonraker and Bambu setups
+- Broader hardware validation and notes for tested Moonraker and Bambu setups
 
-## R2: Operations Hardening
+## 0.10 — More Providers
 
-Goal: make backup, restore, upgrades, and monitoring less scary.
+Goal: cover the other common homelab print stacks.
 
-- Scheduled release backup/restore smoke checks
-- Better health output for database, storage, S3, and printer providers as installs get more varied (shipped in 0.6.6: health now reports background-job and external-library scan status)
-- Structured metrics for request latency, ingestion, and printer status (shipped in 0.6.6: Prometheus `/metrics` endpoint)
-- Background job cleanup that is easier to reason about across restarts (shipped in 0.6.6: orphaned NAS scans reset at startup)
-- Upgrade notes for SQLite and optional Postgres installs
+- OctoPrint provider (status, send, basic controls)
+- PrusaLink / Prusa Connect provider
+- Shared provider capability matrix so the UI shows exactly what each one supports
 
-## R3: Library Workflow Polish
+## 0.11 — Library Workflow Polish
 
 Goal: make the vault better as a daily-use 3D print library.
 
 - Better bulk editing for tags/categories and revision labels
-- Saved filters or views for common searches
+- Saved filters or views for common searches, plus favorites/starred models
 - Richer model/version comparison beyond the current G-code metadata compare
 - More useful model detail pages for repeated reprints, including deeper print-history analytics
 - Import/export paths for people migrating from folders or other tools
 
-## R4: Fleet and Scheduling
+## 0.12 — Fleet and Scheduling
 
 Goal: help small printer farms without turning PrintStash into a full slicer or
 queue manager.
 
-- Optional routing strategies: manual, default printer, least busy
 - Queue visibility with a provider-normalized job model
-- Printer maintenance windows and soft-drain mode
-- Alert hooks for offline/error/completed state transitions
+- Optional routing strategies: manual, default printer, least busy
+- Printer maintenance windows, soft-drain mode, and a simple maintenance log
 
-## R5: Optional Cloud-Ready Adapters
+## 0.13 — Auth and Platform
+
+Goal: fit cleanly into existing homelab infrastructure.
+
+- OIDC / SSO login (Authentik, Authelia, and similar)
+- Installable PWA / improved mobile experience
+- Localization (i18n) scaffolding
+
+## Later — Optional Cloud-Ready Adapters
 
 Goal: support larger installs while keeping the default path self-hosted and
 local-first.
