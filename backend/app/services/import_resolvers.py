@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -60,6 +61,25 @@ _THINGIVERSE_HOSTS = {"thingiverse.com", "www.thingiverse.com"}
 _PRINTABLES_GRAPHQL = "https://api.printables.com/graphql/"
 
 
+@dataclass
+class ModelFile:
+    """One selectable downloadable file on a model page."""
+
+    file_id: str
+    name: str
+    file_type: str  # Printables DownloadFileTypeEnum: stl / gcode / sla / other
+    size: Optional[int] = None
+
+
+@dataclass
+class CollectionMember:
+    """One model belonging to a collection (its page URL + display title)."""
+
+    page_url: str
+    title: str
+    source_id: str
+
+
 # --------------------------------------------------------------------------- #
 # Host classification + id extraction
 # --------------------------------------------------------------------------- #
@@ -81,6 +101,25 @@ def _thingiverse_id(url: str) -> Optional[str]:
     path = urlsplit(url).path
     m = re.search(r"thing:(\d+)", path) or re.search(r"/things/(\d+)", path)
     return m.group(1) if m else None
+
+
+def _collection_id(url: str) -> Optional[str]:
+    m = re.search(r"/collections/(\d+)", urlsplit(url).path)
+    return m.group(1) if m else None
+
+
+def classify_collection(url: str) -> Optional[str]:
+    """Return the resolver name for a known *collection* URL, else ``None``.
+
+    Printables (``/@user/collections/<id>``) and MakerWorld
+    (``/collections/<id>-slug``) both carry the id under ``/collections/<id>``.
+    """
+    host = _host(url)
+    if host in _PRINTABLES_HOSTS and _collection_id(url):
+        return "printables"
+    if (host == "makerworld.com" or host.endswith(".makerworld.com")) and _collection_id(url):
+        return "makerworld"
+    return None
 
 
 def classify_page(url: str) -> Optional[str]:
@@ -258,6 +297,151 @@ async def _resolve_printables(url: str) -> Optional[str]:
     return None
 
 
+# Printables exposes downloadable files in per-type buckets on the `print` type;
+# each bucket maps to a value of DownloadFileTypeEnum used by the link mutation.
+_PRINTABLES_FILES_QUERY = """
+query ($id: ID!) {
+  print(id: $id) {
+    id
+    name
+    stls { id name fileSize }
+    gcodes { id name fileSize }
+    slas { id name fileSize }
+    otherFiles { id name fileSize }
+  }
+}
+"""
+
+_PRINTABLES_FILE_CATEGORIES = (
+    ("stls", "stl"),
+    ("gcodes", "gcode"),
+    ("slas", "sla"),
+    ("otherFiles", "other"),
+)
+
+
+def _printables_files_from_print(print_obj: dict) -> list[ModelFile]:
+    files: list[ModelFile] = []
+    for field, file_type in _PRINTABLES_FILE_CATEGORIES:
+        for entry in print_obj.get(field) or []:
+            if isinstance(entry, dict) and entry.get("id"):
+                size = entry.get("fileSize")
+                files.append(
+                    ModelFile(
+                        file_id=str(entry["id"]),
+                        name=str(entry.get("name") or entry["id"]),
+                        file_type=file_type,
+                        size=size if isinstance(size, int) else None,
+                    )
+                )
+    return files
+
+
+async def _list_printables_files(url: str) -> Optional[tuple[str, list[ModelFile]]]:
+    print_id = _printables_id(url)
+    if not print_id:
+        return None
+    meta = await _printables_graphql(_PRINTABLES_FILES_QUERY, {"id": print_id}, url)
+    print_obj = (meta or {}).get("data", {}).get("print")
+    if not isinstance(print_obj, dict):
+        return None
+    title = str(print_obj.get("name") or print_id)
+    return title, _printables_files_from_print(print_obj)
+
+
+def _printables_links_from_output(payload: Any) -> list[str]:
+    """All per-file links from a getDownloadLink payload (else the single link)."""
+    result = (payload or {}).get("data", {}).get("getDownloadLink") or {}
+    output = result.get("output") or {}
+    links = [
+        entry["link"]
+        for entry in output.get("files") or []
+        if isinstance(entry, dict) and isinstance(entry.get("link"), str)
+    ]
+    if links:
+        return links
+    if isinstance(output.get("link"), str):
+        return [output["link"]]
+    return []
+
+
+async def _printables_download_links(url: str, files: list[ModelFile]) -> list[str]:
+    """Resolve direct download links for a chosen subset of a model's files."""
+    print_id = _printables_id(url)
+    if not print_id or not files:
+        return []
+    grouped: dict[str, list[str]] = {}
+    for f in files:
+        grouped.setdefault(f.file_type, []).append(f.file_id)
+    files_arg = [{"fileType": file_type, "ids": ids} for file_type, ids in grouped.items()]
+    payload = await _printables_graphql(
+        _PRINTABLES_LINK_MUTATION,
+        {"printId": print_id, "source": "model_detail", "files": files_arg},
+        url,
+    )
+    return _printables_links_from_output(payload)
+
+
+# Collection name + paginated member list. `moreCollectionModels` requires an
+# explicit ordering (its server-side default errors), and returns items whose
+# real print lives under `item.print`.
+_PRINTABLES_COLLECTION_QUERY = """
+query ($id: ID!) { collection(id: $id) { id name } }
+"""
+
+_PRINTABLES_COLLECTION_MODELS_QUERY = """
+query ($collectionId: ID!, $limit: Int, $cursor: String, $ordering: CollectionPrintsOrderingEnum) {
+  moreCollectionModels(collectionId: $collectionId, limit: $limit, cursor: $cursor, ordering: $ordering) {
+    cursor
+    items { id print { id name } }
+  }
+}
+"""
+
+
+async def _resolve_printables_collection(url: str) -> Optional[tuple[str, list[CollectionMember]]]:
+    collection_id = _collection_id(url)
+    if not collection_id:
+        return None
+    meta = await _printables_graphql(_PRINTABLES_COLLECTION_QUERY, {"id": collection_id}, url)
+    collection = (meta or {}).get("data", {}).get("collection") or {}
+    title = str(collection.get("name") or f"Collection {collection_id}")
+
+    members: list[CollectionMember] = []
+    seen: set[str] = set()
+    cursor: Optional[str] = None
+    for _ in range(50):  # safety cap: 50 pages * 50 = 2500 members
+        data = await _printables_graphql(
+            _PRINTABLES_COLLECTION_MODELS_QUERY,
+            {
+                "collectionId": collection_id,
+                "limit": 50,
+                "cursor": cursor,
+                "ordering": "added_to_collection",
+            },
+            url,
+        )
+        block = (data or {}).get("data", {}).get("moreCollectionModels") or {}
+        items = block.get("items") or []
+        for item in items:
+            print_obj = (item or {}).get("print") or {}
+            print_id = print_obj.get("id") or (item or {}).get("id")
+            if not print_id or str(print_id) in seen:
+                continue
+            seen.add(str(print_id))
+            members.append(
+                CollectionMember(
+                    page_url=f"https://www.printables.com/model/{print_id}",
+                    title=str(print_obj.get("name") or print_id),
+                    source_id=str(print_id),
+                )
+            )
+        cursor = block.get("cursor")
+        if not cursor or not items:
+            break
+    return title, members
+
+
 # --------------------------------------------------------------------------- #
 # MakerWorld (Next.js page → instance/model download API)
 # --------------------------------------------------------------------------- #
@@ -367,6 +551,81 @@ async def _resolve_makerworld(url: str, cookie: Optional[str]) -> Optional[str]:
     return None
 
 
+def _makerworld_collection_members(next_data: Any) -> list[CollectionMember]:
+    """Best-effort: pull member models out of a collection page's hydration JSON.
+
+    MakerWorld is Cloudflare-gated and ships no public collection API, so we walk
+    ``__NEXT_DATA__`` for lists of design-like objects (an id + a title). The exact
+    shape is not contract-guaranteed; this degrades to an empty list if the page
+    cannot be parsed (the caller then reports ``*_collection_resolve_failed``).
+    """
+    try:
+        props = next_data["props"]["pageProps"]
+    except (KeyError, TypeError):
+        return []
+
+    members: list[CollectionMember] = []
+    seen: set[str] = set()
+
+    def consider(entry: Any) -> None:
+        if not isinstance(entry, dict):
+            return
+        design = entry.get("design") if isinstance(entry.get("design"), dict) else entry
+        design_id = design.get("id") or design.get("designId") or entry.get("designId")
+        title = design.get("title") or design.get("designTitle") or design.get("name")
+        if design_id is None or str(design_id) in seen:
+            return
+        seen.add(str(design_id))
+        members.append(
+            CollectionMember(
+                page_url=f"https://makerworld.com/en/models/{design_id}",
+                title=str(title or design_id),
+                source_id=str(design_id),
+            )
+        )
+
+    _MEMBER_LIST_HINTS = ("design", "model", "content", "hit", "item", "list", "record")
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(value, list) and any(h in key.lower() for h in _MEMBER_LIST_HINTS):
+                    for entry in value:
+                        consider(entry)
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(props)
+    return members
+
+
+async def _resolve_makerworld_collection(
+    url: str, cookie: Optional[str]
+) -> Optional[tuple[str, list[CollectionMember]]]:
+    collection_id = _collection_id(url)
+    if not collection_id:
+        return None
+    html = await _makerworld_fetch_page(url, cookie)
+    if not html:
+        return None
+    next_data = _extract_next_data(html)
+    if next_data is None:
+        return None
+
+    title = f"Collection {collection_id}"
+    try:
+        collection = next_data["props"]["pageProps"].get("collection") or {}
+        if isinstance(collection, dict) and collection.get("name"):
+            title = str(collection["name"])
+    except (KeyError, TypeError):
+        pass
+
+    members = _makerworld_collection_members(next_data)
+    return (title, members) if members else None
+
+
 # --------------------------------------------------------------------------- #
 # Thingiverse (stable public per-thing zip endpoint)
 # --------------------------------------------------------------------------- #
@@ -409,4 +668,61 @@ async def resolve_page_url(
 
     if not resolved:
         raise ImportError_(f"{kind}_resolve_failed")
+    return resolved
+
+
+async def list_model_files(url: str) -> Optional[tuple[str, list[ModelFile]]]:
+    """List a model page's selectable files without downloading anything.
+
+    Printables-only (its API enumerates files cheaply). Returns ``(title, files)``
+    or ``None`` for any other host, so the caller falls back to resolve+download.
+    """
+    if classify_page(url) != "printables":
+        return None
+    try:
+        return await _list_printables_files(url)
+    except ImportError_:
+        raise
+    except Exception as exc:  # noqa: BLE001 — network/parse boundary
+        logger.warning("file listing errored for %s: %s", url, exc)
+        raise ImportError_("printables_resolve_failed") from exc
+
+
+async def resolve_selected_download(url: str, files: list[ModelFile]) -> list[str]:
+    """Resolve direct download links for a user-chosen subset of a page's files."""
+    if classify_page(url) != "printables":
+        raise ImportError_("file_selection_unsupported")
+    try:
+        links = await _printables_download_links(url, files)
+    except ImportError_:
+        raise
+    except Exception as exc:  # noqa: BLE001 — network/parse boundary
+        logger.warning("selected download errored for %s: %s", url, exc)
+        raise ImportError_("printables_resolve_failed") from exc
+    if not links:
+        raise ImportError_("printables_resolve_failed")
+    return links
+
+
+async def resolve_collection_url(
+    url: str, *, makerworld_cookie: Optional[str] = None
+) -> Optional[tuple[str, list[CollectionMember]]]:
+    """Resolve a collection URL to ``(title, members)``; ``None`` if not a collection."""
+    kind = classify_collection(url)
+    if kind is None:
+        return None
+
+    try:
+        if kind == "printables":
+            resolved = await _resolve_printables_collection(url)
+        else:
+            resolved = await _resolve_makerworld_collection(url, makerworld_cookie)
+    except ImportError_:
+        raise
+    except Exception as exc:  # noqa: BLE001 — network/parse boundary
+        logger.warning("collection resolution errored for %s: %s", url, exc)
+        raise ImportError_(f"{kind}_collection_resolve_failed") from exc
+
+    if not resolved or not resolved[1]:
+        raise ImportError_(f"{kind}_collection_resolve_failed")
     return resolved

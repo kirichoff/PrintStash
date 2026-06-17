@@ -199,3 +199,217 @@ async def test_resolve_makerworld_falls_back_to_model_api() -> None:
     ):
         out = await r.resolve_page_url("https://makerworld.com/en/models/1123776-x")
     assert out == "https://cdn.makerworld.test/bundle.zip"
+
+
+# --------------------------------------------------------------------------- #
+# Collection classification + id extraction
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("https://www.printables.com/@JonasHansen_1131321/collections/3525050", "printables"),
+        ("https://printables.com/collections/3525050", "printables"),
+        ("https://makerworld.com/es/collections/5600774-h2d-sample-projects", "makerworld"),
+        ("https://makerworld.com/en/collections/5600774", "makerworld"),
+        # A model page is not a collection.
+        ("https://www.printables.com/model/1660232-springy-cat", None),
+        ("https://example.com/collections/5", None),
+        # Look-alike host must not classify as MakerWorld.
+        ("https://evilmakerworld.com/collections/5600774", None),
+    ],
+)
+def test_classify_collection(url: str, expected) -> None:
+    assert r.classify_collection(url) == expected
+
+
+def test_collection_id_extractor() -> None:
+    assert r._collection_id("https://printables.com/@u/collections/3525050") == "3525050"
+    assert r._collection_id("https://makerworld.com/es/collections/5600774-slug") == "5600774"
+    assert r._collection_id("https://printables.com/model/1660232") is None
+
+
+# --------------------------------------------------------------------------- #
+# Printables per-file listing + selective download (real-shaped payloads)
+# --------------------------------------------------------------------------- #
+# Trimmed real `print(id: 1660232)` response (Springy Cat) — 11 stls across buckets.
+_SPRINGY_CAT_META = {
+    "data": {
+        "print": {
+            "id": "1660232",
+            "name": "Springy Cat",
+            "stls": [
+                {"id": "7098445", "name": "SpringyCat.stl", "fileSize": 1233984},
+                {"id": "6978173", "name": "SpringyCat_Spring-joiner.stl", "fileSize": 1684},
+            ],
+            "gcodes": [],
+            "slas": [],
+            "otherFiles": [{"id": "9001", "name": "readme.pdf", "fileSize": 4242}],
+        }
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_list_model_files_lists_printables_files() -> None:
+    with patch.object(r, "_printables_graphql", AsyncMock(return_value=_SPRINGY_CAT_META)):
+        result = await r.list_model_files("https://www.printables.com/model/1660232-springy-cat")
+    assert result is not None
+    title, files = result
+    assert title == "Springy Cat"
+    assert [(f.file_id, f.file_type, f.name) for f in files] == [
+        ("7098445", "stl", "SpringyCat.stl"),
+        ("6978173", "stl", "SpringyCat_Spring-joiner.stl"),
+        ("9001", "other", "readme.pdf"),
+    ]
+    assert files[0].size == 1233984
+
+
+@pytest.mark.asyncio
+async def test_list_model_files_returns_none_for_non_printables() -> None:
+    # Per-file selection is Printables-only; other hosts fall back to resolve.
+    assert await r.list_model_files("https://makerworld.com/en/models/1") is None
+    assert await r.list_model_files("https://example.com/x.zip") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_selected_download_returns_per_file_links() -> None:
+    chosen = [
+        r.ModelFile(file_id="7098445", name="SpringyCat.stl", file_type="stl"),
+        r.ModelFile(file_id="6978173", name="joiner.stl", file_type="stl"),
+    ]
+    payload = {
+        "data": {
+            "getDownloadLink": {
+                "ok": True,
+                "output": {
+                    "link": "https://files.printables.test/joiner.stl",
+                    "files": [
+                        {"link": "https://files.printables.test/springycat.stl"},
+                        {"link": "https://files.printables.test/joiner.stl"},
+                    ],
+                },
+            }
+        }
+    }
+    graphql = AsyncMock(return_value=payload)
+    with patch.object(r, "_printables_graphql", graphql):
+        links = await r.resolve_selected_download(
+            "https://www.printables.com/model/1660232-springy-cat", chosen
+        )
+    assert links == [
+        "https://files.printables.test/springycat.stl",
+        "https://files.printables.test/joiner.stl",
+    ]
+    # The mutation must request exactly the chosen ids, grouped by file type.
+    files_arg = graphql.call_args.args[1]["files"]
+    assert files_arg == [{"fileType": "stl", "ids": ["7098445", "6978173"]}]
+
+
+@pytest.mark.asyncio
+async def test_resolve_selected_download_unsupported_host_raises() -> None:
+    with pytest.raises(ImportError_) as exc:
+        await r.resolve_selected_download("https://makerworld.com/en/models/1", [])
+    assert str(exc.value) == "file_selection_unsupported"
+
+
+# --------------------------------------------------------------------------- #
+# Collection resolution
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_resolve_printables_collection_lists_members() -> None:
+    name_payload = {"data": {"collection": {"id": "3525050", "name": "cool"}}}
+    members_payload = {
+        "data": {
+            "moreCollectionModels": {
+                "cursor": "",
+                "items": [
+                    {"id": "1660232", "print": {"id": "1660232", "name": "Springy Cat"}},
+                    {"id": "1725199", "print": {"id": "1725199", "name": "Pallet Coaster"}},
+                ],
+            }
+        }
+    }
+    graphql = AsyncMock(side_effect=[name_payload, members_payload])
+    with patch.object(r, "_printables_graphql", graphql):
+        result = await r.resolve_collection_url(
+            "https://www.printables.com/@JonasHansen_1131321/collections/3525050"
+        )
+    assert result is not None
+    title, members = result
+    assert title == "cool"
+    assert [(m.source_id, m.title, m.page_url) for m in members] == [
+        ("1660232", "Springy Cat", "https://www.printables.com/model/1660232"),
+        ("1725199", "Pallet Coaster", "https://www.printables.com/model/1725199"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_resolve_printables_collection_paginates() -> None:
+    name_payload = {"data": {"collection": {"name": "big"}}}
+    page1 = {
+        "data": {
+            "moreCollectionModels": {
+                "cursor": "next",
+                "items": [{"id": "1", "print": {"id": "1", "name": "A"}}],
+            }
+        }
+    }
+    page2 = {
+        "data": {
+            "moreCollectionModels": {
+                "cursor": "",
+                "items": [{"id": "2", "print": {"id": "2", "name": "B"}}],
+            }
+        }
+    }
+    graphql = AsyncMock(side_effect=[name_payload, page1, page2])
+    with patch.object(r, "_printables_graphql", graphql):
+        _, members = await r.resolve_collection_url("https://printables.com/collections/9")
+    assert [m.source_id for m in members] == ["1", "2"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_collection_empty_raises_host_error() -> None:
+    name_payload = {"data": {"collection": {"name": "empty"}}}
+    members_payload = {"data": {"moreCollectionModels": {"cursor": "", "items": []}}}
+    with patch.object(r, "_printables_graphql", AsyncMock(side_effect=[name_payload, members_payload])):
+        with pytest.raises(ImportError_) as exc:
+            await r.resolve_collection_url("https://printables.com/collections/9")
+    assert str(exc.value) == "printables_collection_resolve_failed"
+
+
+@pytest.mark.asyncio
+async def test_resolve_collection_unknown_url_returns_none() -> None:
+    assert await r.resolve_collection_url("https://example.com/collections/9") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_makerworld_collection_walks_next_data() -> None:
+    next_data = {
+        "props": {
+            "pageProps": {
+                "collection": {"name": "H2D Sample Projects"},
+                "designs": [
+                    {"id": 5600001, "title": "Sample A"},
+                    {"design": {"id": 5600002, "designTitle": "Sample B"}},
+                ],
+            }
+        }
+    }
+    html = (
+        '<script id="__NEXT_DATA__" type="application/json">'
+        + __import__("json").dumps(next_data)
+        + "</script>"
+    )
+    with patch.object(r, "_makerworld_fetch_page", AsyncMock(return_value=html)):
+        result = await r.resolve_collection_url(
+            "https://makerworld.com/es/collections/5600774-h2d-sample-projects"
+        )
+    assert result is not None
+    title, members = result
+    assert title == "H2D Sample Projects"
+    assert [(m.source_id, m.title) for m in members] == [
+        ("5600001", "Sample A"),
+        ("5600002", "Sample B"),
+    ]
+    assert members[0].page_url == "https://makerworld.com/en/models/5600001"

@@ -312,6 +312,73 @@ def _collection_for_archive(parent: Optional[str], archive_name: str) -> str:
     return base
 
 
+def _ingest_one_file(
+    staged: Path,
+    original_filename: str,
+    *,
+    collection: Optional[str],
+    tags: Optional[str],
+    source_url: Optional[str],
+    model_name: Optional[str],
+    actor_user_id: Optional[int],
+    session_factory: SessionFactory,
+) -> Optional[dict]:
+    """Ingest one staged file under its own child job.
+
+    Returns a result dict (``model_id``/``file_id``/``name`` on success, or
+    ``name``/``error`` on failure), or ``None`` if the suffix is not importable
+    (the caller skips it without counting it as a step).
+    """
+    suffix = Path(original_filename).suffix.lower()
+    resolved_name = model_name or Path(original_filename).stem
+    child = registry.create(owner_user_id=actor_user_id)
+    try:
+        if suffix in _GCODE_SUFFIXES:
+            ingest_orca_gcode(
+                job_id=child,
+                staged_path=staged,
+                original_filename=original_filename,
+                model_name=resolved_name,
+                collection=collection,
+                tags=tags,
+                source_hash=None,
+                actor_user_id=actor_user_id,
+                session_factory=session_factory,
+                source_url=source_url,
+            )
+        else:
+            file_type = SUFFIX_TO_FILE_TYPE.get(suffix)
+            if file_type is None:
+                staged.unlink(missing_ok=True)
+                return None
+            ingest_mesh(
+                job_id=child,
+                staged_path=staged,
+                original_filename=original_filename,
+                model_name=resolved_name,
+                collection=collection,
+                tags=tags,
+                file_type=file_type,
+                source_hash=None,
+                actor_user_id=actor_user_id,
+                session_factory=session_factory,
+                source_url=source_url,
+            )
+        child_status = registry.get(child)
+        if child_status and child_status.state == "completed":
+            return {
+                "model_id": child_status.model_id,
+                "file_id": child_status.file_id,
+                "name": original_filename,
+            }
+        err = child_status.error if child_status else "unknown_error"
+        return {"name": original_filename, "error": err}
+    except Exception as exc:  # noqa: BLE001 — per-file boundary; continue
+        logger.exception("import file failed: %s", original_filename)
+        staged.unlink(missing_ok=True)
+        return {"name": original_filename, "error": str(exc)}
+
+
 def import_assets(
     *,
     job_id: str,
@@ -341,57 +408,19 @@ def import_assets(
     results: list[dict] = []
     done = 0
     for staged, original_filename in staged_files:
-        suffix = Path(original_filename).suffix.lower()
-        resolved_name = override or Path(original_filename).stem
-        child = registry.create(owner_user_id=actor_user_id)
-        try:
-            if suffix in _GCODE_SUFFIXES:
-                ingest_orca_gcode(
-                    job_id=child,
-                    staged_path=staged,
-                    original_filename=original_filename,
-                    model_name=resolved_name,
-                    collection=collection,
-                    tags=tags,
-                    source_hash=None,
-                    actor_user_id=actor_user_id,
-                    session_factory=session_factory,
-                    source_url=source_url,
-                )
-            else:
-                file_type = SUFFIX_TO_FILE_TYPE.get(suffix)
-                if file_type is None:
-                    staged.unlink(missing_ok=True)
-                    continue
-                ingest_mesh(
-                    job_id=child,
-                    staged_path=staged,
-                    original_filename=original_filename,
-                    model_name=resolved_name,
-                    collection=collection,
-                    tags=tags,
-                    file_type=file_type,
-                    source_hash=None,
-                    actor_user_id=actor_user_id,
-                    session_factory=session_factory,
-                    source_url=source_url,
-                )
-            child_status = registry.get(child)
-            if child_status and child_status.state == "completed":
-                results.append(
-                    {
-                        "model_id": child_status.model_id,
-                        "file_id": child_status.file_id,
-                        "name": original_filename,
-                    }
-                )
-            else:
-                err = child_status.error if child_status else "unknown_error"
-                results.append({"name": original_filename, "error": err})
-        except Exception as exc:  # noqa: BLE001 — per-file boundary; continue
-            logger.exception("import_assets file failed: %s", original_filename)
-            staged.unlink(missing_ok=True)
-            results.append({"name": original_filename, "error": str(exc)})
+        res = _ingest_one_file(
+            staged,
+            original_filename,
+            collection=collection,
+            tags=tags,
+            source_url=source_url,
+            model_name=override,
+            actor_user_id=actor_user_id,
+            session_factory=session_factory,
+        )
+        if res is None:
+            continue
+        results.append(res)
         done += 1
         registry.update(job_id, step=done, progress=done / total * 100)
 
@@ -401,4 +430,69 @@ def import_assets(
         state="completed",
         model_id=imported[0]["model_id"] if imported else None,
         result={"imported": len(imported), "total": total, "items": results},
+    )
+
+
+@dataclass
+class ResolvedGroup:
+    """One resolved source (a collection member) with its staged files.
+
+    ``source_url`` is recorded per group so each member's models point back to
+    their own page; ``error`` carries a member that failed to resolve/download.
+    """
+
+    source_url: Optional[str]
+    title: str
+    staged_files: list[tuple[Path, str]] = field(default_factory=list)
+    error: Optional[str] = None
+
+
+def import_resolved_groups(
+    *,
+    job_id: str,
+    groups: list[ResolvedGroup],
+    collection: Optional[str],
+    tags: Optional[str],
+    actor_user_id: Optional[int],
+    session_factory: SessionFactory,
+) -> None:
+    """Ingest many already-staged groups (e.g. collection members) into one
+    collection, recording each group's own ``source_url`` on its models."""
+    total = sum(len(g.staged_files) for g in groups)
+    registry.update(job_id, state="running", total_steps=max(total, 1))
+    results: list[dict] = []
+    done = 0
+    for group in groups:
+        if not group.staged_files:
+            results.append({"name": group.title, "error": group.error or "no_importable_files"})
+            continue
+        for staged, original_filename in group.staged_files:
+            res = _ingest_one_file(
+                staged,
+                original_filename,
+                collection=collection,
+                tags=tags,
+                source_url=group.source_url,
+                model_name=None,
+                actor_user_id=actor_user_id,
+                session_factory=session_factory,
+            )
+            if res is None:
+                continue
+            results.append({**res, "member": group.title})
+            done += 1
+            registry.update(job_id, step=done, progress=done / max(total, 1) * 100)
+
+    imported = [r for r in results if r.get("model_id")]
+    registry.update(
+        job_id,
+        state="completed",
+        model_id=imported[0]["model_id"] if imported else None,
+        result={
+            "kind": "collection_import",
+            "collection": collection,
+            "imported": len(imported),
+            "total": total,
+            "items": results,
+        },
     )

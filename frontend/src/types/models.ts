@@ -279,6 +279,32 @@ export interface ArchiveManifest {
   entries: ArchiveEntry[];
 }
 
+export interface ModelFile {
+  file_id: string;
+  name: string;
+  file_type: string; // stl / gcode / sla / other
+  size: number | null;
+}
+
+export interface ModelFilesManifest {
+  files_token: string;
+  page_title: string;
+  files: ModelFile[];
+}
+
+export interface CollectionMember {
+  source_id: string;
+  title: string;
+  page_url: string;
+}
+
+export interface CollectionManifest {
+  collection_token: string;
+  collection_name: string;
+  target_collection: string;
+  members: CollectionMember[];
+}
+
 export interface PublicFileRead {
   id: number;
   original_filename: string;
