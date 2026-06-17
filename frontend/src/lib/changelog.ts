@@ -21,6 +21,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.6.6",
+    date: "Jun 2026",
+    changes: [
+      "New Prometheus metrics endpoint at /metrics for Grafana/Prometheus dashboards — request latency, ingestion jobs, and live printer status; optionally protected with a bearer token (VAULT_METRICS_TOKEN)",
+      "The health check now reports background-job and shared-volume scan status alongside database, storage, backup, and printer readiness",
+      "Shared-volume scans interrupted by a restart no longer get stuck — they're reset on startup and picked up again on the next scheduled scan",
+      "Unraid support: install PrintStash from Community Applications templates for the API and web UI, with a step-by-step setup guide",
+    ],
+  },
+  {
     version: "0.6.5",
     date: "Jun 2026",
     changes: [

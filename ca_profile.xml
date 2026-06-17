@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>
+PrintStash is a self-hosted, Plex-style vault for your 3D printing files — STL, 3MF, OBJ, STEP, and G-code — with thumbnails, in-browser 3D and G-code preview, content-hash deduplication, version history, collections/tags, print statistics, shared volumes (NAS folder mirroring), and printer integration (Moonraker/Klipper, with Bambu LAN in beta).
+
+This repository maintains two Docker application templates:
+
+- **PrintStash-API** — the backend API and database.
+- **PrintStash-Frontend** — the web UI you open in your browser.
+
+Both containers run on a shared user-defined Docker network so the web UI can reach the API. Install **PrintStash-API first**, then **PrintStash-Frontend**, and follow the setup wizard in your browser. See the install guide for the required `printstash` network step.
+
+**Support:** https://github.com/xiao-villamor/PrintStash/issues
+**Project / docs:** https://github.com/xiao-villamor/PrintStash
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/xiao-villamor/PrintStash/main/icon.svg</Icon>
+  <WebPage>https://github.com/xiao-villamor/PrintStash</WebPage>
+</CommunityApplications>

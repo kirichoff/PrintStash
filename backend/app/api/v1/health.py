@@ -8,7 +8,15 @@ from sqlalchemy.engine.url import make_url
 from sqlmodel import select
 
 from app.core.config import settings
-from app.db.models import File, Model, PrintJob, Printer, PrinterProvider
+from app.db.models import (
+    ExternalLibrary,
+    ExternalLibraryScanStatus,
+    File,
+    Model,
+    PrintJob,
+    Printer,
+    PrinterProvider,
+)
 from app.db.session import get_session_factory
 from app.services.printer_provider import provider_diagnostic_summary
 from app.services.storage_backend import get_backend
@@ -110,6 +118,42 @@ def _provider_probe() -> dict:
         }
 
 
+def _jobs_probe() -> dict:
+    # In-memory ingestion registry; informational, so always ``ok``.
+    from app.services.jobs import registry
+
+    try:
+        return {"ok": True, "counts": registry.snapshot_counts()}
+    except Exception as exc:
+        return {"ok": False, "error": exc.__class__.__name__}
+
+
+def _external_libraries_probe() -> dict:
+    # Informational: RUNNING usually means a scan is genuinely in progress
+    # (orphans are reset at startup), so this never flips the overall status.
+    try:
+        with get_session_factory().session() as session:
+            rows = session.exec(
+                select(ExternalLibrary.enabled, ExternalLibrary.last_scan_status)
+            ).all()
+        enabled = 0
+        status_counts: dict[str, int] = {}
+        for is_enabled, status in rows:
+            if is_enabled:
+                enabled += 1
+            if status is not None:
+                status_counts[status.value] = status_counts.get(status.value, 0) + 1
+        return {
+            "ok": True,
+            "configured": len(rows),
+            "enabled": enabled,
+            "status_counts": status_counts,
+            "running": status_counts.get(ExternalLibraryScanStatus.RUNNING.value, 0),
+        }
+    except Exception as exc:
+        return {"ok": False, "error": exc.__class__.__name__}
+
+
 @router.get(
     "/health",
     summary="Operational health probe",
@@ -130,6 +174,8 @@ def health() -> dict:
         "storage": _storage_probe(),
         "backup": _backup_probe(),
         "printer_providers": _provider_probe(),
+        "jobs": _jobs_probe(),
+        "external_libraries": _external_libraries_probe(),
     }
     out["components"] = components
     out["metrics"] = components["database"].get("counts", {})

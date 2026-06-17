@@ -74,12 +74,17 @@ class JobRegistry:
             if job is None:
                 return
             if state is not None:
+                previously_terminal = job.state in ("completed", "failed")
                 job.state = state
                 if state == "running" and job.started_at is None:
                     job.started_at = utcnow()
                 if state in ("completed", "failed"):
                     job.finished_at = utcnow()
                     job.progress = 100.0
+                    if not previously_terminal:
+                        from app.core.metrics import record_ingestion_terminal
+
+                        record_ingestion_terminal(state)
             if model_id is not None:
                 job.model_id = model_id
             if file_id is not None:
@@ -100,6 +105,24 @@ class JobRegistry:
     def get(self, job_id: str) -> Optional[IngestJobStatus]:
         with self._lock:
             return self._jobs.get(job_id)
+
+    def snapshot_counts(self) -> Dict[str, int]:
+        """Return a count of tracked jobs by state, plus a total.
+
+        Informational snapshot for the health probe; the registry is in-memory
+        and is wiped on restart, so this reflects only the current process.
+        """
+        counts: Dict[str, int] = {
+            "pending": 0,
+            "running": 0,
+            "completed": 0,
+            "failed": 0,
+        }
+        with self._lock:
+            for job in self._jobs.values():
+                counts[job.state] = counts.get(job.state, 0) + 1
+            counts["total"] = len(self._jobs)
+        return counts
 
 
 registry = JobRegistry()

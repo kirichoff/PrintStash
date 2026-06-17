@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     max_upload_mb: int = 512
     log_level: str = "INFO"
 
+    # Optional static bearer token guarding the Prometheus /metrics endpoint.
+    # Empty = open on the trusted internal network (see docs/known-limitations).
+    metrics_token: str = ""
+
     # URL + ZIP import (see services/importer.py).
     url_import_max_redirects: int = 5
     max_archive_entries: int = 500
@@ -79,7 +83,7 @@ class Settings(BaseSettings):
     backup_s3_secret_key: str = ""
 
     app_name: str = "PrintStash"
-    app_version: str = "0.6.5"
+    app_version: str = "0.6.6"
 
     @property
     def incoming_dir(self) -> Path:

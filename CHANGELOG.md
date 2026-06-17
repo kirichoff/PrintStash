@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.6 - Operations hardening (R2)
+
+### Added
+
+- **Prometheus metrics at `/metrics`.** Request latency (by route template),
+  terminal ingestion-job counts, and live printer status by provider are now
+  exported in Prometheus text format for Grafana/Prometheus scraping. The
+  endpoint is open by default on the trusted internal network; set
+  `VAULT_METRICS_TOKEN` to require a static bearer token.
+- **Richer `/api/v1/health` output.** The health probe now reports background
+  ingestion-job counts and external-library scan status alongside the existing
+  database, storage, backup, and printer-provider sections.
+- **Unraid Community Applications support.** Added CA-ready repository metadata
+  (`ca_profile.xml`, root `icon.svg`) and Docker templates under `templates/`
+  (`printstash-api.xml`, `printstash-frontend.xml`) plus a step-by-step
+  `unraid/README.md` for installing PrintStash on Unraid (create the
+  `printstash` network, install the API then the frontend, finish in the setup
+  wizard).
+
+### Fixed
+
+- **External library scans no longer get stranded by a restart.** If the backend
+  was restarted mid-scan, the library stayed marked `running` forever and the
+  scheduler skipped it indefinitely. Orphaned scans are now reset to `error` at
+  startup so they are picked up again on the next scheduled tick.
+
 ## 0.6.5 - First-run polish
 
 ### Fixed

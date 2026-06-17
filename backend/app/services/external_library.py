@@ -500,6 +500,31 @@ def purge_library_index(session: Session, library_id: int) -> int:
     return len(files)
 
 
+def reset_orphaned_scans(session: Session) -> int:
+    """Clear scans stranded in RUNNING by a process restart.
+
+    ``scan_library`` marks a library RUNNING for the duration of a scan
+    (see :func:`scan_library`). If the process dies mid-scan the row stays
+    RUNNING forever, and :func:`libraries_due_for_scan` permanently skips it.
+    Call this once at startup: mark any RUNNING library ERROR with an
+    interrupted note so the scheduler picks it up again. Returns the count
+    reset. Reuses the existing ERROR status — no new enum or migration.
+    """
+    orphaned = session.exec(
+        select(ExternalLibrary).where(
+            ExternalLibrary.last_scan_status == ExternalLibraryScanStatus.RUNNING
+        )
+    ).all()
+    for library in orphaned:
+        library.last_scan_status = ExternalLibraryScanStatus.ERROR
+        library.last_scan_summary = json.dumps({"error": "interrupted by restart"})
+        library.updated_at = utcnow()
+        session.add(library)
+    if orphaned:
+        session.commit()
+    return len(orphaned)
+
+
 def libraries_due_for_scan(session: Session) -> list[int]:
     """IDs of enabled libraries whose cron schedule has fired (or never ran).
 

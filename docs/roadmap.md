@@ -66,9 +66,9 @@ Goal: make printer integrations predictable across normal home setups.
 Goal: make backup, restore, upgrades, and monitoring less scary.
 
 - Scheduled release backup/restore smoke checks
-- Better health output for database, storage, S3, and printer providers as installs get more varied
-- Structured metrics for request latency, ingestion, and printer status
-- Background job cleanup that is easier to reason about across restarts
+- Better health output for database, storage, S3, and printer providers as installs get more varied (shipped in 0.6.6: health now reports background-job and external-library scan status)
+- Structured metrics for request latency, ingestion, and printer status (shipped in 0.6.6: Prometheus `/metrics` endpoint)
+- Background job cleanup that is easier to reason about across restarts (shipped in 0.6.6: orphaned NAS scans reset at startup)
 - Upgrade notes for SQLite and optional Postgres installs
 
 ## R3: Library Workflow Polish
