@@ -1,52 +1,142 @@
 # PrintStash on Unraid
 
-PrintStash is two containers: **PrintStash-API** (backend) and **PrintStash-Frontend**
-(web UI / nginx). The frontend proxies `/api/v1` to the API at the hostname `api`, so
-both containers must share a **user-defined Docker network** that does name resolution
-(Unraid's default `bridge` does not).
+PrintStash runs as **two containers**:
 
-## Option A: Community Applications templates (this folder)
+| Container | Role | Port |
+|-----------|------|------|
+| **PrintStash-API** | Backend API + database | 8000 |
+| **PrintStash-Frontend** | Web UI you open in the browser (nginx) | 3000 |
 
-1. **Create the network** (one time). On the Unraid terminal:
-   ```
-   docker network create printstash
-   ```
-2. **Install PrintStash-API** from the template:
-   - Network: `printstash`
-   - Set a strong **JWT secret** (`openssl rand -hex 32`).
-   - The template already runs DB migrations on start and sets the network alias `api`.
-3. **Install PrintStash-Frontend** from the template:
-   - Network: `printstash`
-   - Keep the WebUI port (default `3000`).
-4. Open `http://<server-ip>:3000` and complete the first-run setup wizard.
+The frontend serves the app and proxies `/api/v1` (including WebSockets) to the
+backend at the hostname **`api`**. Because of that, **both containers must share
+a user-defined Docker network** that does name resolution — Unraid's built-in
+`bridge` network does **not**, so the names won't resolve there.
 
-> Both containers must stay on the `printstash` network. If the frontend shows
-> "connection refused" for `/api/v1`, the API isn't reachable as `api` on that network.
+---
 
-## Option B: Docker Compose Manager plugin (recommended, simpler)
+## Install (Community Applications templates)
 
-PrintStash ships an official `docker-compose.yml`. If you have the **Compose Manager**
-plugin (from Community Applications), this is the smoother path because the compose file
-already wires the two services, the network, volumes, and the migration command:
+### 1. Create the network (one time)
+
+On the Unraid terminal (or **Settings → Docker → add network**):
+
+```bash
+docker network create printstash
+```
+
+### 2. Install PrintStash-API **first**
+
+From the `printstash-api` template:
+
+- **Network:** `printstash`
+- **JWT secret** (required): generate a long random string, e.g.
+  ```bash
+  openssl rand -hex 32
+  ```
+- Leave the volume paths at their defaults (`/mnt/user/appdata/printstash/...`)
+  or point them wherever you keep app data.
+
+The template already:
+- runs database migrations on every start (`alembic upgrade head`), and
+- gives the container the network alias **`api`** so the frontend can reach it.
+
+> Install the API **before** the frontend — the frontend expects `api` to
+> already be resolvable on the `printstash` network.
+
+### 3. Install PrintStash-Frontend
+
+From the `printstash-frontend` template:
+
+- **Network:** `printstash`
+- Keep the **WebUI port** (default `3000`).
+- If you raise the API's max upload size, match `NGINX_CLIENT_MAX_BODY_SIZE`
+  here (e.g. `512m`).
+
+### 4. Open the app and finish setup
+
+Browse to `http://<server-ip>:3000` and complete the **first-run setup wizard**:
+
+- create your admin account,
+- choose **storage** — local disk (default) **or S3/R2** (bucket, endpoint, and
+  keys are entered here in the wizard — *not* as container variables), and
+- optionally configure **backups** (local and/or an S3 destination).
+
+That's it — you're in your vault.
+
+---
+
+## Alternative: Docker Compose Manager plugin
+
+PrintStash ships an official `docker-compose.yml` that already wires both
+services, the network, volumes, and the migration command. If you have the
+**Compose Manager** plugin (from Community Applications), this is the simplest
+path:
 
 1. Install the *Docker Compose Manager* plugin.
-2. Add a new stack and paste the contents of the repo's
+2. Add a new stack and paste the repo's
    [`docker-compose.yml`](https://github.com/xiao-villamor/PrintStash/blob/main/docker-compose.yml).
-3. Set `VAULT_JWT_SECRET` (and adjust volume paths to `/mnt/user/appdata/printstash/...`).
+3. Set `VAULT_JWT_SECRET` and adjust volume paths to
+   `/mnt/user/appdata/printstash/...` if you like.
 4. Compose up, then open `http://<server-ip>:3000`.
 
-## Submitting to Community Applications
+---
 
-Per https://ca.unraid.net/submit/help, CA indexes templates from a public GitHub repo:
+## Configuration reference
 
-1. Host these XML files in a public repo (this `unraid/` folder works, or a dedicated
-   `unraid-templates` repo).
-2. Make sure each template's `<TemplateURL>` points at its own **raw** GitHub URL.
-3. Submit the repository on the CA submit page and follow the moderation steps.
+Most settings are configured **in the app's setup wizard / Settings** and stored
+in the database — including storage backend (local vs S3/R2) and backups. The
+container variables are mainly bootstrap defaults:
 
-### Notes / nice-to-haves for a cleaner CA experience
-- Provide a square **PNG** icon (CA prefers PNG over SVG) and point `<Icon>` at it.
-- Consider baking `alembic upgrade head` into the API image's entrypoint so the default
-  command "just works" without the Post Arguments override.
-- Consider making the frontend's API target configurable (env) so a custom network isn't
-  strictly required.
+| Variable | Container | Required | Notes |
+|----------|-----------|----------|-------|
+| `VAULT_JWT_SECRET` | API | ✅ | Signs auth tokens. Use `openssl rand -hex 32`. |
+| `VAULT_MAX_UPLOAD_MB` | API | – | Max upload size in MB (default `512`). |
+| `NGINX_CLIENT_MAX_BODY_SIZE` | Frontend | – | Keep in sync with the above, e.g. `512m`. |
+| `VAULT_BACKUP_RETENTION_DAYS` | API | – | `0` keeps backups forever. |
+| `VAULT_ACCESS_TOKEN_EXPIRE_MINUTES` | API | – | JWT lifetime (default `60`). |
+| `VAULT_LOG_LEVEL` | API | – | `DEBUG` / `INFO` / `WARNING` / `ERROR`. |
+| `VAULT_METRICS_TOKEN` | API | – | If set, requires a bearer token to scrape `/metrics` (Prometheus). Leave empty to keep it open on your LAN. |
+
+### Persistent paths (API container)
+
+| Path | Holds |
+|------|-------|
+| `/data/files` | Uploaded models and G-code |
+| `/data/thumbs` | Generated thumbnails |
+| `/data/db` | SQLite database |
+| `/data/staging` | Temporary upload/import staging |
+| `/data/backups` | Local backup archives |
+
+---
+
+## Troubleshooting
+
+- **Frontend shows "connection refused" / 502 for `/api/v1`** — the API isn't
+  reachable as `api` on the `printstash` network. Check that **both** containers
+  are on the `printstash` network and that the API container has the
+  `--network-alias api` extra parameter (the template sets this).
+- **Stuck on a blank page or the network's default `bridge`** — recreate the
+  containers on the user-defined `printstash` network; the default `bridge` has
+  no DNS, so `api` can't resolve.
+- **No login works on a fresh install** — there is no default admin account.
+  Complete the first-run setup wizard to create one. If setup can't complete,
+  fix setup (storage paths, JWT secret) rather than looking for built-in
+  credentials.
+- **Monitoring** — the API exposes Prometheus metrics at
+  `http://<server-ip>:8000/metrics` for Grafana/Prometheus dashboards.
+
+---
+
+## For maintainers: submitting to Community Applications
+
+CA indexes templates from a public GitHub repo (see
+<https://ca.unraid.net/submit/help>):
+
+1. These XML files must be committed to the repo on `main` so their
+   `<TemplateURL>` raw URLs resolve (verify with `curl -I` → `200`).
+2. Each template's `<TemplateURL>` must point at its own **raw** GitHub URL.
+3. Submit the repository on the CA submit page and follow moderation.
+
+Nice-to-haves: provide a square **PNG** icon (CA prefers PNG over SVG), and
+consider baking `alembic upgrade head` into the API image entrypoint so the
+default command works without the Post Arguments override.
