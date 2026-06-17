@@ -12,10 +12,12 @@
 - **Richer `/api/v1/health` output.** The health probe now reports background
   ingestion-job counts and external-library scan status alongside the existing
   database, storage, backup, and printer-provider sections.
-- **Unraid Community Applications templates.** Added `unraid/printstash-api.xml`
-  and `unraid/printstash-frontend.xml` plus a step-by-step `unraid/README.md`
-  for installing PrintStash on Unraid (create the `printstash` network, install
-  the API then the frontend, finish in the setup wizard).
+- **Unraid Community Applications support.** Added CA-ready repository metadata
+  (`ca_profile.xml`, root `icon.svg`) and Docker templates under `templates/`
+  (`printstash-api.xml`, `printstash-frontend.xml`) plus a step-by-step
+  `unraid/README.md` for installing PrintStash on Unraid (create the
+  `printstash` network, install the API then the frontend, finish in the setup
+  wizard).
 
 ### Fixed
 

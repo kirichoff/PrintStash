@@ -129,14 +129,31 @@ container variables are mainly bootstrap defaults:
 
 ## For maintainers: submitting to Community Applications
 
-CA indexes templates from a public GitHub repo (see
-<https://ca.unraid.net/submit/help>):
+CA indexes templates from a public GitHub repo. The required layout (per the
+[official starter repo](https://github.com/unraid/unraid-community-apps-starter))
+lives at the repository root:
 
-1. These XML files must be committed to the repo on `main` so their
-   `<TemplateURL>` raw URLs resolve (verify with `curl -I` → `200`).
-2. Each template's `<TemplateURL>` must point at its own **raw** GitHub URL.
-3. Submit the repository on the CA submit page and follow moderation.
+```
+ca_profile.xml                      # repository overview + support metadata (required)
+icon.svg                            # repository icon
+LICENSE                             # OSI-approved license (AGPL-3.0)
+README.md                           # repository readme
+templates/
+  printstash-api.xml                # PrintStash-API Docker template
+  printstash-frontend.xml           # PrintStash-Frontend Docker template
+```
 
-Nice-to-haves: provide a square **PNG** icon (CA prefers PNG over SVG), and
+Checklist before submitting on the CA submit page:
+
+1. Repo is **public and active**, with an OSI-approved `LICENSE` (we ship
+   AGPL-3.0).
+2. `ca_profile.xml` has a non-empty `<Profile>` section.
+3. Each template lives under `templates/`, has a `<Repository>` tag, and its
+   `<TemplateURL>` points at its own **raw** GitHub URL on `main`.
+4. Verify every raw URL resolves once merged to `main`
+   (`curl -I <raw-url>` → `200`): the two `templates/*.xml`, `icon.svg`, and the
+   `<ReadMe>`/`<Icon>` targets.
+
+Nice-to-have: provide a square **PNG** icon (CA prefers PNG over SVG), and
 consider baking `alembic upgrade head` into the API image entrypoint so the
 default command works without the Post Arguments override.

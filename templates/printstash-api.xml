@@ -9,29 +9,34 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/xiao-villamor/PrintStash/issues</Support>
   <Project>https://github.com/xiao-villamor/PrintStash</Project>
-  <Overview>Backend API for PrintStash, a self-hosted vault for 3D print files. Run this container together with PrintStash-Frontend on the same user-defined Docker network named "printstash" so the frontend (nginx) can reach this service at hostname "api". This container is given the network alias "api" via Extra Parameters. The default image command only starts uvicorn; this template overrides it (Post Arguments) to run database migrations first, exactly like the official docker-compose. Set a strong VAULT_JWT_SECRET before first start.</Overview>
+  <Overview>Backend API for PrintStash, a self-hosted vault for 3D print files. Run this container together with PrintStash-Frontend on the same user-defined Docker network named "printstash" so the frontend (nginx) can reach this service at hostname "api". This container is given the network alias "api" via Extra Parameters. The default image command only starts uvicorn; this template overrides it (Post Arguments) to run database migrations first, exactly like the official docker-compose. Set a strong VAULT_JWT_SECRET before first start. Storage (local or S3/R2) and backups are configured later in the first-run setup wizard.</Overview>
   <Category>Productivity: Tools:</Category>
   <WebUI/>
-  <TemplateURL>https://raw.githubusercontent.com/xiao-villamor/PrintStash/main/unraid/printstash-api.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/xiao-villamor/PrintStash/main/frontend/public/icon-light.svg</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/xiao-villamor/PrintStash/main/templates/printstash-api.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/xiao-villamor/PrintStash/main/icon.svg</Icon>
+  <ReadMe>https://raw.githubusercontent.com/xiao-villamor/PrintStash/main/unraid/README.md</ReadMe>
+  <ExtraSearchTerms>3d printing stl gcode 3mf moonraker klipper bambu vault</ExtraSearchTerms>
   <ExtraParams>--network-alias api</ExtraParams>
   <PostArgs>/bin/sh -c "uv run alembic upgrade head &amp;&amp; uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log --proxy-headers"</PostArgs>
   <CPUset/>
   <DateInstalled/>
   <DonateText/>
   <DonateLink/>
+  <Date>2026-06-17</Date>
+  <MinVer>6.10</MinVer>
+  <License>AGPLv3</License>
   <Requires>Create a user-defined Docker network named "printstash" first (Settings -&gt; Docker, or `docker network create printstash`). Install PrintStash-Frontend on the same network.</Requires>
-  <Config Name="API Port" Target="8000" Default="8000" Mode="tcp" Description="Optional. Only needed if you want to hit the API directly. The frontend reaches it internally via the printstash network." Type="Port" Display="advanced" Required="false" Mask="false">8000</Config>
+  <Config Name="API Port" Target="8000" Default="8000" Mode="tcp" Description="Optional. Only needed if you want to hit the API or /metrics directly. The frontend reaches it internally via the printstash network." Type="Port" Display="advanced" Required="false" Mask="false">8000</Config>
   <Config Name="Data (models/files)" Target="/data/files" Default="/mnt/user/appdata/printstash/files" Mode="rw" Description="Uploaded model and G-code files." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printstash/files</Config>
   <Config Name="Thumbnails" Target="/data/thumbs" Default="/mnt/user/appdata/printstash/thumbs" Mode="rw" Description="Generated thumbnails." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printstash/thumbs</Config>
   <Config Name="Database" Target="/data/db" Default="/mnt/user/appdata/printstash/db" Mode="rw" Description="SQLite database directory." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printstash/db</Config>
   <Config Name="Staging" Target="/data/staging" Default="/mnt/user/appdata/printstash/staging" Mode="rw" Description="Temporary staging area for uploads/imports." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printstash/staging</Config>
   <Config Name="Backups" Target="/data/backups" Default="/mnt/user/appdata/printstash/backups" Mode="rw" Description="Local backup archives." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printstash/backups</Config>
   <Config Name="JWT secret" Target="VAULT_JWT_SECRET" Default="" Mode="" Description="REQUIRED. A long random string used to sign auth tokens. Generate one, e.g. `openssl rand -hex 32`." Type="Variable" Display="always" Required="true" Mask="true"></Config>
-  <Config Name="Storage backend" Target="VAULT_STORAGE_BACKEND" Default="local" Mode="" Description="local or s3." Type="Variable" Display="always" Required="true" Mask="false">local</Config>
   <Config Name="Max upload (MB)" Target="VAULT_MAX_UPLOAD_MB" Default="512" Mode="" Description="Maximum upload size in MB. Keep in sync with the frontend NGINX_CLIENT_MAX_BODY_SIZE." Type="Variable" Display="always" Required="false" Mask="false">512</Config>
   <Config Name="Backup retention (days)" Target="VAULT_BACKUP_RETENTION_DAYS" Default="30" Mode="" Description="0 keeps backups forever." Type="Variable" Display="advanced" Required="false" Mask="false">30</Config>
   <Config Name="Access token expiry (min)" Target="VAULT_ACCESS_TOKEN_EXPIRE_MINUTES" Default="60" Mode="" Description="JWT lifetime in minutes." Type="Variable" Display="advanced" Required="false" Mask="false">60</Config>
+  <Config Name="Metrics token" Target="VAULT_METRICS_TOKEN" Default="" Mode="" Description="Optional. If set, the Prometheus /metrics endpoint requires this bearer token. Leave empty to keep it open on your LAN." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
   <Config Name="Log level" Target="VAULT_LOG_LEVEL" Default="INFO" Mode="" Description="DEBUG, INFO, WARNING, ERROR." Type="Variable" Display="advanced" Required="false" Mask="false">INFO</Config>
   <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="Container timezone." Type="Variable" Display="advanced" Required="false" Mask="false">UTC</Config>
 </Container>
