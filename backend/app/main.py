@@ -2,17 +2,24 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import asyncio
+import hmac
 import time
 import uuid
 
 from fastapi import FastAPI
-from fastapi import Request
+from fastapi import Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.engine.url import make_url
+from sqlmodel import select
 from starlette import status
+
+from app.core.metrics import observe_request, printer_status
+from app.core.metrics import app_info as _app_info
+from app.core.metrics import registry as _metrics_registry
 
 from app.api.v1 import api_router
 from app.core.config import settings
@@ -42,11 +49,21 @@ def _safe_db_url(value: str) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("starting %s v%s", settings.app_name, settings.app_version)
+    _app_info.info({"version": settings.app_version, "name": settings.app_name})
     # DB must exist before we can read the runtime overlay.
     init_db()
     with get_session_factory().scoped_session() as session:
         apply_overlay(session)
         configured = is_configured(session)
+        # Clear any NAS scans stranded RUNNING by a previous unclean shutdown,
+        # otherwise the scheduler would skip them forever.
+        from app.services.external_library import reset_orphaned_scans
+
+        reset_count = reset_orphaned_scans(session)
+        if reset_count:
+            logger.warning(
+                "reset %d external library scan(s) stranded by restart", reset_count
+            )
     # Initialise storage backend (creates dirs or validates S3 bucket).
     _backend = init_backend()
     if not configured:
@@ -229,6 +246,14 @@ async def log_requests(request: Request, call_next):
         return response
     finally:
         duration_ms = (time.perf_counter() - started) * 1000
+        # Record request latency, keyed by the matched route template (not the
+        # raw path) to bound label cardinality. Skip /metrics to avoid self-noise.
+        if request.url.path != "/metrics":
+            route = request.scope.get("route")
+            path_label = getattr(route, "path", None) or "unmatched"
+            observe_request(
+                request.method, path_label, status_code, duration_ms / 1000.0
+            )
         if request.url.path == "/api/v1/health" and status_code < 500:
             log_fn = logger.debug
         elif status_code >= 500:
@@ -248,3 +273,45 @@ async def log_requests(request: Request, call_next):
 
 
 app.include_router(api_router)
+
+
+def _refresh_printer_gauge() -> None:
+    """Repopulate the printer-status gauge from current DB state (pull-style).
+
+    Cleared and rebuilt each scrape so printers removed since the last scrape do
+    not linger as stale series.
+    """
+    from app.db.models import Printer
+    from app.db.scopes import live
+
+    try:
+        with get_session_factory().session() as session:
+            rows = session.exec(
+                select(Printer.provider, Printer.status).where(live(Printer))
+            ).all()
+    except Exception:
+        logger.exception("metrics: failed to refresh printer gauge")
+        return
+    printer_status.clear()
+    for provider, prn_status in rows:
+        printer_status.labels(
+            provider=provider.value, status=prn_status.value
+        ).inc()
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics_endpoint(request: Request) -> Response:
+    """Prometheus exposition endpoint.
+
+    Open by default; set ``VAULT_METRICS_TOKEN`` to require a static bearer
+    token. Defined as a sync handler so the DB query + render run off the event
+    loop in FastAPI's threadpool.
+    """
+    token = settings.metrics_token
+    if token:
+        auth = request.headers.get("authorization", "")
+        provided = auth.split(" ", 1)[1] if auth.lower().startswith("bearer ") else ""
+        if not hmac.compare_digest(provided, token):
+            return Response(status_code=status.HTTP_401_UNAUTHORIZED, content="unauthorized")
+    _refresh_printer_gauge()
+    return Response(content=generate_latest(_metrics_registry), media_type=CONTENT_TYPE_LATEST)

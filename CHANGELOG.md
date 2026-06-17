@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.6 - Operations hardening (R2)
+
+### Added
+
+- **Prometheus metrics at `/metrics`.** Request latency (by route template),
+  terminal ingestion-job counts, and live printer status by provider are now
+  exported in Prometheus text format for Grafana/Prometheus scraping. The
+  endpoint is open by default on the trusted internal network; set
+  `VAULT_METRICS_TOKEN` to require a static bearer token.
+- **Richer `/api/v1/health` output.** The health probe now reports background
+  ingestion-job counts and external-library scan status alongside the existing
+  database, storage, backup, and printer-provider sections.
+
+### Fixed
+
+- **External library scans no longer get stranded by a restart.** If the backend
+  was restarted mid-scan, the library stayed marked `running` forever and the
+  scheduler skipped it indefinitely. Orphaned scans are now reset to `error` at
+  startup so they are picked up again on the next scheduled tick.
+
 ## 0.6.5 - First-run polish
 
 ### Fixed
