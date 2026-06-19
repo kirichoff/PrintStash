@@ -190,7 +190,6 @@ export function getJobStatus(jobId: string): Promise<IngestJobStatus> {
 export function ingestUrl(payload: {
   url: string;
   collection?: string;
-  model_name?: string;
   tags?: string;
   review?: boolean;
 }): Promise<IngestResponse> {

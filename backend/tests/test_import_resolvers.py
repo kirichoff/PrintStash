@@ -9,7 +9,7 @@ extraction, pack selection and JSON-walking logic without any real network.
 from __future__ import annotations
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services import import_resolvers as r
 from app.services.importer import ImportError_
@@ -177,28 +177,108 @@ async def test_resolve_printables_network_error_becomes_host_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolve_makerworld_uses_link_from_next_data() -> None:
-    html = (
-        '<script id="__NEXT_DATA__" type="application/json">'
-        '{"props":{"pageProps":{"design":{"id":1,"downloadUrl":"https://cdn.makerworld.test/x.3mf"}}}}'
-        "</script>"
-    )
-    with patch.object(r, "_makerworld_fetch_page", AsyncMock(return_value=html)):
+async def test_resolve_makerworld_uses_instance_download_api() -> None:
+    # design API -> defaultInstanceId; instance f3mf API -> the file link.
+    design = {"id": 1, "defaultInstanceId": 99}
+    f3mf = {"url": "https://cdn.makerworld.test/x.3mf"}
+
+    async def fake_api(api_url, *_a, **_k):
+        return f3mf if "/instance/99/f3mf" in api_url else design
+
+    with patch.object(r, "_makerworld_api_get", side_effect=fake_api):
         out = await r.resolve_page_url("https://makerworld.com/en/models/1123776-x")
     assert out == "https://cdn.makerworld.test/x.3mf"
 
 
 @pytest.mark.asyncio
 async def test_resolve_makerworld_falls_back_to_model_api() -> None:
-    # Page HTML has no embedded link and no instance id -> hit the model API.
-    html = '<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{}}}</script>'
-    api_data = {"url": "https://cdn.makerworld.test/bundle.zip"}
-    with (
-        patch.object(r, "_makerworld_fetch_page", AsyncMock(return_value=html)),
-        patch.object(r, "_makerworld_api_get", AsyncMock(return_value=api_data)),
-    ):
+    # No instance on the design -> fall back to the model-level download endpoint.
+    bundle = {"url": "https://cdn.makerworld.test/bundle.zip"}
+
+    async def fake_api(api_url, *_a, **_k):
+        if "/instance/" in api_url:
+            return None
+        if "/design/" in api_url:
+            return {"id": 1}  # no defaultInstanceId / instances
+        return bundle  # /models/{id}/download
+
+    with patch.object(r, "_makerworld_api_get", side_effect=fake_api):
         out = await r.resolve_page_url("https://makerworld.com/en/models/1123776-x")
     assert out == "https://cdn.makerworld.test/bundle.zip"
+
+
+@pytest.mark.asyncio
+async def test_resolve_makerworld_login_required_surfaces_clear_error() -> None:
+    # The auth-gated download API answers 403 "please log in" without a cookie;
+    # that must surface as a specific, user-actionable error code.
+    challenge = (403, '{"code":1,"error":"Please log in to download models."}')
+    with patch.object(r.browser_fetch, "api_get", AsyncMock(return_value=challenge)):
+        with pytest.raises(ImportError_) as exc:
+            await r.resolve_page_url("https://makerworld.com/en/models/1123776-x")
+    assert str(exc.value) == "makerworld_login_required"
+
+
+# --------------------------------------------------------------------------- #
+# Cloudflare challenge detection + headless-browser fallback
+# --------------------------------------------------------------------------- #
+def test_looks_like_challenge_detects_interstitial() -> None:
+    html = "<html><head><title>Just a moment...</title></head><body><div class='cf-chl'></div></body>"
+    assert r._looks_like_challenge(html) is True
+
+
+def test_looks_like_challenge_false_when_next_data_present() -> None:
+    # A page that ships __NEXT_DATA__ is real content, even if it name-drops a marker.
+    assert r._looks_like_challenge('<script id="__NEXT_DATA__">{}</script> just a moment') is False
+
+
+def test_looks_like_challenge_false_for_plain_page() -> None:
+    assert r._looks_like_challenge("<html><body>hello world</body></html>") is False
+
+
+def _fake_http_client(status_code: int, text: str) -> MagicMock:
+    client = MagicMock()
+    client.get = AsyncMock(return_value=MagicMock(status_code=status_code, text=text))
+    return client
+
+
+@pytest.mark.asyncio
+async def test_makerworld_fetch_uses_httpx_when_not_challenged() -> None:
+    good = '<script id="__NEXT_DATA__">{}</script>'
+    browser = AsyncMock()
+    with (
+        patch.object(r, "get_http_client", return_value=_fake_http_client(200, good)),
+        patch.object(r.browser_fetch, "fetch_rendered_html", browser),
+    ):
+        out = await r._makerworld_fetch_page("https://makerworld.com/en/models/1-x", None)
+    assert out == good
+    browser.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_makerworld_fetch_falls_back_to_browser_on_challenge() -> None:
+    challenge = "<title>Just a moment...</title><div class='cf-chl'></div>"
+    rendered = '<script id="__NEXT_DATA__">{"ok":1}</script>'
+    browser = AsyncMock(return_value=rendered)
+    with (
+        patch.object(r, "get_http_client", return_value=_fake_http_client(200, challenge)),
+        patch.object(r.browser_fetch, "fetch_rendered_html", browser),
+    ):
+        out = await r._makerworld_fetch_page("https://makerworld.com/en/models/1-x", None)
+    assert out == rendered
+    browser.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_makerworld_fetch_falls_back_to_browser_on_non_200() -> None:
+    rendered = '<script id="__NEXT_DATA__">{}</script>'
+    browser = AsyncMock(return_value=rendered)
+    with (
+        patch.object(r, "get_http_client", return_value=_fake_http_client(403, "")),
+        patch.object(r.browser_fetch, "fetch_rendered_html", browser),
+    ):
+        out = await r._makerworld_fetch_page("https://makerworld.com/en/models/1-x", None)
+    assert out == rendered
+    browser.assert_awaited_once()
 
 
 # --------------------------------------------------------------------------- #

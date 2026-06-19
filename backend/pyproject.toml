@@ -22,6 +22,11 @@ dependencies = [
     "numpy>=1.26,<2",
     "orjson>=3.10",
     "paho-mqtt>=2.1",
+    # Stealth-patched Playwright: renders Cloudflare-gated pages (MakerWorld)
+    # server-side so collection/model imports work without a pasted cookie. The
+    # Chromium binary is installed in the Dockerfile, not via pip. See
+    # services/browser_fetch.py.
+    "patchright>=1.49",
     "pillow>=10.4",
     "prometheus-client>=0.20",
     "pydantic>=2.9",

@@ -28,7 +28,6 @@ class UrlIngestRequest(BaseModel):
 
     url: str
     collection: Optional[str] = None
-    model_name: Optional[str] = None
     tags: Optional[str] = None
     makerworld_cookie: Optional[str] = None
     thingiverse_cookie: Optional[str] = None

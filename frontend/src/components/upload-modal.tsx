@@ -472,7 +472,6 @@ export function UploadModal({
       const res = await ingestUrl({
         url: urlValue.trim(),
         collection: collectionPath || undefined,
-        model_name: modelName || undefined,
         tags: selectedTags.length ? selectedTags.join(",") : undefined,
         review: reviewCollection || undefined,
       });
@@ -890,8 +889,9 @@ export function UploadModal({
                 />
               )}
 
-              {/* Model name (single-file modes only) */}
-              {!reviewing && mode !== "zip" && (
+              {/* Model name (single-file uploads only; URL imports take their
+                  name from the downloaded file/page) */}
+              {!reviewing && mode === "files" && (
                 <div>
                   <label className="block font-mono text-xs text-[var(--on-surface-variant)] tracking-wider uppercase mb-2">
                     Model name

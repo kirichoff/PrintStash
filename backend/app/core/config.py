@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     max_archive_entry_mb: int = 512
     max_archive_uncompressed_mb: int = 2048
 
+    # Headless-browser fallback for Cloudflare-gated imports (MakerWorld). When
+    # enabled, pages that return the bot challenge are re-fetched with Chromium
+    # which solves the challenge automatically. See services/browser_fetch.py.
+    makerworld_browser_enabled: bool = True
+    makerworld_browser_headless: bool = True
+    browser_fetch_timeout_seconds: int = 45
+
     backup_dir: Path = Path("/data/backups")
     backup_retention_days: int = 30
     trash_retention_days: int = 30

@@ -110,6 +110,8 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Printables blocked the request. Try again later or use a direct download link.",
   makerworld_blocked:
     "MakerWorld blocked the request. Add your session cookie in settings, or use a direct download link.",
+  makerworld_login_required:
+    "MakerWorld requires you to be logged in to download this model. Add your MakerWorld session cookie and try again.",
   // Archive / ZIP import
   archive_invalid: "That file isn't a valid .zip archive.",
   archive_not_found: "This archive is no longer available — re-upload it.",

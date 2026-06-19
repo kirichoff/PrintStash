@@ -359,14 +359,17 @@ def test_import_real_benchy_from_printables_url_records_source(
 
 
 @_requires(BENCHY_STL)
-def test_import_from_url_honours_model_name_override(
+def test_import_from_url_names_model_from_download(
     tmp_path: Path,
     client: TestClient,
     db_session: Session,
     auth_headers: dict[str, str],
 ) -> None:
-    """A ``model_name`` supplied to /ingest/url names the resulting model rather
-    than falling back to the download's filename stem."""
+    """A URL import names the resulting model from the download's filename stem.
+
+    URL imports no longer accept a ``model_name`` override — the name comes from
+    the resolved file (or page) instead.
+    """
     _configure_storage(tmp_path)
     staged = _stage_bytes(BENCHY_STL.read_bytes(), ".stl")
 
@@ -383,7 +386,7 @@ def test_import_from_url_honours_model_name_override(
             client.post(
                 "/api/v1/ingest/url",
                 headers=auth_headers,
-                json={"url": PRINTABLES_URL, "model_name": "Original 3DBenchy"},
+                json={"url": PRINTABLES_URL},
             ),
             auth_headers,
         )
@@ -391,7 +394,7 @@ def test_import_from_url_honours_model_name_override(
     assert payload["state"] == "completed", payload
     model = db_session.get(Model, payload["model_id"])
     assert model is not None
-    assert model.name == "Original 3DBenchy"
+    assert model.name == "3dbenchy"
 
 
 # --------------------------------------------------------------------------- #

@@ -32,6 +32,7 @@ from urllib.parse import urlsplit
 
 from app.core.http_client import get_http_client
 from app.core.logging import get_logger
+from app.services import browser_fetch
 from app.services.importer import ImportError_
 
 logger = get_logger(__name__)
@@ -39,7 +40,7 @@ logger = get_logger(__name__)
 # A browser-like UA: model hosts gate their APIs/HTML behind one.
 _BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/121.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
 )
 _TIMEOUT = 30.0
 
@@ -173,6 +174,26 @@ def _first_download_url(data: Any) -> Optional[str]:
             ):
                 fallback = current
     return fallback
+
+
+# Markers Cloudflare embeds in its "Verify you are human" interstitial. We only
+# treat a page as challenged when the data we actually need (``__NEXT_DATA__``)
+# is absent, so a real page that merely mentions one of these strings is safe.
+_CHALLENGE_MARKERS = (
+    "just a moment",
+    "challenge-platform",
+    "cf-chl",
+    "verifying you are human",
+    "/cdn-cgi/challenge-platform/",
+)
+
+
+def _looks_like_challenge(html: str) -> bool:
+    """True when ``html`` is a Cloudflare bot-challenge page rather than content."""
+    if "__NEXT_DATA__" in html:
+        return False
+    lowered = html.lower()
+    return any(marker in lowered for marker in _CHALLENGE_MARKERS)
 
 
 def _extract_next_data(html: str) -> Optional[Any]:
@@ -445,7 +466,9 @@ async def _resolve_printables_collection(url: str) -> Optional[tuple[str, list[C
 # --------------------------------------------------------------------------- #
 # MakerWorld (Next.js page → instance/model download API)
 # --------------------------------------------------------------------------- #
-def _makerworld_api_headers(referer: str, nonce: Optional[str], cookie: Optional[str]) -> dict:
+def _makerworld_api_headers(referer: str, nonce: Optional[str]) -> dict:
+    # The login cookie is injected into the browser context by browser_fetch, not
+    # set here, so the request carries it alongside Cloudflare clearance.
     headers = {
         "User-Agent": _BROWSER_UA,
         "Accept": "application/json",
@@ -455,12 +478,16 @@ def _makerworld_api_headers(referer: str, nonce: Optional[str], cookie: Optional
     }
     if nonce:
         headers["X-Nonce"] = nonce
-    if cookie:
-        headers["Cookie"] = cookie
     return headers
 
 
 async def _makerworld_fetch_page(url: str, cookie: Optional[str]) -> Optional[str]:
+    """Fetch a MakerWorld page's HTML, rendering past Cloudflare if needed.
+
+    The cheap httpx fetch is tried first. If MakerWorld returns nothing usable —
+    a non-200, or the Cloudflare "Verify you are human" interstitial — fall back
+    to a headless browser that solves the challenge and returns rendered HTML.
+    """
     client = get_http_client()
     headers = {
         "User-Agent": _BROWSER_UA,
@@ -470,40 +497,63 @@ async def _makerworld_fetch_page(url: str, cookie: Optional[str]) -> Optional[st
     if cookie:
         headers["Cookie"] = cookie
     resp = await client.get(url, headers=headers, follow_redirects=True, timeout=_TIMEOUT)
-    if resp.status_code != 200:
-        return None
-    return resp.text
+    html = resp.text if resp.status_code == 200 else None
+
+    if html is not None and not _looks_like_challenge(html):
+        return html
+
+    # httpx was blocked or challenged — render the page in a fresh browser context
+    # that solves the Cloudflare challenge.
+    rendered = await browser_fetch.fetch_rendered_html(
+        url, wait_selector="script#__NEXT_DATA__", extra_cookie=cookie
+    )
+    if rendered:
+        return rendered
+    return html
 
 
 async def _makerworld_api_get(
     api_url: str, referer: str, nonce: Optional[str], cookie: Optional[str]
 ) -> Optional[Any]:
-    client = get_http_client()
-    resp = await client.get(
-        api_url,
-        headers=_makerworld_api_headers(referer, nonce, cookie),
-        follow_redirects=True,
-        timeout=_TIMEOUT,
-    )
-    if resp.status_code in (401, 403, 429):
+    """GET a MakerWorld API endpoint through the browser, past Cloudflare.
+
+    Plain httpx is challenged (403) by Cloudflare, so the request rides the
+    browser's request context. ``cookie`` carries the user's login session;
+    download endpoints are auth-gated and answer 403 "please log in" without it.
+    """
+    headers = _makerworld_api_headers(referer, nonce)
+    result = await browser_fetch.api_get(api_url, cookie=cookie, headers=headers)
+    if result is None:
+        return None
+    status, text = result
+    if status in (401, 403, 429):
+        if "log in" in text.lower() or "login" in text.lower():
+            raise ImportError_("makerworld_login_required")
         raise ImportError_("makerworld_blocked")
-    if resp.status_code != 200:
+    if status != 200:
         return None
     try:
-        return resp.json()
+        return json.loads(text)
     except ValueError:
         return None
 
 
-def _makerworld_page_facts(next_data: Any) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Return ``(design_id, instance_id, nonce)`` pulled from ``__NEXT_DATA__``."""
-    try:
-        props = next_data["props"]["pageProps"]
-    except (KeyError, TypeError):
-        return None, None, None
-    design = props.get("design") or {}
-    design_id = str(design["id"]) if isinstance(design, dict) and design.get("id") else None
-    instance_id = None
+async def _resolve_makerworld(url: str, cookie: Optional[str]) -> Optional[str]:
+    """Resolve a MakerWorld model page to a direct download URL.
+
+    The page HTML embeds no real file link (only thumbnails and store links), so
+    we go straight to the download API: the public design endpoint yields the
+    instance id, and the instance's ``f3mf`` endpoint yields the file link. The
+    latter is auth-gated — without a login ``cookie`` it raises
+    ``makerworld_login_required`` (surfaced via :func:`_makerworld_api_get`).
+    """
+    design_id = _makerworld_id(url)
+    if not design_id:
+        return None
+    base = "https://makerworld.com/api/v1/design-service"
+
+    instance_id: Optional[str] = None
+    design = await _makerworld_api_get(f"{base}/design/{design_id}", url, None, cookie)
     if isinstance(design, dict):
         if design.get("defaultInstanceId"):
             instance_id = str(design["defaultInstanceId"])
@@ -512,43 +562,18 @@ def _makerworld_page_facts(next_data: Any) -> tuple[Optional[str], Optional[str]
                 if isinstance(inst, dict) and inst.get("id"):
                     instance_id = str(inst["id"])
                     break
-    nonce = props.get("x-nonce")
-    nonce = nonce if isinstance(nonce, str) and nonce.strip() else None
-    return design_id, instance_id, nonce
-
-
-async def _resolve_makerworld(url: str, cookie: Optional[str]) -> Optional[str]:
-    model_id = _makerworld_id(url)
-    design_id = instance_id = nonce = None
-
-    html = await _makerworld_fetch_page(url, cookie)
-    if html:
-        next_data = _extract_next_data(html)
-        if next_data is not None:
-            # A page sometimes already embeds a usable link in its hydration JSON.
-            link = _first_download_url(next_data)
-            if link:
-                return link
-            design_id, instance_id, nonce = _makerworld_page_facts(next_data)
 
     if instance_id:
-        api = (
-            f"https://makerworld.com/api/v1/design-service/instance/"
-            f"{instance_id}/f3mf?type=download&fileType=3mfstl"
-        )
-        data = await _makerworld_api_get(api, url, nonce, cookie)
+        api = f"{base}/instance/{instance_id}/f3mf?type=download&fileType=3mfstl"
+        data = await _makerworld_api_get(api, url, None, cookie)
         link = _first_download_url(data) if data is not None else None
         if link:
             return link
 
-    target = design_id or model_id
-    if target:
-        api = f"https://makerworld.com/api/v1/models/{target}/download"
-        data = await _makerworld_api_get(api, url, nonce, cookie)
-        link = _first_download_url(data) if data is not None else None
-        if link:
-            return link
-    return None
+    # Fallback to the model-level download endpoint.
+    api = f"https://makerworld.com/api/v1/models/{design_id}/download"
+    data = await _makerworld_api_get(api, url, None, cookie)
+    return _first_download_url(data) if data is not None else None
 
 
 def _makerworld_collection_members(next_data: Any) -> list[CollectionMember]:
@@ -584,7 +609,10 @@ def _makerworld_collection_members(next_data: Any) -> list[CollectionMember]:
             )
         )
 
-    _MEMBER_LIST_HINTS = ("design", "model", "content", "hit", "item", "list", "record")
+    # MakerWorld embeds members under e.g. ``favoriteDesigns.hits`` / ``designs``.
+    _MEMBER_LIST_HINTS = (
+        "design", "model", "content", "hit", "item", "list", "record", "favorite",
+    )
 
     def walk(node: Any) -> None:
         if isinstance(node, dict):
@@ -616,9 +644,11 @@ async def _resolve_makerworld_collection(
 
     title = f"Collection {collection_id}"
     try:
-        collection = next_data["props"]["pageProps"].get("collection") or {}
-        if isinstance(collection, dict) and collection.get("name"):
-            title = str(collection["name"])
+        props = next_data["props"]["pageProps"]
+        # MakerWorld renamed collections to "favorites"; older pages used "collection".
+        meta = props.get("favorite") or props.get("collection") or {}
+        if isinstance(meta, dict) and (meta.get("title") or meta.get("name")):
+            title = str(meta.get("title") or meta.get("name"))
     except (KeyError, TypeError):
         pass
 

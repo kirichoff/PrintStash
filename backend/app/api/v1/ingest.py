@@ -568,7 +568,6 @@ async def _import_from_url(
         source_url=req.url,
         actor_user_id=actor_user_id,
         session_factory=session_factory,
-        model_name=req.model_name,
     )
 
 
