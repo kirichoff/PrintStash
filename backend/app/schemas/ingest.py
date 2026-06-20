@@ -28,10 +28,12 @@ class UrlIngestRequest(BaseModel):
 
     url: str
     collection: Optional[str] = None
-    model_name: Optional[str] = None
     tags: Optional[str] = None
     makerworld_cookie: Optional[str] = None
     thingiverse_cookie: Optional[str] = None
+    # When ``url`` is a *collection*, review the member list before importing
+    # instead of auto-importing every member.
+    review: bool = False
 
 
 class ArchiveEntryRead(BaseModel):
@@ -53,6 +55,52 @@ class ArchiveSelectRequest(BaseModel):
     """Body for POST /ingest/archive/{archive_id}/select."""
 
     names: list[str]
+    collection: Optional[str] = None
+    tags: Optional[str] = None
+
+
+class ModelFileRead(BaseModel):
+    file_id: str
+    name: str
+    file_type: str  # stl / gcode / sla / other
+    size: Optional[int] = None
+
+
+class ModelFilesManifest(BaseModel):
+    """Returned (as a job result) when a model page exposes multiple files."""
+
+    files_token: str
+    page_title: str
+    files: list[ModelFileRead]
+
+
+class FileSelectRequest(BaseModel):
+    """Body for POST /ingest/url/files/{files_token}/select."""
+
+    file_ids: list[str]
+    collection: Optional[str] = None
+    tags: Optional[str] = None
+
+
+class CollectionMemberRead(BaseModel):
+    source_id: str
+    title: str
+    page_url: str
+
+
+class CollectionManifest(BaseModel):
+    """Returned (as a job result) when a collection URL is imported in review mode."""
+
+    collection_token: str
+    collection_name: str
+    target_collection: str
+    members: list[CollectionMemberRead]
+
+
+class CollectionSelectRequest(BaseModel):
+    """Body for POST /ingest/collection/{collection_token}/select."""
+
+    member_ids: list[str]
     collection: Optional[str] = None
     tags: Optional[str] = None
 

@@ -96,9 +96,11 @@ async def lifespan(app: FastAPI):
     app.state.external_scan_task.cancel()
     await watcher.stop_all()
     await hub.stop_all()
+    from app.services.browser_fetch import close_browser
     from app.services.moonraker import close_http_client
 
     await close_http_client()
+    await close_browser()
     logger.info("shutting down")
 
 

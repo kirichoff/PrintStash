@@ -72,6 +72,21 @@ class Settings(BaseSettings):
     max_archive_entry_mb: int = 512
     max_archive_uncompressed_mb: int = 2048
 
+    # Headless-browser fallback for Cloudflare-gated imports (MakerWorld). When
+    # enabled, pages that return the bot challenge are re-fetched with Chromium
+    # which solves the challenge automatically. See services/browser_fetch.py.
+    makerworld_browser_enabled: bool = True
+    makerworld_browser_headless: bool = True
+    browser_fetch_timeout_seconds: int = 45
+
+    # Instance-level MakerWorld session cookie. MakerWorld auth-gates file
+    # downloads, so anonymous URL import can list a collection but never fetch its
+    # files. Setting this once (admin pastes a logged-in `k=v; k2=v2` cookie
+    # header) lets every import reuse it, so end users paste nothing. A per-request
+    # `makerworld_cookie` still overrides it. Sessions expire — when downloads
+    # start failing with `makerworld_login_required`, re-paste a fresh value.
+    makerworld_cookie: str = ""
+
     backup_dir: Path = Path("/data/backups")
     backup_retention_days: int = 30
     trash_retention_days: int = 30
@@ -83,7 +98,7 @@ class Settings(BaseSettings):
     backup_s3_secret_key: str = ""
 
     app_name: str = "PrintStash"
-    app_version: str = "0.6.6"
+    app_version: str = "0.6.7"
 
     @property
     def incoming_dir(self) -> Path:

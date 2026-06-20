@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.7 - Collection & file-level import
+
+### Added
+
+- **Import a whole collection from a URL.** Pasting a Printables or MakerWorld
+  *collection* URL into Upload → From URL now fans the collection out into a new
+  PrintStash collection (named after the source), importing every member model.
+  Each model records its own member page as `source_url`, and a member that
+  itself ships multiple files expands into multiple models. Multi-file members
+  and per-member failures are handled independently, so one bad member never
+  aborts the batch.
+- **Auto or review.** A "Review collection items before importing" toggle lets
+  you either import everything automatically or first pick which member models
+  to keep (mirroring the existing ZIP entry-selection flow).
+- **Per-file selection for multi-file model pages.** A Printables model page with
+  several files (e.g. a model with 11 STLs) now lists those files from the source
+  *without downloading*, so you can choose exactly which ones to import; only the
+  selected files are fetched. Single-file pages still import directly.
+
+### Notes
+
+- Printables works fully anonymously. MakerWorld sits behind a Cloudflare
+  challenge, so collection import there is best-effort and may require a browser
+  cookie, matching the existing single-model MakerWorld behaviour. Tinkercad is
+  intentionally out of scope (no clean download API).
+
 ## 0.6.6 - Operations hardening (R2)
 
 ### Added

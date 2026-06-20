@@ -447,6 +447,13 @@ class SystemConfig(SQLModel, table=True):
     # cost). ``None`` falls back to the default "USD".
     currency: Optional[str] = Field(default=None, max_length=3)
 
+    # MakerWorld session token (a Bambu account JWT) obtained via the in-app
+    # login flow. MakerWorld auth-gates file downloads; this token is injected as
+    # the ``token=<jwt>`` cookie so imports authenticate. Stored like the S3
+    # secrets above (plaintext, superuser-only API). ``None`` = not connected.
+    makerworld_token: Optional[str] = Field(default=None, max_length=4096)
+    makerworld_token_updated_at: Optional[datetime] = Field(default=None)
+
     configured_at: Optional[datetime] = Field(default=None, index=True)
 
     created_at: datetime = Field(default_factory=utcnow)

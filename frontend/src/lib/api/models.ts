@@ -190,10 +190,32 @@ export function getJobStatus(jobId: string): Promise<IngestJobStatus> {
 export function ingestUrl(payload: {
   url: string;
   collection?: string;
-  model_name?: string;
   tags?: string;
+  review?: boolean;
 }): Promise<IngestResponse> {
   return sendJson<IngestResponse>("/api/v1/ingest/url", "POST", payload);
+}
+
+export function selectModelFiles(
+  filesToken: string,
+  payload: { file_ids: string[]; collection?: string; tags?: string },
+): Promise<IngestResponse> {
+  return sendJson<IngestResponse>(
+    `/api/v1/ingest/url/files/${filesToken}/select`,
+    "POST",
+    payload,
+  );
+}
+
+export function selectCollectionMembers(
+  collectionToken: string,
+  payload: { member_ids: string[]; collection?: string; tags?: string },
+): Promise<IngestResponse> {
+  return sendJson<IngestResponse>(
+    `/api/v1/ingest/collection/${collectionToken}/select`,
+    "POST",
+    payload,
+  );
 }
 
 export function ingestArchive(formData: FormData): Promise<ArchiveManifest> {

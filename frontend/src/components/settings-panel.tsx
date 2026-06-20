@@ -33,6 +33,7 @@ import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { CURRENCY_OPTIONS } from "@/lib/currency";
 import { ExternalLibrariesPanel } from "@/components/external-libraries-panel";
 import { StorageConfigCard } from "@/components/storage-config-card";
+import { MakerWorldConnectCard } from "@/components/makerworld-connect-card";
 import { BrandMark } from "@/components/brand-mark";
 import {
   createApiKey,
@@ -98,6 +99,7 @@ type SettingsSection =
   | "overview"
   | "access"
   | "storage"
+  | "imports"
   | "libraries"
   | "design"
   | "trash"
@@ -111,6 +113,7 @@ const SETTINGS_SECTIONS: {
   { id: "overview", label: "Overview", icon: Server },
   { id: "access", label: "Users & Access", icon: Users },
   { id: "storage", label: "Storage", icon: HardDrive },
+  { id: "imports", label: "Imports", icon: Download },
   { id: "libraries", label: "Shared volumes", icon: FolderSync },
   { id: "design", label: "Design", icon: Palette },
   { id: "trash", label: "Trash", icon: Trash2 },
@@ -1312,6 +1315,12 @@ export function SettingsPanel() {
               )}
             </div>
           </SettingsCard>
+        </div>
+      )}
+
+      {activeSection === "imports" && (
+        <div className="space-y-6">
+          <MakerWorldConnectCard />
         </div>
       )}
 

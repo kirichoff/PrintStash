@@ -3,7 +3,8 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_CACHE_DIR=/tmp/.uv_cache \
-    UV_COMPILE_BYTECODE=1
+    UV_COMPILE_BYTECODE=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 
 WORKDIR /app
 
@@ -20,6 +21,12 @@ RUN apt-get update \
 
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-editable
+
+# Chromium for server-side rendering of Cloudflare-gated pages (MakerWorld
+# imports). --with-deps pulls the OS libraries Chromium needs; the browser is
+# stored at $PLAYWRIGHT_BROWSERS_PATH so the runtime finds it. This is the bulk
+# of the image size. See app/services/browser_fetch.py.
+RUN uv run patchright install --with-deps chromium
 
 COPY app ./app
 COPY alembic.ini ./alembic.ini
