@@ -484,15 +484,28 @@ def import_resolved_groups(
             registry.update(job_id, step=done, progress=done / max(total, 1) * 100)
 
     imported = [r for r in results if r.get("model_id")]
+    result = {
+        "kind": "collection_import",
+        "collection": collection,
+        "imported": len(imported),
+        "total": total,
+        "items": results,
+    }
+
+    # Nothing imported means the whole collection failed — every member errored
+    # (commonly all ``makerworld_login_required``) or none had importable files.
+    # Reporting "completed" here is the bug that made a failed import look OK; so
+    # fail the job, and when the members agree on one error code surface it (so
+    # the UI shows e.g. the MakerWorld login message rather than a generic one).
+    if not imported:
+        member_errors = {r["error"] for r in results if r.get("error")}
+        error = member_errors.pop() if len(member_errors) == 1 else "collection_import_failed"
+        registry.update(job_id, state="failed", error=error, result=result)
+        return
+
     registry.update(
         job_id,
         state="completed",
-        model_id=imported[0]["model_id"] if imported else None,
-        result={
-            "kind": "collection_import",
-            "collection": collection,
-            "imported": len(imported),
-            "total": total,
-            "items": results,
-        },
+        model_id=imported[0]["model_id"],
+        result=result,
     )

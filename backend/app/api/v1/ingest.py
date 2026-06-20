@@ -137,6 +137,10 @@ class _PendingCollection:
     target_collection: str
     owner_user_id: Optional[int]
     members: list[import_resolvers.CollectionMember]
+    # The session cookie resolved when the manifest was created, carried forward
+    # so the later /select confirm can still authenticate downloads. May be stale
+    # by confirm time (sessions expire within the 1h TTL) — then downloads 403.
+    makerworld_cookie: Optional[str] = None
     created_at: float = field(default_factory=time.time)
 
 
@@ -177,6 +181,17 @@ class _PendingRegistry(Generic[T]):
 
 pending_model_files: _PendingRegistry[_PendingModelFiles] = _PendingRegistry()
 pending_collections: _PendingRegistry[_PendingCollection] = _PendingRegistry()
+
+
+def _makerworld_cookie(override: Optional[str]) -> Optional[str]:
+    """Effective MakerWorld session cookie for an import.
+
+    Prefers a per-request ``override``, falls back to the instance-level
+    ``settings.makerworld_cookie`` (admin pastes it once so end users paste
+    nothing), and is ``None`` when neither is set — anonymous imports can list a
+    collection but MakerWorld's auth-gated download endpoints will then 403.
+    """
+    return (override or "").strip() or settings.makerworld_cookie.strip() or None
 
 
 def _collection_target(parent: Optional[str], title: str) -> str:
@@ -425,8 +440,9 @@ async def _handle_collection_url(
     session_factory: SessionFactory,
 ) -> None:
     """Resolve a collection URL; either stage a review manifest or import all."""
+    cookie = _makerworld_cookie(req.makerworld_cookie)
     resolved = await import_resolvers.resolve_collection_url(
-        req.url, makerworld_cookie=req.makerworld_cookie
+        req.url, makerworld_cookie=cookie
     )
     if not resolved:
         registry.update(job_id, state="failed", error="collection_resolve_failed")
@@ -441,6 +457,7 @@ async def _handle_collection_url(
                 target_collection=target,
                 owner_user_id=actor_user_id,
                 members=members,
+                makerworld_cookie=cookie,
             )
         )
         manifest = CollectionManifest(
@@ -459,7 +476,7 @@ async def _handle_collection_url(
         )
         return
 
-    groups = await _stage_members(members, makerworld_cookie=req.makerworld_cookie)
+    groups = await _stage_members(members, makerworld_cookie=cookie)
     await run_in_threadpool(
         importer.import_resolved_groups,
         job_id=job_id,
@@ -503,7 +520,7 @@ async def _import_from_url(
         download_url = (
             await import_resolvers.resolve_page_url(
                 req.url,
-                makerworld_cookie=req.makerworld_cookie,
+                makerworld_cookie=_makerworld_cookie(req.makerworld_cookie),
                 thingiverse_cookie=req.thingiverse_cookie,
             )
             or req.url
@@ -618,11 +635,12 @@ async def _run_collection_member_import(
     tags: Optional[str],
     actor_user_id: int,
     session_factory: SessionFactory,
+    makerworld_cookie: Optional[str] = None,
 ) -> None:
     """Background task: stage selected collection members and ingest them."""
     try:
         registry.update(job_id, state="running")
-        groups = await _stage_members(members, makerworld_cookie=None)
+        groups = await _stage_members(members, makerworld_cookie=makerworld_cookie)
     except Exception as exc:  # noqa: BLE001 — network/IO boundary
         logger.exception("collection member import failed")
         registry.update(job_id, state="failed", error=str(exc))
@@ -877,6 +895,7 @@ async def select_collection_members(
         tags=req.tags,
         actor_user_id=current_user.id,
         session_factory=session_factory,
+        makerworld_cookie=pending.makerworld_cookie,
     )
     return IngestResponse(job_id=job_id, state="pending")
 

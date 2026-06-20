@@ -109,9 +109,16 @@ const ERROR_MESSAGES: Record<string, string> = {
   printables_blocked:
     "Printables blocked the request. Try again later or use a direct download link.",
   makerworld_blocked:
-    "MakerWorld blocked the request. Add your session cookie in settings, or use a direct download link.",
+    "MakerWorld blocked the request. Connect MakerWorld under Settings → Imports, or use a direct download link.",
   makerworld_login_required:
-    "MakerWorld requires you to be logged in to download this model. Add your MakerWorld session cookie and try again.",
+    "MakerWorld requires you to be logged in to download this model. Connect MakerWorld under Settings → Imports and try again.",
+  // MakerWorld login (Settings → Imports)
+  missing_credentials: "Enter your MakerWorld email and password.",
+  invalid_code: "That verification code wasn't accepted. Try again.",
+  missing_code: "Enter the verification code.",
+  login_expired: "The login attempt expired. Start again.",
+  login_failed: "MakerWorld login failed. Try again later.",
+  network_error: "Couldn't reach MakerWorld. Check your connection and try again.",
   // Archive / ZIP import
   archive_invalid: "That file isn't a valid .zip archive.",
   archive_not_found: "This archive is no longer available — re-upload it.",
@@ -119,6 +126,15 @@ const ERROR_MESSAGES: Record<string, string> = {
   archive_entry_too_large: "A file inside the archive is too large.",
   archive_too_large: "The archive's contents exceed the size limit.",
   archive_unsafe_entry: "The archive contains an unsafe file path.",
+  // Collection import
+  collection_import_failed:
+    "None of the collection's models could be imported. Check that the source is reachable, and for MakerWorld that the account is connected under Settings → Imports.",
+  collection_resolve_failed:
+    "Couldn't read that collection. Check the URL, or try importing models individually.",
+  makerworld_collection_resolve_failed:
+    "Couldn't read that MakerWorld collection. Connect MakerWorld under Settings → Imports, or import models individually.",
+  printables_collection_resolve_failed:
+    "Couldn't read that Printables collection. Check the URL, or import models individually.",
   // Taxonomy
   collection_not_found: "Collection not found.",
   collection_not_empty: "Cannot delete: collection still has models assigned.",

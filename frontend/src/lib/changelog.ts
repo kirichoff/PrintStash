@@ -21,6 +21,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.6.7",
+    date: "Jun 2026",
+    changes: [
+      "Import whole collections and individual files by URL from Printables, MakerWorld, and Thingiverse",
+      "Connect a MakerWorld account under Settings → Imports so model and collection downloads work — sign in with email + password (with the emailed verification code), or paste a session token for Google-linked accounts",
+      "MakerWorld imports past the Cloudflare check using a headless browser",
+      "Fixed collection imports reporting success when every model actually failed to download — they now fail with a clear reason (e.g. MakerWorld login required)",
+    ],
+  },
+  {
     version: "0.6.6",
     date: "Jun 2026",
     changes: [
