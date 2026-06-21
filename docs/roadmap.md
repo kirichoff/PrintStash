@@ -58,14 +58,17 @@ enough for real home use.
 - Scheduled release backup/restore smoke checks
 - Upgrade notes for SQLite and optional Postgres installs
 
-## 0.7 — Notifications and Event Hooks
+## 0.7 — Notifications, Event Hooks, and Parser Robustness (delivered in 0.7.0)
 
 Goal: tell people when something happens without making them watch a dashboard.
+
+Shipped together in 0.7.0 rather than across several patches:
 
 - Generic outbound webhooks for print-completed, print-failed, print-cancelled, and printer-offline events (cancellations are a distinct event so they can be muted separately)
 - First-party targets: Discord, Telegram, and ntfy
 - Per-event and per-printer notification toggles
-- Delivery retry and a visible "last notification" status
+- Delivery retry with backoff and a visible "last notification" status, off by default behind a master switch
+- G-code parser robustness from real-slicer fixtures: fixes for OrcaSlicer filament-length corruption, Orca/Bambu bed-temperature detection, and PrusaSlicer infill detection
 
 ## 0.8 — Filament and Spool Inventory
 
