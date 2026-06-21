@@ -99,3 +99,14 @@ export type {
   ExternalLibraryFsKind,
   ExternalLibraryScanSummary,
 } from "./config";
+
+export type {
+  NotificationTarget,
+  NotificationEvent,
+  NotificationChannel,
+  NotificationsSettings,
+  NotificationChannelCreate,
+  NotificationChannelUpdate,
+  NotificationTestResult,
+  NotificationDelivery,
+} from "./notifications";

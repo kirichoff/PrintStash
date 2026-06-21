@@ -223,6 +223,22 @@ def external_libraries_enabled(session: Session) -> bool:
     return False if config is None else bool(config.external_libraries_enabled)
 
 
+def notifications_enabled(session: Session) -> bool:
+    """Master opt-in switch for outbound notifications. Off by default."""
+    config = session.get(SystemConfig, 1)
+    return False if config is None else bool(config.notifications_enabled)
+
+
+def set_notifications_enabled(session: Session, enabled: bool) -> SystemConfig:
+    config = get_or_create(session)
+    config.notifications_enabled = enabled
+    config.updated_at = utcnow()
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    return config
+
+
 def currency(session: Session) -> str:
     """ISO 4217 code used to render cost figures. Defaults to USD."""
     config = session.get(SystemConfig, 1)
@@ -332,6 +348,7 @@ def get_effective_config(session: Session) -> dict:
         "has_backup_s3": bool(settings.backup_s3_bucket),
         "auto_mark_known_good": auto_mark_known_good_enabled(session),
         "external_libraries_enabled": external_libraries_enabled(session),
+        "notifications_enabled": notifications_enabled(session),
         "currency": currency(session),
     }
 

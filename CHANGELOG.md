@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.7.0 - Notifications & event hooks
+
+### Added
+
+- **Outbound notifications on print and printer events.** PrintStash can now
+  alert you when a print completes, fails, or is cancelled, and when a printer
+  goes offline — no need to watch the dashboard. Cancellations are a separate
+  event from failures, so you can mute self-cancellations without silencing real
+  failures.
+- **Four delivery targets.** Generic JSON webhooks, Discord, Telegram, and ntfy.
+  Configure channels under **Settings → Notifications** (administrators only).
+- **Per-event and per-printer toggles.** Each channel subscribes to the events
+  you choose and, optionally, only specific printers.
+- **Reliable delivery.** Events are enqueued atomically with the state change
+  that produced them (so none are lost) and delivered by a background dispatcher
+  with automatic retry and exponential backoff. Each channel shows its last
+  delivery status, and a recent-deliveries log records outcomes. A **Test**
+  button sends a sample notification to verify a channel end to end. The whole
+  feature is off until you enable it with a master switch.
+
+### Fixed
+
+- **Filament length no longer corrupted on OrcaSlicer files.** Real OrcaSlicer
+  output embeds a `;Filament used:4.20m` comment in its start G-code, which was
+  mistaken for Cura's metres figure and multiplied the true millimetre length by
+  1000 (e.g. a benchy reported ~4,200,000 mm of filament). The metres conversion
+  now only applies when no explicit `[mm]` length is present.
+- **Bed temperature now detected on OrcaSlicer / BambuStudio.** These slicers
+  name the heated bed `hot_plate_temp`, which the parser previously ignored.
+- **Infill percentage now detected on PrusaSlicer.** It writes `fill_density`
+  (underscore), which the older space-separated pattern missed.
+
+### Internal
+
+- Parser hardening is now driven by self-sourced fixtures trimmed from real
+  public slicer output (OrcaSlicer 2.3.2, PrusaSlicer 2.6.1), with regression
+  tests for each bug above. Binary `.bgcode` remains unparsed (returns empty
+  metadata gracefully) and is tracked as a follow-up.
+
 ## 0.6.7 - Collection & file-level import
 
 ### Added

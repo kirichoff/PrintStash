@@ -62,7 +62,7 @@ enough for real home use.
 
 Goal: tell people when something happens without making them watch a dashboard.
 
-- Generic outbound webhooks for print-completed, print-failed, and printer-offline events
+- Generic outbound webhooks for print-completed, print-failed, print-cancelled, and printer-offline events (cancellations are a distinct event so they can be muted separately)
 - First-party targets: Discord, Telegram, and ntfy
 - Per-event and per-printer notification toggles
 - Delivery retry and a visible "last notification" status

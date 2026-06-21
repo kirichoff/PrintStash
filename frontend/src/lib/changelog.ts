@@ -21,6 +21,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.7.0",
+    date: "Jun 2026",
+    changes: [
+      "Notifications: get alerted when a print completes, fails, or is cancelled, or when a printer goes offline — delivered to webhooks, Discord, Telegram, or ntfy",
+      "Set up channels under Settings → Notifications with per-event and per-printer toggles, a Test button, and a recent-deliveries log; failed sends retry automatically",
+      "Fixed wildly wrong filament length on OrcaSlicer G-code — a benchy could report millions of millimetres because a start-G-code comment was misread as a metres value; lengths (and the costs derived from them) are now correct",
+      "Bed temperature now shows for OrcaSlicer and Bambu Studio G-code",
+      "Infill percentage now shows for PrusaSlicer G-code",
+    ],
+  },
+  {
     version: "0.6.7",
     date: "Jun 2026",
     changes: [

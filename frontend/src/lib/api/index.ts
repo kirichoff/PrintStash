@@ -12,6 +12,7 @@ export * from "@/lib/api/config";
 export * from "@/lib/api/filaments";
 export * from "@/lib/api/libraries";
 export * from "@/lib/api/models";
+export * from "@/lib/api/notifications";
 export * from "@/lib/api/printer-profiles";
 export * from "@/lib/api/printers";
 export * from "@/lib/api/share";

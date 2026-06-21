@@ -49,6 +49,8 @@ _PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     "infill_percent": (
         re.compile(r";\s*sparse_infill_density\s*=\s*([\d.]+)\s*%?", re.IGNORECASE),
         re.compile(r";\s*infill_density\s*=\s*([\d.]+)\s*%?", re.IGNORECASE),
+        # PrusaSlicer / SuperSlicer write "fill_density = 15%" (underscore).
+        re.compile(r";\s*fill_density\s*=\s*([\d.]+)\s*%?", re.IGNORECASE),
         re.compile(r";\s*fill density\s*[:=]\s*([\d.]+)\s*%?", re.IGNORECASE),
     ),
     "wall_loops": (
@@ -83,6 +85,9 @@ _PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     ),
     "bed_temperature_c": (
         re.compile(r";\s*bed_temperature\s*=\s*([\d.]+)", re.IGNORECASE),
+        # OrcaSlicer / BambuStudio name the heated bed "hot_plate_temp"; the
+        # "_initial_layer" variant is excluded by requiring "=" right after.
+        re.compile(r";\s*hot_plate_temp\s*=\s*([\d.]+)", re.IGNORECASE),
         re.compile(r";\s*filament_bed_temperature\s*=\s*([\d.]+)", re.IGNORECASE),
         re.compile(r";\s*bed temperature\s*[:=]\s*([\d.]+)", re.IGNORECASE),
         re.compile(r";\s*print_bed_temperature\s*=\s*([\d.]+)", re.IGNORECASE),
@@ -126,6 +131,12 @@ _DURATION_UNITS = {"d": 86400, "h": 3600, "m": 60, "s": 1}
 # colon may be padded ("Filament used : 1.234 m") — so the mm conversion only
 # fires when there really is a metres figure.
 _CURA_METERS_RE = re.compile(r"filament used\s*:\s*[\d.]+\s*m", re.IGNORECASE)
+
+# An explicit "[mm]" filament line means the length is already in mm and the
+# metres conversion must NOT fire. Real OrcaSlicer output embeds a Marlin-style
+# "Filament used:4.20m" comment in its start-gcode block, which would otherwise
+# match _CURA_METERS_RE and multiply the correct mm value by 1000.
+_MM_LENGTH_RE = re.compile(r"filament[^\r\n]*\[mm\]", re.IGNORECASE)
 
 
 def parse_duration(s: str) -> Optional[int]:
@@ -256,8 +267,13 @@ def parse(path: Path) -> Dict[str, Any]:
             or key in {"filament_cost", "infill_percent"}
         ):
             out[key] = _to_float(value)
-            if key == "filament_length_mm" and _CURA_METERS_RE.search(text):
-                out[key] = out[key] * 1000 if out[key] is not None else None
+            if (
+                key == "filament_length_mm"
+                and out[key] is not None
+                and not _MM_LENGTH_RE.search(text)
+                and _CURA_METERS_RE.search(text)
+            ):
+                out[key] = out[key] * 1000
         elif key in {"wall_loops", "top_shell_layers", "bottom_shell_layers"}:
             out[key] = _to_int(value)
         elif key in {"material_type", "material_brand"}:
