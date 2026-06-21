@@ -21,6 +21,8 @@ export interface NotificationChannel {
   last_status: string | null;
   last_error: string | null;
   last_delivered_at: string | null;
+  /** Consecutive permanently-failed deliveries; channel auto-disables past a threshold. */
+  consecutive_failures: number;
 }
 
 export interface NotificationsSettings {

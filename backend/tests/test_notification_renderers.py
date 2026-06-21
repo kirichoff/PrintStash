@@ -30,11 +30,29 @@ def _ctx(**over):
 
 
 def test_webhook_wraps_full_context():
+    import json
+
     req = r.render_webhook(_ctx(), {"url": "https://example.com/hook"})
     assert req.method == "POST"
     assert req.url == "https://example.com/hook"
-    assert req.json["event"] == "print_completed"
-    assert req.json["data"]["filename"] == "benchy.gcode"
+    # Body is serialised to `data` (so signing can cover exact bytes); no json.
+    assert req.json is None
+    body = json.loads(req.data)
+    assert body["event"] == "print_completed"
+    assert body["data"]["filename"] == "benchy.gcode"
+    assert "X-PrintStash-Signature" not in req.headers  # no secret configured
+
+
+def test_webhook_hmac_signature_when_secret_set():
+    import hashlib
+    import hmac
+
+    secret = "s3cr3t"
+    req = r.render_webhook(_ctx(), {"url": "https://example.com/hook", "secret": secret})
+    expected = hmac.new(
+        secret.encode(), req.data.encode(), hashlib.sha256
+    ).hexdigest()
+    assert req.headers["X-PrintStash-Signature"] == f"sha256={expected}"
 
 
 def test_discord_builds_embed_with_color_and_fields():

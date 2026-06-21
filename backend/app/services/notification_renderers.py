@@ -12,6 +12,9 @@ renderer. Adding a target means adding one function and one registry entry.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
 
@@ -114,14 +117,27 @@ def _require(config: Dict[str, Any], key: str, target: str) -> str:
 
 
 def render_webhook(context: Dict[str, Any], config: Dict[str, Any]) -> OutboundRequest:
-    """Generic webhook: POST the raw event context as JSON."""
+    """Generic webhook: POST the event context as JSON, optionally HMAC-signed.
+
+    The body is serialised here (sent as raw ``data``, not ``json``) so that —
+    when a ``secret`` is configured — the ``X-PrintStash-Signature`` header is an
+    HMAC-SHA256 over the *exact bytes* transmitted, which the receiver can
+    recompute to verify authenticity.
+    """
     url = _require(config, "url", "webhook")
-    return OutboundRequest(
-        method="POST",
-        url=url,
-        headers={"Content-Type": "application/json"},
-        json={"event": context.get("event"), "data": context},
+    body = json.dumps(
+        {"event": context.get("event"), "data": context},
+        separators=(",", ":"),
+        sort_keys=True,
     )
+    headers = {"Content-Type": "application/json"}
+    secret = config.get("secret")
+    if secret:
+        digest = hmac.new(
+            str(secret).encode("utf-8"), body.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+        headers["X-PrintStash-Signature"] = f"sha256={digest}"
+    return OutboundRequest(method="POST", url=url, headers=headers, data=body)
 
 
 def render_discord(context: Dict[str, Any], config: Dict[str, Any]) -> OutboundRequest:

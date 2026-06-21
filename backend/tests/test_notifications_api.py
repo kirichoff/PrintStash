@@ -54,7 +54,9 @@ def test_update_preserves_secret_when_blank(client: TestClient, auth_headers):
 
     resp = MagicMock(status_code=204, text="")
     fake = MagicMock(request=AsyncMock(return_value=resp))
-    with patch("app.services.notifications.get_http_client", return_value=fake):
+    with patch("app.services.notifications.get_http_client", return_value=fake), patch(
+        "app.services.notifications.is_public_url", return_value=True
+    ):
         out = client.post(
             f"/api/v1/notifications/channels/{cid}/test", headers=auth_headers
         ).json()
@@ -92,20 +94,49 @@ def test_delete_channel(client: TestClient, auth_headers):
     assert client.get("/api/v1/notifications/channels", headers=auth_headers).json() == []
 
 
-def test_test_send_reports_render_error(client: TestClient, auth_headers):
-    # Telegram channel missing chat_id -> render error, surfaced as ok=False.
-    cid = _create(
+def test_create_rejects_incomplete_config(client: TestClient, auth_headers):
+    # Telegram channel missing chat_id is rejected at save time, not at send.
+    resp = _create(
         client,
         auth_headers,
         target="telegram",
         config={"bot_token": "t"},
         events=["print_completed"],
-    ).json()["id"]
-    out = client.post(
-        f"/api/v1/notifications/channels/{cid}/test", headers=auth_headers
+    )
+    assert resp.status_code == 400
+    assert "chat_id" in resp.json()["detail"]
+
+
+def test_create_rejects_empty_events(client: TestClient, auth_headers):
+    resp = _create(client, auth_headers, events=[])
+    assert resp.status_code == 400
+
+
+def test_create_rejects_non_http_url(client: TestClient, auth_headers):
+    resp = _create(client, auth_headers, config={"url": "ftp://example.com/x"})
+    assert resp.status_code == 400
+
+
+def test_reenable_resets_failure_count(client: TestClient, auth_headers):
+    from app.db.models import NotificationChannel
+    from app.db.session import get_session_factory
+
+    cid = _create(client, auth_headers).json()["id"]
+    # Simulate an auto-disabled channel.
+    with get_session_factory().session() as s:
+        ch = s.get(NotificationChannel, cid)
+        ch.enabled = False
+        ch.consecutive_failures = 10
+        s.add(ch)
+        s.commit()
+
+    body = client.patch(
+        f"/api/v1/notifications/channels/{cid}",
+        json={"enabled": True},
+        headers=auth_headers,
     ).json()
-    assert out["ok"] is False
-    assert "chat_id" in out["error"]
+    assert body["enabled"] is True
+    assert body["consecutive_failures"] == 0
 
 
 def test_deliveries_endpoint_empty(client: TestClient, auth_headers):

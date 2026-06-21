@@ -44,6 +44,7 @@ export default defineConfig({
             { label: "User guide", slug: "guides/user-guide" },
             { label: "Printers & providers", slug: "guides/printers" },
             { label: "Shared volumes", slug: "guides/shared-volumes" },
+            { label: "Notifications", slug: "guides/notifications" },
             { label: "Backup & restore", slug: "guides/backup-and-restore" },
             { label: "Upgrading", slug: "guides/upgrading" },
           ],

@@ -115,6 +115,12 @@ async def _gc_loop() -> None:
             await asyncio.to_thread(gc_soft_deleted)
         except Exception:
             logger.exception("scheduled GC failed")
+        try:
+            from app.services.notifications import prune_deliveries
+
+            await asyncio.to_thread(prune_deliveries)
+        except Exception:
+            logger.exception("notification delivery pruning failed")
 
 
 async def _external_scan_loop() -> None:

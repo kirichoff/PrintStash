@@ -103,15 +103,18 @@ def list_channels(session: Session = Depends(get_session)) -> List[Dict[str, Any
 def create_channel(
     body: ChannelCreate, session: Session = Depends(get_session)
 ) -> Dict[str, Any]:
-    channel = notifications.create_channel(
-        session,
-        name=body.name,
-        target=body.target,
-        config=body.config,
-        events=body.events,
-        printer_ids=body.printer_ids,
-        enabled=body.enabled,
-    )
+    try:
+        channel = notifications.create_channel(
+            session,
+            name=body.name,
+            target=body.target,
+            config=body.config,
+            events=body.events,
+            printer_ids=body.printer_ids,
+            enabled=body.enabled,
+        )
+    except notifications.NotificationConfigError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     return notifications.serialize_channel(channel)
 
 
@@ -129,16 +132,19 @@ def update_channel(
     if channel is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "channel not found")
     fields = body.model_dump(exclude_unset=True)
-    channel = notifications.update_channel(
-        session,
-        channel,
-        name=body.name,
-        config=body.config,
-        events=body.events,
-        printer_ids=body.printer_ids,
-        printer_ids_set="printer_ids" in fields,
-        enabled=body.enabled,
-    )
+    try:
+        channel = notifications.update_channel(
+            session,
+            channel,
+            name=body.name,
+            config=body.config,
+            events=body.events,
+            printer_ids=body.printer_ids,
+            printer_ids_set="printer_ids" in fields,
+            enabled=body.enabled,
+        )
+    except notifications.NotificationConfigError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     return notifications.serialize_channel(channel)
 
 

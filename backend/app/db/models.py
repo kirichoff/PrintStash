@@ -103,6 +103,7 @@ class NotificationTarget(str, Enum):
 
 class NotificationDeliveryStatus(str, Enum):
     PENDING = "pending"  # queued, awaiting first/next attempt
+    SENDING = "sending"  # claimed by a dispatcher, in flight
     SENT = "sent"  # delivered successfully
     FAILED = "failed"  # gave up after exhausting retries
 
@@ -700,6 +701,11 @@ class NotificationChannel(SQLModel, table=True):
     last_status: Optional[str] = Field(default=None, max_length=16)
     last_error: Optional[str] = Field(default=None, max_length=1024)
     last_delivered_at: Optional[datetime] = Field(default=None)
+
+    # Circuit breaker: consecutive permanently-failed deliveries. Reset to 0 on
+    # any success; once it crosses the threshold the channel is auto-disabled so
+    # a dead endpoint stops generating failures for every event.
+    consecutive_failures: int = Field(default=0)
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

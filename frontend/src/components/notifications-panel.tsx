@@ -60,6 +60,13 @@ const TARGET_FIELDS: Record<
 > = {
   webhook: [
     { key: "url", label: "Webhook URL", placeholder: "https://example.com/hook", secret: true },
+    {
+      key: "secret",
+      label: "Signing secret (optional)",
+      placeholder: "used to HMAC-sign the payload",
+      secret: true,
+      optional: true,
+    },
   ],
   discord: [
     {
@@ -299,11 +306,19 @@ export function NotificationsPanel({ canEdit }: { canEdit: boolean }) {
                       <span className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)]">
                         {ch.target}
                       </span>
-                      {!ch.enabled && (
-                        <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)]">
-                          disabled
-                        </span>
-                      )}
+                      {!ch.enabled &&
+                        (ch.consecutive_failures > 0 ? (
+                          <span
+                            className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border text-amber-600 dark:text-amber-400 border-amber-600/40"
+                            title={ch.last_error ?? undefined}
+                          >
+                            Auto-disabled
+                          </span>
+                        ) : (
+                          <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)]">
+                            disabled
+                          </span>
+                        ))}
                     </div>
                     <p className="text-[11px] text-[var(--on-surface-variant)] mt-0.5 truncate">
                       {ch.events.map((e) => EVENTS.find((x) => x.value === e)?.label ?? e).join(", ")}

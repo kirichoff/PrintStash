@@ -16,7 +16,6 @@ count + per-entry + total uncompressed size caps).
 
 from __future__ import annotations
 
-import ipaddress
 import socket
 import threading
 import time
@@ -30,6 +29,7 @@ from urllib.parse import unquote, urlparse, urlsplit
 from app.core.config import settings
 from app.core.http_client import get_http_client
 from app.core.logging import get_logger
+from app.core.url_safety import is_public_ip as _is_public_ip
 from app.db.models import SUFFIX_TO_FILE_TYPE
 from app.db.session import SessionFactory
 from app.services import storage
@@ -51,21 +51,6 @@ class ImportError_(Exception):
 # ---------------------------------------------------------------------------
 # SSRF guard
 # ---------------------------------------------------------------------------
-
-
-def _is_public_ip(ip_str: str) -> bool:
-    try:
-        ip = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return False
-    return not (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    )
 
 
 def validate_public_url(url: str) -> None:
