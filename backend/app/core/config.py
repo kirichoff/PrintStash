@@ -62,6 +62,17 @@ class Settings(BaseSettings):
     max_upload_mb: int = 512
     log_level: str = "INFO"
 
+    # Bounds on mesh (STL/3MF/OBJ) processing during ingestion and library
+    # scans. A single pathological NAS file (hundreds of MB, tens of millions of
+    # triangles) can otherwise peg a core and balloon RSS inside the scan
+    # thread long enough to trip a container's liveness watchdog — taking the
+    # whole process down (see issue #24). Above ``mesh_max_mb`` we skip the
+    # trimesh load entirely (file is still indexed, just without geometry/render
+    # beyond an embedded preview); above ``mesh_max_render_triangles`` we keep
+    # the cheap geometry but skip the software rasteriser.
+    mesh_max_mb: int = 256
+    mesh_max_render_triangles: int = 5_000_000
+
     # Optional static bearer token guarding the Prometheus /metrics endpoint.
     # Empty = open on the trusted internal network (see docs/known-limitations).
     metrics_token: str = ""
@@ -108,6 +119,10 @@ class Settings(BaseSettings):
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
 
+    @property
+    def mesh_max_bytes(self) -> int:
+        return self.mesh_max_mb * 1024 * 1024
+
 
 class ConfigResolver:
     """Single read-path for effective configuration: overlay wins, frozen falls back.
@@ -140,6 +155,11 @@ class ConfigResolver:
     @property
     def max_upload_bytes(self) -> int:
         max_mb = _overlay.get("max_upload_mb", self._frozen.max_upload_mb)
+        return max_mb * 1024 * 1024
+
+    @property
+    def mesh_max_bytes(self) -> int:
+        max_mb = _overlay.get("mesh_max_mb", self._frozen.mesh_max_mb)
         return max_mb * 1024 * 1024
 
 

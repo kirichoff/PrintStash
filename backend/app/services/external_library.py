@@ -509,16 +509,25 @@ def reset_orphaned_scans(session: Session) -> int:
     Call this once at startup: mark any RUNNING library ERROR with an
     interrupted note so the scheduler picks it up again. Returns the count
     reset. Reuses the existing ERROR status — no new enum or migration.
+
+    We also stamp ``last_scanned_at`` so the next attempt waits for the library's
+    schedule instead of re-firing on the very next 60s tick. Without this, a scan
+    that crashes the process (e.g. a pathological file — issue #24) restarts, is
+    immediately due again, and crash-loops the container. The schedule gap turns
+    a tight loop into at most one attempt per interval, and a manual scan is
+    always still available.
     """
     orphaned = session.exec(
         select(ExternalLibrary).where(
             ExternalLibrary.last_scan_status == ExternalLibraryScanStatus.RUNNING
         )
     ).all()
+    now = utcnow()
     for library in orphaned:
         library.last_scan_status = ExternalLibraryScanStatus.ERROR
         library.last_scan_summary = json.dumps({"error": "interrupted by restart"})
-        library.updated_at = utcnow()
+        library.last_scanned_at = now
+        library.updated_at = now
         session.add(library)
     if orphaned:
         session.commit()

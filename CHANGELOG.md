@@ -45,6 +45,17 @@
   carry an em-dash (`—`) and printer names can contain any Unicode, which broke
   *every* ntfy send because HTTP headers must be latin-1. Non-latin-1 header
   values are now RFC 2047-encoded (and decoded by ntfy for display).
+- **Library scans no longer crash the process on a huge mesh ([#24]).** A single
+  very large STL/3MF on a NAS could make the synchronous mesh load + software
+  thumbnail render peg a core and balloon memory inside the scan thread long
+  enough to trip a container liveness watchdog — which restarted the process,
+  stranded the scan, and crash-looped because the scan re-fired immediately.
+  Mesh files above `mesh_max_mb` (256 by default) now skip the trimesh load, and
+  meshes above `mesh_max_render_triangles` (5,000,000) skip the rasteriser; the
+  file is still indexed. A scan interrupted by a restart now waits for its next
+  scheduled slot instead of re-firing on the next tick, so it can never tight-loop.
+
+[#24]: https://github.com/xiao-villamor/PrintStash/issues/24
 
 ### Internal
 

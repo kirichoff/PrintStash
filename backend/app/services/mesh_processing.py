@@ -16,12 +16,39 @@ from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 import zipfile
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.services import mesh_render
 
 logger = get_logger(__name__)
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _exceeds_size_cap(path: Path) -> bool:
+    """True if *path* is too large to safely load into a trimesh in-process.
+
+    Loading a multi-hundred-MB mesh allocates several times its size in RAM and
+    pegs a core for seconds. During a library scan that runs in a worker thread,
+    that is enough to starve the event loop / trip a container liveness probe and
+    take the whole process down (issue #24). Above the cap we skip the load
+    entirely rather than risk it.
+    """
+    try:
+        return path.stat().st_size > settings.mesh_max_bytes
+    except OSError:
+        return False
+
+
+def _too_many_triangles(mesh) -> bool:
+    """True if rendering *mesh* in the software rasteriser would be unbounded.
+
+    The rasteriser allocates per-triangle arrays, so face count drives both its
+    runtime and peak memory. Past the cap we keep the cheap geometry but skip the
+    render and fall back to any embedded preview.
+    """
+    faces = getattr(mesh, "faces", None)
+    return faces is not None and len(faces) > settings.mesh_max_render_triangles
 
 # Slicer-generated 3MF archives usually embed a pre-rendered preview
 # (Metadata/thumbnail.png per spec; plate_*.png from Orca/Bambu).
@@ -143,7 +170,18 @@ def analyze_mesh(
             report(label)
 
     _report("loading_mesh")
-    mesh = _load_mesh(path)
+    # Guard: an oversized file is never loaded into trimesh — see issue #24. We
+    # still index it (and try the cheap embedded 3MF preview below); we just
+    # don't risk the multi-GB allocation that would crash the scan thread.
+    if _exceeds_size_cap(path):
+        logger.warning(
+            "mesh_processing: %s exceeds mesh_max_mb (%d MB); skipping mesh load/render",
+            path.name,
+            settings.mesh_max_mb,
+        )
+        mesh = None
+    else:
+        mesh = _load_mesh(path)
 
     _report("extracting_geometry")
     geometry = _geometry_from_mesh(mesh)
@@ -154,9 +192,19 @@ def analyze_mesh(
     # Slicer-embedded previews (orange G-code plate renders, off-centre 3MF
     # plate shots) are visually inconsistent, so they're only a fallback for
     # when the software rasteriser can't render the geometry.
-    thumb = mesh_render.render_mesh_thumbnail(
-        mesh, path.name, width=width, height=height
-    )
+    thumb: Optional[bytes] = None
+    if mesh is not None and _too_many_triangles(mesh):
+        logger.warning(
+            "mesh_processing: %s has %d triangles (> mesh_max_render_triangles=%d); "
+            "skipping software render",
+            path.name,
+            len(mesh.faces),
+            settings.mesh_max_render_triangles,
+        )
+    elif mesh is not None:
+        thumb = mesh_render.render_mesh_thumbnail(
+            mesh, path.name, width=width, height=height
+        )
     if thumb is None:
         thumb = extract_embedded_3mf_thumbnail(path)
     return geometry, thumb
@@ -168,6 +216,12 @@ def extract_geometry(path: Path) -> Dict[str, Optional[float]]:
     The returned dict is shaped for direct use as **kwargs to the
     `Metadata` SQLModel constructor. Missing values are returned as None.
     """
+    if _exceeds_size_cap(path):
+        logger.warning(
+            "mesh_processing: %s exceeds mesh_max_mb; skipping geometry extraction",
+            path.name,
+        )
+        return _geometry_from_mesh(None)
     return _geometry_from_mesh(_load_mesh(path))
 
 
@@ -177,9 +231,11 @@ def render_thumbnail(
     """Render a PNG thumbnail of *path*. Returns PNG bytes or None on failure."""
     # Prefer the in-house render for a consistent look across all cards; fall
     # back to the slicer-embedded preview only when rendering fails.
-    thumb = mesh_render.render_thumbnail(_load_mesh, path, width=width, height=height)
-    if thumb is not None:
-        return thumb
+    mesh = None if _exceeds_size_cap(path) else _load_mesh(path)
+    if mesh is not None and not _too_many_triangles(mesh):
+        thumb = mesh_render.render_mesh_thumbnail(mesh, path.name, width=width, height=height)
+        if thumb is not None:
+            return thumb
     return extract_embedded_3mf_thumbnail(path)
 
 
