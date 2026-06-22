@@ -70,14 +70,40 @@ Shipped together in 0.7.0 rather than across several patches:
 - Delivery retry with backoff and a visible "last notification" status, off by default behind a master switch
 - G-code parser robustness from real-slicer fixtures: fixes for OrcaSlicer filament-length corruption, Orca/Bambu bed-temperature detection, and PrusaSlicer infill detection
 
-## 0.8 — Filament and Spool Inventory
+## 0.8 — Spoolman Integration
 
-Goal: track what filament you actually have and what each print consumes.
+Goal: track filament inventory and per-print consumption by integrating with
+[Spoolman](https://github.com/Donkie/Spoolman) rather than reimplementing it.
 
-- Spool inventory with material, color, weight, and cost
-- Auto-decrement spool weight from measured prints (reuses Moonraker filament data)
-- Low-stock indicators and per-spool usage history
-- Optional Spoolman integration for people who already run it
+Spoolman is mature, well-documented, self-hosted filament-inventory software with
+a clean REST API, and our homelab audience already runs it. PrintStash already
+captures real consumption per print (`PrintJob.filament_used_g`, derived from
+Moonraker via `services/filament.mm_to_grams`), so the work is to *feed* that
+inventory, not duplicate it. Spoolman becomes the source of truth for spools,
+vendors, and remaining weight; PrintStash reads it for display and writes
+consumption back.
+
+This supersedes the earlier "build our own spool inventory" plan: a parallel
+inventory would split the source of truth and ship a weaker copy of what
+Spoolman already does well. Integration stays optional and OFF by default,
+behind a master switch, with no hard dependency — consistent with the
+local-first principles below.
+
+- Spoolman client + connection config (base URL, optional auth), behind a master
+  switch and OFF by default; reachability surfaced in `/health` and provider
+  readiness, with graceful degradation that never blocks a print
+- Read side: pull vendors, filaments, and spools; show inventory and remaining
+  weight in PrintStash, and reconcile with local `FilamentProfile` cost data
+- Spool selection when starting a vault job or logging a print, persisted on the
+  print record
+- Write side: on measured-print completion, decrement the selected spool by
+  `filament_used_g` (reuses the existing `print_results` + `mm_to_grams`
+  pipeline). Moonraker-measured prints only — Bambu does not report live
+  consumption
+- Double-count safety: detect when Moonraker's native Spoolman hook is already
+  decrementing the active spool, and warn / offer to disable our write so a
+  print is never counted twice
+- Per-spool usage history and low-stock visibility sourced from Spoolman
 
 ## 0.9 — Provider Maturity (Bambu + reliability)
 

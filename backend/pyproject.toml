@@ -51,3 +51,6 @@ dev = [
 
 [tool.pytest.ini_options]
 addopts = "--capture=sys"
+markers = [
+    "e2e: end-to-end tests that boot the real app against contract-enforcing fakes (slower; run with `pytest tests/e2e`)",
+]

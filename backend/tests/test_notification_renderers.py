@@ -70,22 +70,49 @@ def test_discord_color_differs_for_failed():
     assert req.json["embeds"][0]["color"] == 0xE74C3C  # red
 
 
-def test_telegram_targets_bot_api_with_markdown():
+def test_telegram_targets_bot_api_with_html():
     req = r.render_telegram(_ctx(), {"bot_token": "123:ABC", "chat_id": "-100"})
     assert req.url == "https://api.telegram.org/bot123:ABC/sendMessage"
     assert req.json["chat_id"] == "-100"
-    assert req.json["parse_mode"] == "Markdown"
-    assert "*Print completed — Ender 3*" in req.json["text"]
+    assert req.json["parse_mode"] == "HTML"
+    assert "<b>Print completed — Ender 3</b>" in req.json["text"]
     assert "File: benchy.gcode" in req.json["text"]
+
+
+def test_telegram_escapes_html_special_chars_in_names():
+    # A filename with '_' must not break parsing (the old Markdown bug); '<' & '&'
+    # must be HTML-escaped so they can't inject markup.
+    req = r.render_telegram(
+        _ctx(filename="a_b<c&d.gcode"), {"bot_token": "t", "chat_id": "c"}
+    )
+    assert req.json["parse_mode"] == "HTML"
+    assert "a_b&lt;c&amp;d.gcode" in req.json["text"]
+    assert "<c&d" not in req.json["text"]  # raw markup did not leak through
+
+
+def _decode_header(value: str) -> str:
+    from email.header import decode_header, make_header
+
+    return str(make_header(decode_header(value)))
 
 
 def test_ntfy_uses_default_server_headers_and_body():
     req = r.render_ntfy(_ctx(event="print_failed"), {"topic": "my3d"})
     assert req.url == "https://ntfy.sh/my3d"
-    assert req.headers["Title"] == "Print failed — Ender 3"
+    # The title carries an em-dash, so it is RFC 2047-encoded for the header but
+    # must round-trip back to the human string.
+    assert req.headers["Title"].encode("latin-1")  # transmittable
+    assert _decode_header(req.headers["Title"]) == "Print failed — Ender 3"
     assert req.headers["Priority"] == "high"
     assert req.data and "Printer: Ender 3" in req.data
     assert "Authorization" not in req.headers
+
+
+def test_ntfy_title_with_unicode_name_is_header_safe():
+    req = r.render_ntfy(_ctx(printer_name="Impresora-Ñ"), {"topic": "t"})
+    # Must be latin-1 transmittable (httpx would otherwise raise) and decode back.
+    req.headers["Title"].encode("latin-1")
+    assert "Impresora-Ñ" in _decode_header(req.headers["Title"])
 
 
 def test_ntfy_custom_server_strips_slash_and_adds_token():

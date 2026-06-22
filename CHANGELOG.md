@@ -31,6 +31,15 @@
   name the heated bed `hot_plate_temp`, which the parser previously ignored.
 - **Infill percentage now detected on PrusaSlicer.** It writes `fill_density`
   (underscore), which the older space-separated pattern missed.
+- **Telegram notifications no longer fail on ordinary filenames.** The Telegram
+  renderer now uses `parse_mode=HTML` with every interpolated value escaped,
+  instead of legacy Markdown. A common name like `benchy_v2.gcode` (a single
+  `_`) previously made the message unparseable and Telegram rejected it with
+  HTTP 400; arbitrary printer/model/file names are now always safe.
+- **ntfy notifications no longer fail on Unicode titles.** Notification titles
+  carry an em-dash (`—`) and printer names can contain any Unicode, which broke
+  *every* ntfy send because HTTP headers must be latin-1. Non-latin-1 header
+  values are now RFC 2047-encoded (and decoded by ntfy for display).
 
 ### Internal
 
@@ -38,6 +47,9 @@
   public slicer output (OrcaSlicer 2.3.2, PrusaSlicer 2.6.1), with regression
   tests for each bug above. Binary `.bgcode` remains unparsed (returns empty
   metadata gracefully) and is tracked as a follow-up.
+- New end-to-end test suite (`backend/tests/e2e/`) boots the real app against
+  contract-enforcing fakes and covers auth, ingest, notification delivery, and
+  sharing. Marked `e2e` and runnable in isolation with `pytest tests/e2e`.
 
 ## 0.6.7 - Collection & file-level import
 

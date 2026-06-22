@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import json
 from dataclasses import dataclass, field
+from email.header import Header
 from typing import Any, Callable, Dict, Optional
 
 from app.db.models import NotificationEventType, NotificationTarget
@@ -23,6 +25,12 @@ from app.db.models import NotificationEventType, NotificationTarget
 
 class RenderError(ValueError):
     """Raised when a channel's config is missing fields a target requires."""
+
+
+# Base URL of the Telegram Bot API. A module constant (not hard-coded inline) so
+# deployments behind an egress proxy — and the E2E suite's fake Bot API — can
+# point it elsewhere without touching the renderer.
+TELEGRAM_API_BASE = "https://api.telegram.org"
 
 
 @dataclass
@@ -166,19 +174,43 @@ def render_discord(context: Dict[str, Any], config: Dict[str, Any]) -> OutboundR
 
 
 def render_telegram(context: Dict[str, Any], config: Dict[str, Any]) -> OutboundRequest:
-    """Telegram Bot API sendMessage with a Markdown-formatted body."""
+    """Telegram Bot API sendMessage with an HTML-formatted body.
+
+    Uses ``parse_mode=HTML`` with every interpolated value HTML-escaped. HTML is
+    chosen over Markdown deliberately: legacy Markdown has no reliable escaping,
+    so a perfectly ordinary filename like ``benchy_v2.gcode`` (one ``_``) makes
+    the message unparseable and Telegram rejects it with HTTP 400. HTML escaping
+    (``&`` ``<`` ``>``) is unambiguous, so arbitrary printer/model/file names are
+    always safe.
+    """
     token = _require(config, "bot_token", "telegram")
     chat_id = _require(config, "chat_id", "telegram")
-    text = f"*{_title(context)}*"
+    text = f"<b>{html.escape(_title(context))}</b>"
     lines = summary_lines(context)
     if lines:
-        text += "\n" + "\n".join(lines)
+        text += "\n" + "\n".join(html.escape(line) for line in lines)
     return OutboundRequest(
         method="POST",
-        url=f"https://api.telegram.org/bot{token}/sendMessage",
+        url=f"{TELEGRAM_API_BASE}/bot{token}/sendMessage",
         headers={"Content-Type": "application/json"},
-        json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+        json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
     )
+
+
+def _header_safe(value: str) -> str:
+    """Make a string safe to transmit as an HTTP header value.
+
+    HTTP headers are latin-1 at best; httpx encodes them as ASCII and raises on
+    anything outside it. Our own titles contain an em-dash (``—``) and user
+    printer/model names can contain any Unicode, so a raw value breaks *every*
+    ntfy send. Non-latin-1 values are RFC 2047-encoded (``=?utf-8?…?=``), which
+    ntfy decodes for display.
+    """
+    try:
+        value.encode("latin-1")
+        return value
+    except UnicodeEncodeError:
+        return Header(value, "utf-8").encode()
 
 
 def render_ntfy(context: Dict[str, Any], config: Dict[str, Any]) -> OutboundRequest:
@@ -187,9 +219,9 @@ def render_ntfy(context: Dict[str, Any], config: Dict[str, Any]) -> OutboundRequ
     server = (config.get("server_url") or "https://ntfy.sh").rstrip("/")
     priority, tags = _EVENT_NTFY.get(_event_type(context), ("default", "bell"))
     headers = {
-        "Title": _title(context),
+        "Title": _header_safe(_title(context)),
         "Priority": priority,
-        "Tags": tags,
+        "Tags": _header_safe(tags),
         "Content-Type": "text/plain; charset=utf-8",
     }
     token = config.get("token")
