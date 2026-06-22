@@ -66,6 +66,23 @@
   file is still indexed, and a 3MF still shows its embedded slicer preview.
   Measured effect on a 5.2 M-triangle mesh: peak RSS drops from ~5.9 GB to
   ~45 MB. Mesh loading also now runs with `process=False` to trim memory further.
+- **Dense-mesh OOM guard closed in three more spots ([#24]).** Hardening the
+  pre-load triangle estimate after the initial fix:
+  - **Binary STL with trailing bytes** (some exporters append metadata) failed
+    the exact `84 + 50·N` size check and fell back to the *ASCII* density of
+    ~250 B/triangle — a 5x underestimate for a binary file that could let an
+    over-cap mesh slip through to the very OOM load the cap exists to stop. The
+    estimator now distinguishes ASCII from binary STL and uses the binary
+    body size (50 B/facet) as a safe upper bound.
+  - **PLY meshes** (scans, point-cloud exports) were not estimated at all and so
+    relied on the post-load backstop, i.e. they still loaded fully first. The
+    face count is now read straight from the PLY header (which is ASCII even for
+    binary bodies), so over-cap PLY files are skipped before loading too.
+  - **"Download as STL"** ran an unbounded `trimesh.load` to convert a 3MF/OBJ,
+    so a single click on a monster mesh could OOM the process and take every
+    request down with it. The same cap now applies; an over-cap conversion
+    returns a clean error instead of crashing the server. (Raw STL downloads are
+    streamed byte-for-byte and never affected.)
 - **An interrupted library scan no longer crash-loops the container ([#24]).**
   A scan stranded RUNNING by a process restart was reset to ERROR but kept its
   old `last_scanned_at`, so the scheduler found it immediately due again and

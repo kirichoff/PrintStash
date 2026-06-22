@@ -126,3 +126,177 @@ def test_under_cap_mesh_renders_normally(tmp_path: Path, monkeypatch) -> None:
 
     assert geometry["triangle_count"] == 500
     assert thumb == b"PNGDATA"
+
+
+# ---------------------------------------------------------------------------
+# Estimator: binary-vs-ASCII STL disambiguation (the dangerous direction).
+# ---------------------------------------------------------------------------
+
+
+def test_binary_stl_with_trailing_bytes_is_not_underestimated(tmp_path: Path) -> None:
+    # Some exporters append metadata after the facet block, so the exact
+    # 84 + 50*N size check fails. The old code fell back to the ASCII estimate
+    # (size // 250), underestimating a binary file ~5x and letting an over-cap
+    # mesh slip through to an OOM load. The body-size estimate must stay a safe
+    # upper bound on the real triangle count.
+    p = tmp_path / "trailing.stl"
+    n = 100_000
+    _write_binary_stl(p, n)
+    with p.open("ab") as fh:
+        fh.write(b"exported by SomeSlicer\x00\x01\x02" * 50)  # trailing junk
+
+    est = mesh_processing._estimate_triangle_count(p)
+    assert est is not None
+    assert est >= n  # never below the true count (the OOM-unsafe direction)
+    # And nowhere near the 5x-low ASCII misread.
+    assert est < n * 2
+
+
+def test_ascii_stl_is_detected_and_estimated_by_text_density(tmp_path: Path) -> None:
+    facet = (
+        b"  facet normal 0 0 1\n"
+        b"    outer loop\n"
+        b"      vertex 0 0 0\n"
+        b"      vertex 1 0 0\n"
+        b"      vertex 0 1 0\n"
+        b"    endloop\n"
+        b"  endfacet\n"
+    )
+    p = tmp_path / "ascii.stl"
+    p.write_bytes(b"solid mymesh\n" + facet * 300 + b"endsolid mymesh\n")
+
+    est = mesh_processing._estimate_triangle_count(p)
+    # ASCII estimate is size // 250; the file holds 300 real facets, and the
+    # estimate should land in the same order of magnitude (not the 5x-too-low
+    # binary misread of size // 50-equivalents).
+    assert est == p.stat().st_size // 250
+    assert est > 0
+
+
+def test_binary_stl_header_starting_with_solid_is_not_misread_as_ascii(
+    tmp_path: Path,
+) -> None:
+    # The classic STL trap: a binary STL whose 80-byte header text starts with
+    # "solid". The NUL bytes in the binary body must keep it on the binary path.
+    p = tmp_path / "trap.stl"
+    n = 60_000
+    with p.open("wb") as fh:
+        fh.write(b"solid exported-by-tool".ljust(80, b"\x00"))
+        fh.write(struct.pack("<I", n))
+        fh.write(b"\x00" * (50 * n))
+    with p.open("ab") as fh:
+        fh.write(b"trailer")  # break the exact size match
+
+    est = mesh_processing._estimate_triangle_count(p)
+    assert est is not None
+    assert est >= n  # treated as binary, not the 5x-low ASCII estimate
+
+
+# ---------------------------------------------------------------------------
+# Estimator: PLY face count from the header (no body parse).
+# ---------------------------------------------------------------------------
+
+
+def test_ply_face_count_from_header(tmp_path: Path) -> None:
+    p = tmp_path / "scan.ply"
+    header = (
+        b"ply\n"
+        b"format binary_little_endian 1.0\n"
+        b"element vertex 8\n"
+        b"property float x\n"
+        b"property float y\n"
+        b"property float z\n"
+        b"element face 1234567\n"
+        b"property list uchar int vertex_indices\n"
+        b"end_header\n"
+    )
+    # Body is intentionally tiny/garbage — the estimate must come from the header
+    # alone, never from loading the (declared-huge) body.
+    p.write_bytes(header + b"\x00" * 32)
+
+    assert mesh_processing._estimate_triangle_count(p) == 1234567
+
+
+def test_ply_without_face_element_returns_none(tmp_path: Path) -> None:
+    p = tmp_path / "points.ply"
+    p.write_bytes(
+        b"ply\nformat ascii 1.0\nelement vertex 3\n"
+        b"property float x\nend_header\n0 0 0\n"
+    )
+    assert mesh_processing._estimate_triangle_count(p) is None
+
+
+def test_over_cap_ply_skips_load(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 1000)
+    p = tmp_path / "dense.ply"
+    p.write_bytes(
+        b"ply\nformat binary_little_endian 1.0\n"
+        b"element face 999999\nend_header\n"
+    )
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("over-cap PLY must not load")),
+    )
+
+    geometry = mesh_processing.extract_geometry(p)
+    assert geometry["triangle_count"] is None
+
+
+# ---------------------------------------------------------------------------
+# The cap is enforced on every entry point, not just analyze_mesh.
+# ---------------------------------------------------------------------------
+
+
+def test_extract_geometry_respects_cap(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 1000)
+    p = tmp_path / "huge.stl"
+    _write_binary_stl(p, 50_000)
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("must not load")),
+    )
+    assert mesh_processing.extract_geometry(p)["triangle_count"] is None
+
+
+def test_render_thumbnail_respects_cap_and_falls_back_to_embedded(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 1000)
+    png = mesh_processing._PNG_MAGIC + b"plate"
+    p = tmp_path / "dense.3mf"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("3D/3dmodel.model", b"<triangle/>" * 100_000)  # over cap
+        zf.writestr("Metadata/thumbnail.png", png)
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("must not load")),
+    )
+
+    assert mesh_processing.render_thumbnail(p) == png
+
+
+def test_to_stl_bytes_refuses_over_cap_mesh(tmp_path: Path, monkeypatch) -> None:
+    # A download-as-STL click on a monster 3MF/OBJ must not run an unbounded
+    # trimesh.load (which would OOM the process for every user). Refuse cleanly.
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 1000)
+    p = tmp_path / "dense.3mf"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("3D/3dmodel.model", b"<triangle/>" * 100_000)  # over cap
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("must not load")),
+    )
+
+    assert mesh_processing.to_stl_bytes(p) is None
+
+
+def test_to_stl_bytes_passes_through_raw_stl(tmp_path: Path) -> None:
+    # An STL is returned byte-for-byte without any load, so the cap never applies
+    # (no conversion, no memory blow-up) even for a large file.
+    p = tmp_path / "raw.stl"
+    _write_binary_stl(p, 10)
+    assert mesh_processing.to_stl_bytes(p) == p.read_bytes()

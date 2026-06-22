@@ -33,25 +33,64 @@ def _estimate_triangle_count(path: Path) -> Optional[int]:
     peaks at ~3.5 GB), so the only way to keep a dense lattice/gyroid model from
     OOM-killing the process is to estimate before we load and bail out (#24).
 
-    Exact for binary STL (the triangle count is a uint32 in the header); a
-    size-based estimate for ASCII STL and 3MF (uncompressed mesh XML). Returns
-    None for formats we can't cheaply size up — the caller then relies on the
-    post-load cap, which still skips the render.
+    Exact for binary STL (the triangle count is a uint32 in the header) and for
+    PLY (the face count is declared in the ASCII header); a size-based estimate
+    for ASCII STL and 3MF (uncompressed mesh XML). For an STL that fails the
+    exact binary size check we distinguish ASCII from a binary file with trailing
+    bytes and pick the *conservative* density, so we never underestimate a binary
+    mesh into an unsafe load. Returns None for formats we can't cheaply size up —
+    the caller then relies on the post-load cap, which still skips the render.
     """
     suffix = path.suffix.lower()
     try:
         if suffix == ".stl":
             size = path.stat().st_size
             with path.open("rb") as fh:
-                header = fh.read(84)
-            if len(header) == 84:
-                count = struct.unpack("<I", header[80:84])[0]
+                sample = fh.read(1024)
+            if len(sample) >= 84:
+                count = struct.unpack("<I", sample[80:84])[0]
                 # Binary STL is exactly 84 + 50 bytes per triangle; if the math
                 # checks out we trust the header count exactly.
                 if size == 84 + count * 50:
                     return count
-            # ASCII STL: ~7 lines / ~250 bytes per triangle.
-            return size // 250
+            # The exact binary check failed. Now disambiguate a true ASCII STL
+            # from a binary STL with trailing bytes (which also fails the check).
+            # Guessing wrong toward ASCII is dangerous: ASCII is ~250 B/triangle
+            # but binary is only ~50 B/triangle, so an ASCII estimate of a binary
+            # file underestimates 5x and can let an over-cap mesh slip through to
+            # the exact OOM load #24 set out to prevent. An ASCII STL starts with
+            # the text "solid" and contains no NUL bytes; binary headers do.
+            looks_ascii = (
+                sample[:6].lower().startswith(b"solid") and b"\x00" not in sample
+            )
+            if looks_ascii:
+                # ASCII STL: ~7 lines / ~250 bytes per triangle.
+                return size // 250
+            # Binary STL body is exactly 50 bytes per facet after the 84-byte
+            # header; this stays a safe upper bound even with trailing bytes.
+            return max(size - 84, 0) // 50
+        if suffix == ".ply":
+            # The PLY header is ASCII even when the body is binary, and it
+            # declares the face count up front ("element face N"), so we can size
+            # the mesh without parsing the (possibly huge) body.
+            with path.open("rb") as fh:
+                for _ in range(256):  # headers are short; bound the scan
+                    line = fh.readline()
+                    if not line:
+                        break
+                    parts = line.split()
+                    if (
+                        len(parts) >= 3
+                        and parts[0].lower() == b"element"
+                        and parts[1].lower() == b"face"
+                    ):
+                        try:
+                            return int(parts[2])
+                        except ValueError:
+                            return None
+                    if parts and parts[0].lower() == b"end_header":
+                        break
+            return None
         if suffix == ".3mf":
             with zipfile.ZipFile(path) as zf:
                 xml_bytes = sum(
@@ -64,6 +103,28 @@ def _estimate_triangle_count(path: Path) -> Optional[int]:
     except (OSError, zipfile.BadZipFile, struct.error):
         return None
     return None
+
+def _exceeds_cap(path: Path) -> bool:
+    """True when the pre-load triangle estimate is over the render cap (#24).
+
+    Centralises the "estimate before loading and bail out" guard so every entry
+    point (analyze/geometry/thumbnail/export) skips the same monster meshes and
+    logs consistently. Returns False when the count can't be estimated cheaply —
+    callers that load anyway then rely on the post-load backstop.
+    """
+    estimate = _estimate_triangle_count(path)
+    cap = settings.mesh_max_render_triangles
+    if estimate is not None and estimate > cap:
+        logger.warning(
+            "mesh_processing: %s is ~%d triangles (> cap %d); skipping mesh load "
+            "to avoid OOM",
+            path.name,
+            estimate,
+            cap,
+        )
+        return True
+    return False
+
 
 # Slicer-generated 3MF archives usually embed a pre-rendered preview
 # (Metadata/thumbnail.png per spec; plate_*.png from Orca/Bambu).
@@ -188,20 +249,9 @@ def analyze_mesh(
 
     _report("loading_mesh")
     cap = settings.mesh_max_render_triangles
-    estimate = _estimate_triangle_count(path)
-    if estimate is not None and estimate > cap:
-        # Too dense to load safely — skip it rather than risk an OOM kill (#24).
-        # The file is still indexed; a 3MF still gets its embedded preview below.
-        logger.warning(
-            "mesh_processing: %s is ~%d triangles (> cap %d); skipping mesh load "
-            "to avoid OOM",
-            path.name,
-            estimate,
-            cap,
-        )
-        mesh = None
-    else:
-        mesh = _load_mesh(path)
+    # Too dense to load safely — skip it rather than risk an OOM kill (#24).
+    # The file is still indexed; a 3MF still gets its embedded preview below.
+    mesh = None if _exceeds_cap(path) else _load_mesh(path)
 
     _report("extracting_geometry")
     geometry = _geometry_from_mesh(mesh)
@@ -237,13 +287,7 @@ def extract_geometry(path: Path) -> Dict[str, Optional[float]]:
     The returned dict is shaped for direct use as **kwargs to the
     `Metadata` SQLModel constructor. Missing values are returned as None.
     """
-    estimate = _estimate_triangle_count(path)
-    if estimate is not None and estimate > settings.mesh_max_render_triangles:
-        logger.warning(
-            "mesh_processing: %s is ~%d triangles (> cap); skipping geometry",
-            path.name,
-            estimate,
-        )
+    if _exceeds_cap(path):
         return _geometry_from_mesh(None)
     return _geometry_from_mesh(_load_mesh(path))
 
@@ -253,8 +297,7 @@ def render_thumbnail(
 ) -> Optional[bytes]:
     """Render a PNG thumbnail of *path*. Returns PNG bytes or None on failure."""
     cap = settings.mesh_max_render_triangles
-    estimate = _estimate_triangle_count(path)
-    mesh = None if (estimate is not None and estimate > cap) else _load_mesh(path)
+    mesh = None if _exceeds_cap(path) else _load_mesh(path)
     # Prefer the in-house render for a consistent look across all cards; fall
     # back to the slicer-embedded preview only when rendering fails or is skipped.
     if mesh is not None and len(mesh.faces) <= cap:
@@ -275,6 +318,12 @@ def to_stl_bytes(path: Path) -> Optional[bytes]:
             return path.read_bytes()
         except OSError:
             return None
+
+    # Converting means a full trimesh.load + export; an over-cap mesh would OOM
+    # the process and take every request down with it (#24). Refuse it cleanly —
+    # the caller surfaces a 500 instead, which is far better than a crash-loop.
+    if _exceeds_cap(path):
+        return None
 
     mesh = _load_mesh(path)
     if mesh is None:
