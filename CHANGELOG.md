@@ -13,6 +13,11 @@
   Configure channels under **Settings → Notifications** (administrators only).
 - **Per-event and per-printer toggles.** Each channel subscribes to the events
   you choose and, optionally, only specific printers.
+- **Richer, linked notifications.** Messages now lead with an event glyph and
+  carry a "View model" link straight to the model's source page (Printables,
+  MakerWorld, …) where one is known: Discord makes the embed title clickable
+  (with a footer), Telegram adds an inline link, and ntfy gets a tap target plus
+  a "View model" action button. Only safe `http(s)` links are ever rendered.
 - **Reliable delivery.** Events are enqueued atomically with the state change
   that produced them (so none are lost) and delivered by a background dispatcher
   with automatic retry and exponential backoff. Each channel shows its last

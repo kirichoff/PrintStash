@@ -64,6 +64,31 @@ _EVENT_NTFY: Dict[NotificationEventType, tuple[str, str]] = {
     NotificationEventType.PRINT_CANCELLED: ("default", "warning"),
     NotificationEventType.PRINTER_OFFLINE: ("high", "satellite"),
 }
+# A leading glyph per event for the channels that render inline emoji
+# (Telegram, Discord). ntfy uses its own Tags header instead, so it is omitted.
+_EVENT_EMOJI: Dict[NotificationEventType, str] = {
+    NotificationEventType.PRINT_COMPLETED: "✅",
+    NotificationEventType.PRINT_FAILED: "❌",
+    NotificationEventType.PRINT_CANCELLED: "⚠️",
+    NotificationEventType.PRINTER_OFFLINE: "📡",
+}
+
+
+def _event_emoji(context: Dict[str, Any]) -> str:
+    return _EVENT_EMOJI.get(_event_type(context), "🔔")
+
+
+def _model_url(context: Dict[str, Any]) -> Optional[str]:
+    """The model's source page, but only if it is a safe http(s) link to embed.
+
+    Renderers turn this into a clickable "View model" link / tap target. We
+    only trust ``http(s)`` so a stored ``javascript:``/``data:`` value can never
+    become a notification action.
+    """
+    url = context.get("model_url")
+    if isinstance(url, str) and url.startswith(("http://", "https://")):
+        return url
+    return None
 
 
 def _event_type(context: Dict[str, Any]) -> NotificationEventType:
@@ -158,9 +183,15 @@ def render_discord(context: Dict[str, Any], config: Dict[str, Any]) -> OutboundR
         if ": " in part
     ]
     embed: Dict[str, Any] = {
-        "title": _title(context),
+        "title": f"{_event_emoji(context)} {_title(context)}",
         "color": _EVENT_COLORS.get(et, 0x95A5A6),
+        "footer": {"text": "PrintStash"},
     }
+    # A title ``url`` makes the embed heading itself a clickable link to the
+    # model's source page — Discord's idiomatic "view more" affordance.
+    model_url = _model_url(context)
+    if model_url:
+        embed["url"] = model_url
     if fields:
         embed["fields"] = fields
     if context.get("timestamp"):
@@ -185,10 +216,14 @@ def render_telegram(context: Dict[str, Any], config: Dict[str, Any]) -> Outbound
     """
     token = _require(config, "bot_token", "telegram")
     chat_id = _require(config, "chat_id", "telegram")
-    text = f"<b>{html.escape(_title(context))}</b>"
+    text = f"{_event_emoji(context)} <b>{html.escape(_title(context))}</b>"
     lines = summary_lines(context)
     if lines:
         text += "\n" + "\n".join(html.escape(line) for line in lines)
+    model_url = _model_url(context)
+    if model_url:
+        # quote=True also escapes the quotes that delimit the href attribute.
+        text += f'\n🔗 <a href="{html.escape(model_url, quote=True)}">View model</a>'
     return OutboundRequest(
         method="POST",
         url=f"{TELEGRAM_API_BASE}/bot{token}/sendMessage",
@@ -227,6 +262,17 @@ def render_ntfy(context: Dict[str, Any], config: Dict[str, Any]) -> OutboundRequ
     token = config.get("token")
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    # Make the notification open the model page on tap, plus an explicit button.
+    # ntfy's Click/Actions headers must stay a literal ASCII URL (RFC 2047
+    # encoding would break them), so only attach when the URL is header-safe.
+    model_url = _model_url(context)
+    if model_url:
+        try:
+            model_url.encode("latin-1")
+            headers["Click"] = model_url
+            headers["Actions"] = f"view, View model, {model_url}"
+        except UnicodeEncodeError:
+            pass
     body = "\n".join(summary_lines(context)) or event_label(context)
     return OutboundRequest(method="POST", url=f"{server}/{topic}", headers=headers, data=body)
 

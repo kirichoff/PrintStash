@@ -19,6 +19,7 @@ def _ctx(**over):
         "printer_name": "Ender 3",
         "filename": "benchy.gcode",
         "model_name": "3DBenchy",
+        "model_url": "https://www.printables.com/model/123-benchy",
         "job_id": 42,
         "duration_s": 3661,
         "filament_used_g": 12.34,
@@ -58,11 +59,19 @@ def test_webhook_hmac_signature_when_secret_set():
 def test_discord_builds_embed_with_color_and_fields():
     req = r.render_discord(_ctx(), {"url": "https://discord.com/api/webhooks/x/y"})
     embed = req.json["embeds"][0]
-    assert embed["title"] == "Print completed — Ender 3"
+    assert embed["title"] == "✅ Print completed — Ender 3"
     assert embed["color"] == 0x2ECC71  # green for completed
     names = {f["name"] for f in embed["fields"]}
     assert {"Printer", "Model", "File", "Duration", "Filament"} <= names
     assert embed["timestamp"] == "2026-06-21T10:00:00Z"
+    # The model's source page makes the title a clickable link.
+    assert embed["url"] == "https://www.printables.com/model/123-benchy"
+    assert embed["footer"]["text"] == "PrintStash"
+
+
+def test_discord_omits_url_when_no_model_link():
+    req = r.render_discord(_ctx(model_url=None), {"url": "https://d/x"})
+    assert "url" not in req.json["embeds"][0]
 
 
 def test_discord_color_differs_for_failed():
@@ -75,8 +84,26 @@ def test_telegram_targets_bot_api_with_html():
     assert req.url == "https://api.telegram.org/bot123:ABC/sendMessage"
     assert req.json["chat_id"] == "-100"
     assert req.json["parse_mode"] == "HTML"
-    assert "<b>Print completed — Ender 3</b>" in req.json["text"]
+    assert "✅ <b>Print completed — Ender 3</b>" in req.json["text"]
     assert "File: benchy.gcode" in req.json["text"]
+    # The model's source page is rendered as a tidy inline link.
+    assert (
+        '<a href="https://www.printables.com/model/123-benchy">View model</a>'
+        in req.json["text"]
+    )
+
+
+def test_telegram_omits_link_when_no_model_url():
+    req = r.render_telegram(_ctx(model_url=None), {"bot_token": "t", "chat_id": "c"})
+    assert "View model" not in req.json["text"]
+
+
+def test_telegram_rejects_non_http_model_url():
+    # A stored javascript:/data: URL must never become a clickable link.
+    req = r.render_telegram(
+        _ctx(model_url="javascript:alert(1)"), {"bot_token": "t", "chat_id": "c"}
+    )
+    assert "<a href" not in req.json["text"]
 
 
 def test_telegram_escapes_html_special_chars_in_names():
@@ -106,6 +133,19 @@ def test_ntfy_uses_default_server_headers_and_body():
     assert req.headers["Priority"] == "high"
     assert req.data and "Printer: Ender 3" in req.data
     assert "Authorization" not in req.headers
+
+
+def test_ntfy_adds_click_and_action_for_model_url():
+    req = r.render_ntfy(_ctx(), {"topic": "t"})
+    url = "https://www.printables.com/model/123-benchy"
+    assert req.headers["Click"] == url
+    assert req.headers["Actions"] == f"view, View model, {url}"
+
+
+def test_ntfy_omits_click_when_no_model_url():
+    req = r.render_ntfy(_ctx(model_url=None), {"topic": "t"})
+    assert "Click" not in req.headers
+    assert "Actions" not in req.headers
 
 
 def test_ntfy_title_with_unicode_name_is_header_safe():

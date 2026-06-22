@@ -122,15 +122,20 @@ def build_context(
     }
     if job is not None:
         model_name: Optional[str] = None
+        model_url: Optional[str] = None
         if job.model_id:
             model = session.get(Model, job.model_id)
             # The external-job sentinel model has no meaningful name; skip it.
             model_name = model.name if model and model.name else None
+            # The source page (Printables/MakerWorld, etc.) the model was
+            # imported from — surfaced as a "View model" link by the renderers.
+            model_url = model.source_url if model and model.source_url else None
         ctx.update(
             {
                 "job_id": job.id,
                 "filename": job.remote_filename,
                 "model_name": model_name,
+                "model_url": model_url,
                 "duration_s": job.actual_duration_s,
                 "filament_used_g": job.filament_used_g,
                 "error": job.error,
@@ -743,6 +748,7 @@ _SAMPLE_CONTEXT_EXTRA = {
     "job_id": 0,
     "filename": "sample.gcode",
     "model_name": "Sample model",
+    "model_url": "https://www.printables.com/model/123456-sample-model",
     "duration_s": 3661,
     "filament_used_g": 12.3,
     "error": None,

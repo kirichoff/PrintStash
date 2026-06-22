@@ -140,7 +140,7 @@ async def test_all_targets_deliver_a_valid_payload_for_a_real_print(
 
     # Payload spot-checks against each provider's contract.
     discord = fakes.recorder.for_target("discord")[0].json
-    assert discord["embeds"][0]["title"].startswith("Print completed")
+    assert "Print completed" in discord["embeds"][0]["title"]
 
     webhook = fakes.recorder.for_target("webhook")[0].json
     assert webhook["event"] == COMPLETED
