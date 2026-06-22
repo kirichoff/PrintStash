@@ -12,16 +12,58 @@ here as `render_thumbnail` for backwards compatibility. Ingestion uses
 from __future__ import annotations
 
 import io
+import struct
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 import zipfile
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.services import mesh_render
 
 logger = get_logger(__name__)
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _estimate_triangle_count(path: Path) -> Optional[int]:
+    """Best-effort triangle count *without* loading the mesh into memory.
+
+    Loading is itself the memory blow-up (trimesh.load of a 5M-triangle mesh
+    peaks at ~3.5 GB), so the only way to keep a dense lattice/gyroid model from
+    OOM-killing the process is to estimate before we load and bail out (#24).
+
+    Exact for binary STL (the triangle count is a uint32 in the header); a
+    size-based estimate for ASCII STL and 3MF (uncompressed mesh XML). Returns
+    None for formats we can't cheaply size up — the caller then relies on the
+    post-load cap, which still skips the render.
+    """
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".stl":
+            size = path.stat().st_size
+            with path.open("rb") as fh:
+                header = fh.read(84)
+            if len(header) == 84:
+                count = struct.unpack("<I", header[80:84])[0]
+                # Binary STL is exactly 84 + 50 bytes per triangle; if the math
+                # checks out we trust the header count exactly.
+                if size == 84 + count * 50:
+                    return count
+            # ASCII STL: ~7 lines / ~250 bytes per triangle.
+            return size // 250
+        if suffix == ".3mf":
+            with zipfile.ZipFile(path) as zf:
+                xml_bytes = sum(
+                    info.file_size
+                    for info in zf.infolist()
+                    if info.filename.lower().endswith(".model")
+                )
+            # 3MF mesh XML runs ~70 bytes per <triangle> (verts are shared).
+            return xml_bytes // 70 if xml_bytes else None
+    except (OSError, zipfile.BadZipFile, struct.error):
+        return None
+    return None
 
 # Slicer-generated 3MF archives usually embed a pre-rendered preview
 # (Metadata/thumbnail.png per spec; plate_*.png from Orca/Bambu).
@@ -33,7 +75,9 @@ def _load_mesh(path: Path):
     import trimesh
 
     try:
-        loaded = trimesh.load(str(path), force="mesh")
+        # process=False skips trimesh's vertex-merge + adjacency build, which we
+        # don't need for bbox/volume/render and which adds ~15% peak memory.
+        loaded = trimesh.load(str(path), force="mesh", process=False)
     except Exception:
         logger.warning(
             "mesh_processing: trimesh.load failed for %s", path.name, exc_info=True
@@ -143,7 +187,21 @@ def analyze_mesh(
             report(label)
 
     _report("loading_mesh")
-    mesh = _load_mesh(path)
+    cap = settings.mesh_max_render_triangles
+    estimate = _estimate_triangle_count(path)
+    if estimate is not None and estimate > cap:
+        # Too dense to load safely — skip it rather than risk an OOM kill (#24).
+        # The file is still indexed; a 3MF still gets its embedded preview below.
+        logger.warning(
+            "mesh_processing: %s is ~%d triangles (> cap %d); skipping mesh load "
+            "to avoid OOM",
+            path.name,
+            estimate,
+            cap,
+        )
+        mesh = None
+    else:
+        mesh = _load_mesh(path)
 
     _report("extracting_geometry")
     geometry = _geometry_from_mesh(mesh)
@@ -154,9 +212,20 @@ def analyze_mesh(
     # Slicer-embedded previews (orange G-code plate renders, off-centre 3MF
     # plate shots) are visually inconsistent, so they're only a fallback for
     # when the software rasteriser can't render the geometry.
-    thumb = mesh_render.render_mesh_thumbnail(
-        mesh, path.name, width=width, height=height
-    )
+    thumb: Optional[bytes] = None
+    if mesh is not None and len(mesh.faces) > cap:
+        # Backstop: the estimate missed (unknown format / bad header) but the
+        # loaded mesh is over budget — keep the cheap geometry, skip the render.
+        logger.warning(
+            "mesh_processing: %s loaded with %d triangles (> cap %d); skipping render",
+            path.name,
+            len(mesh.faces),
+            cap,
+        )
+    elif mesh is not None:
+        thumb = mesh_render.render_mesh_thumbnail(
+            mesh, path.name, width=width, height=height
+        )
     if thumb is None:
         thumb = extract_embedded_3mf_thumbnail(path)
     return geometry, thumb
@@ -168,6 +237,14 @@ def extract_geometry(path: Path) -> Dict[str, Optional[float]]:
     The returned dict is shaped for direct use as **kwargs to the
     `Metadata` SQLModel constructor. Missing values are returned as None.
     """
+    estimate = _estimate_triangle_count(path)
+    if estimate is not None and estimate > settings.mesh_max_render_triangles:
+        logger.warning(
+            "mesh_processing: %s is ~%d triangles (> cap); skipping geometry",
+            path.name,
+            estimate,
+        )
+        return _geometry_from_mesh(None)
     return _geometry_from_mesh(_load_mesh(path))
 
 
@@ -175,11 +252,15 @@ def render_thumbnail(
     path: Path, width: int = 640, height: int = 480
 ) -> Optional[bytes]:
     """Render a PNG thumbnail of *path*. Returns PNG bytes or None on failure."""
+    cap = settings.mesh_max_render_triangles
+    estimate = _estimate_triangle_count(path)
+    mesh = None if (estimate is not None and estimate > cap) else _load_mesh(path)
     # Prefer the in-house render for a consistent look across all cards; fall
-    # back to the slicer-embedded preview only when rendering fails.
-    thumb = mesh_render.render_thumbnail(_load_mesh, path, width=width, height=height)
-    if thumb is not None:
-        return thumb
+    # back to the slicer-embedded preview only when rendering fails or is skipped.
+    if mesh is not None and len(mesh.faces) <= cap:
+        thumb = mesh_render.render_mesh_thumbnail(mesh, path.name, width=width, height=height)
+        if thumb is not None:
+            return thumb
     return extract_embedded_3mf_thumbnail(path)
 
 

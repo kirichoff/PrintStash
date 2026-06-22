@@ -45,14 +45,26 @@
   carry an em-dash (`—`) and printer names can contain any Unicode, which broke
   *every* ntfy send because HTTP headers must be latin-1. Non-latin-1 header
   values are now RFC 2047-encoded (and decoded by ntfy for display).
+- **Library scans no longer get OOM-killed by a dense mesh ([#24]).** A
+  high-polygon model (a gyroid/lattice "infill core" 3MF or STL — tens of
+  millions of triangles from a small file) made `trimesh.load` + the thumbnail
+  rasteriser allocate **~700 MB of RAM per million triangles**, peaking at
+  multiple GB *inside the load itself*. On a NAS scan that quietly drove the
+  process to ~7 GB RSS and the kernel OOM-killed it; Docker misreported the death
+  as a clean exit and restarted it, so it looped. The mesh's triangle count is
+  now estimated **before** loading (exact for binary STL, from the uncompressed
+  mesh XML for 3MF); anything over `mesh_max_render_triangles` (2,000,000 by
+  default, env `VAULT_MESH_MAX_RENDER_TRIANGLES`) skips the load entirely. The
+  file is still indexed, and a 3MF still shows its embedded slicer preview.
+  Measured effect on a 5.2 M-triangle mesh: peak RSS drops from ~5.9 GB to
+  ~45 MB. Mesh loading also now runs with `process=False` to trim memory further.
 - **An interrupted library scan no longer crash-loops the container ([#24]).**
   A scan stranded RUNNING by a process restart was reset to ERROR but kept its
   old `last_scanned_at`, so the scheduler found it immediately due again and
-  re-ran it on the very next tick. If the scan was what killed the process, this
-  produced a tight restart loop. The reset now stamps `last_scanned_at`, so an
+  re-ran it on the very next tick — a tight restart loop whenever the scan was
+  what killed the process. The reset now stamps `last_scanned_at`, so an
   interrupted scan waits for its next scheduled slot (a manual scan is always
-  still available). Note: this stops the *loop*; the underlying crash some users
-  hit while scanning large meshes on a NAS is still under investigation.
+  still available).
 
 [#24]: https://github.com/xiao-villamor/PrintStash/issues/24
 

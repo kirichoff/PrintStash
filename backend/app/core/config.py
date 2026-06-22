@@ -62,6 +62,15 @@ class Settings(BaseSettings):
     max_upload_mb: int = 512
     log_level: str = "INFO"
 
+    # Cap on mesh density for geometry extraction + thumbnail rendering. Loading
+    # and rasterising a mesh costs ~700 MB of peak RSS per million triangles
+    # (measured), and the cost is paid inside trimesh.load itself — so a dense
+    # lattice/gyroid model (tens of millions of triangles from a small file) can
+    # OOM-kill the process during a library scan (issue #24). Above this estimate
+    # the mesh is not loaded; the file is still indexed, and 3MF still gets its
+    # embedded slicer preview. Lower it on memory-constrained hosts.
+    mesh_max_render_triangles: int = 2_000_000
+
     # Optional static bearer token guarding the Prometheus /metrics endpoint.
     # Empty = open on the trusted internal network (see docs/known-limitations).
     metrics_token: str = ""
