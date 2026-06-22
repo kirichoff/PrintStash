@@ -28,7 +28,10 @@
   crease-aware smooth (Gouraud) shading instead of flat per-facet shading, with
   retuned lighting and a subtle specular highlight. Organic models render as
   smooth surfaces like the interactive 3D viewer instead of a faceted, washed-out
-  blob, while mechanical parts keep their crisp flat faces and sharp edges.
+  blob, while mechanical parts keep their crisp flat faces and sharp edges. The
+  camera is also fixed: models are framed in a Z-up 3/4 "hero" view (the way the
+  viewer shows them) instead of staring straight down the Z axis, which showed
+  the top of upright models rather than their front.
 
 ### Fixed
 

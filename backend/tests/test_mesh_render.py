@@ -36,7 +36,11 @@ def test_flat_z_mesh_uses_front_view_like_stl_viewer() -> None:
     np.testing.assert_allclose(view[:, 0], verts[:, 0])
 
 
-def test_cube_keeps_isometric_thumbnail_view() -> None:
+def test_solid_mesh_uses_z_up_hero_view() -> None:
+    # A chunky/solid mesh gets the 3/4 "hero" view, not the flat front view.
+    # Print models are Z-up, so object +Z must map to (mostly) screen-up — the
+    # old view looked down the Z axis and showed the top of upright models (e.g.
+    # the gathered top of a dumpling) instead of their front.
     verts = np.array(
         [
             [-1.0, -1.0, -1.0],
@@ -53,19 +57,15 @@ def test_cube_keeps_isometric_thumbnail_view() -> None:
 
     rotation = mesh_render._select_view_rotation(verts, np)
 
+    # A proper rotation, and not the flat front-view fallback.
+    np.testing.assert_allclose(rotation @ rotation.T, np.eye(3), atol=1e-9)
+    assert np.linalg.det(rotation) > 0.99
     assert not np.allclose(rotation, np.diag([1.0, 1.0, -1.0]))
-    np.testing.assert_allclose(
-        rotation,
-        np.array(
-            [
-                [0.70710678, 0.70710678, 0.0],
-                [-0.61237244, 0.61237244, -0.5],
-                [-0.35355339, 0.35355339, 0.8660254],
-            ]
-        ),
-        rtol=1e-6,
-        atol=1e-6,
-    )
+
+    # Object +Z lands (mostly) on screen-up, not pointing into the screen.
+    z_on_screen = rotation @ np.array([0.0, 0.0, 1.0])
+    assert z_on_screen[1] > 0.8  # up
+    assert abs(z_on_screen[0]) < 0.2  # not tipped sideways
 
 
 def test_flat_x_mesh_uses_broad_face_view() -> None:

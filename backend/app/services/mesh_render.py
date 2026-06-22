@@ -321,13 +321,20 @@ def _select_view_rotation(verts, np):
     if broad_extent > 1e-6 and thin_extent / broad_extent <= FLAT_MESH_THICKNESS_RATIO:
         return _front_rotation_for_thin_axis(thin_axis, np)
 
-    elev = np.radians(30.0)
-    azim = np.radians(-45.0)
-    cz, sz = np.cos(azim), np.sin(azim)
-    cx, sx = np.cos(elev), np.sin(elev)
-    rot_z = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]], dtype=np.float64)
-    rot_x = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]], dtype=np.float64)
-    return rot_x @ rot_z
+    # "Hero" 3/4 view for a solid model. 3D-print models are Z-up (they sit
+    # flat-based on the bed), so we keep Z as screen-up and look from the
+    # front-left tilted ~18° down — the way the interactive 3D viewer frames a
+    # model. The old view stared 30° *down the Z axis*, which showed the top of
+    # an upright model (e.g. the gathered top of a dumpling) instead of its face.
+    azim = np.radians(-35.0)  # spin around the up (Z) axis for a 3/4 view
+    tilt = np.radians(-18.0)  # look slightly down on the top
+    ca, sa = np.cos(azim), np.sin(azim)
+    ct, st = np.cos(tilt), np.sin(tilt)
+    spin_z = np.array([[ca, -sa, 0], [sa, ca, 0], [0, 0, 1]], dtype=np.float64)
+    # Base: camera on -Y looking toward +Y, with object Z mapped to screen-up.
+    base = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.float64)
+    tilt_x = np.array([[1, 0, 0], [0, ct, -st], [0, st, ct]], dtype=np.float64)
+    return tilt_x @ base @ spin_z
 
 
 def _front_rotation_for_thin_axis(thin_axis: int, np):
