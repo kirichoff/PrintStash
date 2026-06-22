@@ -119,3 +119,43 @@ def test_front_facing_flat_mesh_does_not_fall_back_to_silhouette(monkeypatch) ->
     assert png is not None
     assert png.startswith(b"\x89PNG")
     assert not any("no visible triangles" in message for message in warnings)
+
+
+def _unique_opaque_colours(png: bytes) -> int:
+    """Number of distinct RGB shades among the opaque pixels of a thumbnail."""
+    import io
+
+    from PIL import Image
+
+    arr = np.asarray(Image.open(io.BytesIO(png)).convert("RGBA"))
+    opaque = arr[arr[:, :, 3] > 200][:, :3]
+    return len(np.unique(opaque.reshape(-1, 3), axis=0))
+
+
+def test_smooth_surface_renders_a_gradient_not_facets() -> None:
+    # Crease-aware Gouraud shading: a sphere must shade as a smooth gradient
+    # (thousands of shades), not a handful of flat facets. Guards the original
+    # faceted-thumbnail regression.
+    import trimesh
+
+    png = mesh_render.render_mesh_thumbnail(
+        trimesh.creation.uv_sphere(radius=5.0, count=[48, 48]), "sphere"
+    )
+    assert png is not None
+    assert _unique_opaque_colours(png) > 2000
+
+
+def test_hard_edges_stay_flat_not_melted() -> None:
+    # The flip side: a cube must keep flat, distinct faces (a crease at each
+    # edge), so it has far fewer shades than a smooth body of similar size.
+    # Guards against smoothing rounding mechanical parts into a blob.
+    import trimesh
+
+    box = mesh_render.render_mesh_thumbnail(
+        trimesh.creation.box(extents=[10.0, 12.0, 10.0]), "box"
+    )
+    sphere = mesh_render.render_mesh_thumbnail(
+        trimesh.creation.uv_sphere(radius=6.0, count=[48, 48]), "sphere"
+    )
+    assert box is not None and sphere is not None
+    assert _unique_opaque_colours(box) * 3 < _unique_opaque_colours(sphere)

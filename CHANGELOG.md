@@ -24,6 +24,11 @@
   delivery status, and a recent-deliveries log records outcomes. A **Test**
   button sends a sample notification to verify a channel end to end. The whole
   feature is off until you enable it with a master switch.
+- **Much better mesh thumbnails.** The STL/3MF/OBJ thumbnail renderer now uses
+  crease-aware smooth (Gouraud) shading instead of flat per-facet shading, with
+  retuned lighting and a subtle specular highlight. Organic models render as
+  smooth surfaces like the interactive 3D viewer instead of a faceted, washed-out
+  blob, while mechanical parts keep their crisp flat faces and sharp edges.
 
 ### Fixed
 
