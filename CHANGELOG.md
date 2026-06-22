@@ -90,8 +90,16 @@
   what killed the process. The reset now stamps `last_scanned_at`, so an
   interrupted scan waits for its next scheduled slot (a manual scan is always
   still available).
+- **"Open in Bambu Studio" now works on macOS ([#27]).** Bambu Studio expects a
+  different URL scheme on macOS — the file URL is appended directly to a
+  `bambustudioopen://` host rather than passed as the `bambustudio://open?file=`
+  query the slicer uses on Windows/Linux. The button emitted the Windows/Linux
+  form for every platform, so macOS users got a "load cancelled" error (or, if
+  the slicer was already running, a silent no-op). The scheme is now chosen by
+  client OS; OrcaSlicer and PrusaSlicer are unaffected.
 
 [#24]: https://github.com/xiao-villamor/PrintStash/issues/24
+[#27]: https://github.com/xiao-villamor/PrintStash/issues/27
 
 ### Internal
 

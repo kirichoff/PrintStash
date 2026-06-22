@@ -9,6 +9,14 @@ const SLICERS = [
   { name: "PrusaSlicer", scheme: "prusaslicer" },
 ];
 
+function isMacOS() {
+  if (typeof navigator === "undefined") return false;
+  // navigator.platform is deprecated but still the most reliable signal here;
+  // fall back to the user-agent string.
+  const platform = navigator.platform ?? "";
+  return /Mac/i.test(platform) || /Mac OS X/i.test(navigator.userAgent ?? "");
+}
+
 export function SlicerOpenButton({
   fileId,
   size = "md",
@@ -40,6 +48,13 @@ export function SlicerOpenButton({
 
   function slicerHref(scheme: string) {
     const fileUrl = `${origin}/api/v1/files/${fileId}/download`;
+    // Bambu Studio uses a different URL scheme on macOS: the file URL is
+    // appended directly to the `bambustudioopen://` host instead of being
+    // passed as an `open?file=` query parameter. Using the Windows/Linux form
+    // on macOS makes the slicer error out and cancel the load (issue #27).
+    if (scheme === "bambustudio" && isMacOS()) {
+      return `bambustudioopen://${encodeURIComponent(fileUrl)}`;
+    }
     return `${scheme}://open?file=${encodeURIComponent(fileUrl)}`;
   }
 
