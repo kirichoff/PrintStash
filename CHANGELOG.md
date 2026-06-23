@@ -139,6 +139,11 @@
   while files at the archive root stay on the collection itself. Path entries
   are still validated against traversal (`..`, absolute, drive-letter) before
   extraction.
+- **3D viewer no longer lays models on their side.** STL and other print meshes
+  are authored Z-up, but the interactive viewer dropped them into its Y-up scene
+  unrotated — so a model rested on its back and the floor grid sliced through its
+  middle. Meshes are now stood upright before measuring (object `+Z` → screen-up,
+  matching the thumbnail renderer), so they sit on the grid the right way up.
 
 [#24]: https://github.com/xiao-villamor/PrintStash/issues/24
 [#27]: https://github.com/xiao-villamor/PrintStash/issues/27

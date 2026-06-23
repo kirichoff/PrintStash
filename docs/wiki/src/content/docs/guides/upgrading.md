@@ -58,6 +58,28 @@ uv run alembic upgrade head
 
 Then restart the backend and frontend dev servers.
 
+## Version-specific notes
+
+### 0.7.0 — Notifications & event hooks
+
+- **The schema change is additive and safe by default.** Two Alembic migrations
+  add the notification tables and a `notifications_enabled` flag on
+  `system_config` (defaulting to off). No existing tables or columns are altered
+  or dropped, so the upgrade is a normal `alembic upgrade head`.
+- **Notifications start disabled.** Existing installs are not opted in — enable
+  the master switch and configure channels under **Settings → Notifications**
+  when you're ready. Nobody gets surprise alerts on upgrade.
+- **No new required configuration.** All new settings have defaults; you don't
+  have to touch your `.env`.
+- **Dense meshes now skip thumbnail rendering.** To stop a single high-poly
+  model (a multi-million-triangle lattice/gyroid) from OOM-killing a library
+  scan, meshes above `VAULT_MESH_MAX_RENDER_TRIANGLES` (2,000,000 by default)
+  are no longer loaded for geometry/thumbnails. Such files are still indexed,
+  and 3MF still shows its embedded slicer preview. Raise the cap if your host
+  has the memory and you want renders for these models.
+- **Thumbnails look different.** Smooth shading and a Z-up 3/4 framing change how
+  previews look; existing cached thumbnails are kept until rebuilt.
+
 ## SQLite notes
 
 - Fresh installs use `sqlite:////data/db/printstash.sqlite`.

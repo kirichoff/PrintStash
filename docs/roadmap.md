@@ -69,6 +69,12 @@ Shipped together in 0.7.0 rather than across several patches:
 - Per-event and per-printer notification toggles
 - Delivery retry with backoff and a visible "last notification" status, off by default behind a master switch
 - G-code parser robustness from real-slicer fixtures: fixes for OrcaSlicer filament-length corruption, Orca/Bambu bed-temperature detection, and PrusaSlicer infill detection
+- Library-scan reliability hardening ([#24]): dense meshes are sized before loading and skipped above `VAULT_MESH_MAX_RENDER_TRIANGLES` (2,000,000 default) so a single high-poly model can no longer OOM-kill a scan; STL/3MF downloads stream off disk, and interrupted scans land in a terminal state instead of crash-looping
+- Mesh thumbnails reworked: crease-aware smooth (Gouraud) shading and a Z-up 3/4 hero framing, matching the interactive viewer — which itself was fixed to stand models upright on the grid
+- "Open in slicer" works on self-hosted instances ([#27]), and zip imports preserve the archive's folder structure as nested collections
+
+[#24]: https://github.com/xiao-villamor/PrintStash/issues/24
+[#27]: https://github.com/xiao-villamor/PrintStash/issues/27
 
 ## 0.8 — Spoolman Integration
 
