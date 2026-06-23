@@ -6,7 +6,8 @@ import { CollectionRead, ModelListItem, PrinterRead, TagRead } from "@/types";
 import { ModelCard } from "@/components/model-card";
 import { FilterSidebar } from "@/components/filter-sidebar";
 import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
-import { UploadModal } from "@/components/upload-modal";
+// import { UploadModal } from "@/components/upload-modal";
+import { UploadModal, UploadMode } from "@/components/upload-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMobileFilterDrawer } from "@/lib/mobile-filter-context";
 import {
@@ -22,6 +23,7 @@ import {
   Plus,
 } from "lucide-react";
 import { listModels, createCollection, updateModel, moveCollection, deleteCollection } from "@/lib/api";
+import { isMeshFile, isGcodeFile, extensionOf } from "@/lib/bulk-upload";
 import { useCollections, usePrinters, useTags } from "@/lib/queries";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
@@ -130,6 +132,47 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [dropPreload, setDropPreload] = useState<{ files: File[]; mode: UploadMode } | null>(null);
+const [dropCollection, setDropCollection] = useState<string | null>(null);
+const [isDragging, setIsDragging] = useState(false);
+const dragEnterCount = useRef(0);
+
+function classifyDrop(files: File[]): { files: File[]; mode: UploadMode } | null {
+  const meshes = files.filter((f) => isMeshFile(f.name));
+  const gcodes = files.filter((f) => isGcodeFile(f.name));
+  const zips   = files.filter((f) => extensionOf(f.name) === ".zip");
+  if (meshes.length >= 2) return { mode: "bulk", files: meshes };
+  if (meshes.length === 1) return { mode: "files", files: [...meshes, ...gcodes.slice(0, 1)] };
+  if (gcodes.length > 0)  return { mode: "files", files: [gcodes[0]] };
+  if (zips.length > 0)    return { mode: "zip",   files: [zips[0]] };
+  return null;
+}
+
+function onMainDragEnter(e: React.DragEvent) {
+  e.preventDefault();
+  if (++dragEnterCount.current === 1) setIsDragging(true);
+}
+function onMainDragOver(e: React.DragEvent) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "copy";
+}
+function onMainDragLeave(e: React.DragEvent) {
+  e.preventDefault();
+  if (--dragEnterCount.current <= 0) { dragEnterCount.current = 0; setIsDragging(false); }
+}
+function onMainDrop(e: React.DragEvent) {
+  e.preventDefault();
+  dragEnterCount.current = 0;
+  setIsDragging(false);
+  if (!canUploadToVault) return;
+  const result = classifyDrop(Array.from(e.dataTransfer.files));
+  if (!result) return;
+  const collPath = (e.target as Element).closest("[data-collection-path]")
+    ?.getAttribute("data-collection-path") ?? null;
+  setDropPreload(result);
+  setDropCollection(collPath);
+  setUploadOpen(true);
+}
   const [loading, setLoading] = useState(!initial);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -364,7 +407,15 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
 
   return (
     <>
-      <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} onUploaded={refresh} defaultCollection={uploadDefaultCollection} />
+      {/* <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} onUploaded={refresh} defaultCollection={uploadDefaultCollection} /> */}
+      <UploadModal
+        open={uploadOpen}
+        onClose={() => { setUploadOpen(false); setDropPreload(null); setDropCollection(null); }}
+        onUploaded={refresh}
+        defaultCollection={dropCollection ?? uploadDefaultCollection}
+        preloadFiles={dropPreload?.files ?? null}
+        initialMode={dropPreload?.mode}
+      />
       <MobileFilterDrawer
         open={filterDrawerOpen} onClose={closeDrawer}
         collections={collections} tags={tags} printers={printers}
@@ -392,7 +443,21 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
         loading={facetsLoading}
       />
 
-      <main className="flex-1 overflow-y-auto bg-background flex flex-col">
+      {/* <main className="flex-1 overflow-y-auto bg-background flex flex-col"> */}
+      <main
+          className="flex-1 overflow-y-auto bg-background flex flex-col relative"
+          onDragEnter={onMainDragEnter}
+          onDragOver={onMainDragOver}
+          onDragLeave={onMainDragLeave}
+          onDrop={onMainDrop}
+        >
+          {isDragging && canUploadToVault && (
+            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center border-2 border-dashed border-primary bg-primary/5">
+              <span className="bg-background border border-border rounded px-4 py-2 font-mono text-xs uppercase tracking-widest shadow">
+                Drop to upload
+              </span>
+            </div>
+          )}
         {/* Breadcrumb */}
         <nav className="px-6 py-3 bg-background border-b border-border flex items-center space-x-2 text-sm tracking-tight">
           {selectedCollection && breadcrumbs.length > 0 ? (
@@ -455,7 +520,8 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
                   New collection
                 </button>
                 <button
-                  onClick={() => setUploadOpen(true)}
+                  // onClick={() => setUploadOpen(true)}
+                  onClick={() => { setDropPreload(null); setDropCollection(null); setUploadOpen(true); }}
                   disabled={!canUploadToVault}
                   className="flex items-center px-3 py-2 text-xs font-medium text-white bg-blue-600 dark:bg-orange-600 rounded hover:bg-blue-700 dark:hover:bg-orange-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -592,6 +658,7 @@ function CollectionFolderCard({ collection, onSelect }: { collection: Collection
   return (
     <button
       type="button"
+      data-collection-path={collection.path}
       onClick={() => onSelect(collection.path)}
       className="group flex flex-col text-left bg-muted border border-border rounded-lg hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-sm transition-all relative overflow-hidden"
     >
@@ -641,6 +708,7 @@ function CollectionListRow({ collection, onSelect }: { collection: CollectionRea
   return (
     <button
       type="button"
+      data-collection-path={collection.path}
       onClick={() => onSelect(collection.path)}
       className="flex items-center gap-2 md:gap-3 px-4 py-3 border-b border-border text-left hover:bg-muted transition-colors group"
     >

@@ -61,7 +61,7 @@ declare module "react" {
   }
 }
 
-type UploadMode = "files" | "bulk" | "url" | "zip";
+export type UploadMode = "files" | "bulk" | "url" | "zip";
 
 const GCODE_EXT = new Set([".gcode", ".g", ".gco"]);
 const GCODE_ACCEPT = ".gcode,.g,.gco";
@@ -94,15 +94,11 @@ function canWriteCollection(collection: CollectionRead): boolean {
 }
 
 export function UploadModal({
-  open,
-  onClose,
-  onUploaded,
-  defaultCollection,
+  open, onClose, onUploaded, defaultCollection, preloadFiles, initialMode,
 }: {
-  open: boolean;
-  onClose: () => void;
-  onUploaded: () => void;
-  defaultCollection?: string | null;
+  open: boolean; onClose: () => void; onUploaded: () => void; defaultCollection?: string | null;
+  preloadFiles?: File[] | null;
+  initialMode?: UploadMode;
 }) {
   const auth = useRequireAuth();
   const { user } = useAuth();
@@ -181,6 +177,20 @@ export function UploadModal({
       cancelled = true;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !preloadFiles?.length) return;
+    if (initialMode) setMode(initialMode);
+    if (initialMode === "bulk") {
+      setBulkFiles(fileListToItems(preloadFiles));
+    } else {
+      setMeshFile(null);
+      setGcodeFile(null);
+      setModelName("");
+      sortIntoSlots(preloadFiles);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, preloadFiles, initialMode]);
 
   useEffect(() => {
     if (!open) return;
