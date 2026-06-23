@@ -173,6 +173,12 @@ def _safe_entry_name(name: str) -> bool:
     return True
 
 
+def _safe_subdir(rel_name: str) -> str:
+    """POSIX directory part of a (validated) entry; ``''`` for a root file."""
+    parent = PurePosixPath(rel_name.replace("\\", "/")).parent
+    return "" if str(parent) in (".", "") else str(parent)
+
+
 def inspect_archive(path: Path) -> list[ArchiveEntry]:
     """List archive entries, enforcing zip-bomb caps. Importable + image only."""
     max_entries = settings.max_archive_entries
@@ -212,7 +218,13 @@ def inspect_archive(path: Path) -> list[ArchiveEntry]:
 
 
 def extract_selected(path: Path, names: list[str]) -> list[tuple[Path, str]]:
-    """Extract chosen 3D entries to staging. Returns [(staged_path, filename)]."""
+    """Extract chosen 3D entries to staging. Returns [(staged_path, rel_name)].
+
+    ``rel_name`` keeps the archive-relative path (e.g. ``Dragons/red.stl``) so
+    importers that opt into ``nest_subdirs`` can mirror the folder layout into
+    sub-collections; entries at the archive root have no separator and behave
+    exactly as a bare filename did before.
+    """
     wanted = set(names)
     extracted: list[tuple[Path, str]] = []
     max_entry = settings.max_archive_entry_mb * 1024 * 1024
@@ -230,7 +242,7 @@ def extract_selected(path: Path, names: list[str]) -> list[tuple[Path, str]]:
             staged = settings.incoming_dir / f"{uuid.uuid4().hex}{suffix}"
             with zf.open(info) as src:
                 storage.stream_to_path(src, staged)
-            extracted.append((staged, Path(info.filename).name))
+            extracted.append((staged, info.filename.replace("\\", "/")))
     return extracted
 
 
@@ -313,7 +325,13 @@ def _ingest_one_file(
     Returns a result dict (``model_id``/``file_id``/``name`` on success, or
     ``name``/``error`` on failure), or ``None`` if the suffix is not importable
     (the caller skips it without counting it as a step).
+
+    ``original_filename`` may carry an archive-relative path; only its basename
+    is used for the suffix, model name, and stored filename. Callers that want
+    the directory mirrored into a sub-collection derive that into ``collection``
+    before calling (see ``import_assets``' ``nest_subdirs``).
     """
+    original_filename = PurePosixPath(original_filename.replace("\\", "/")).name
     suffix = Path(original_filename).suffix.lower()
     resolved_name = model_name or Path(original_filename).stem
     child = registry.create(owner_user_id=actor_user_id)
@@ -374,6 +392,7 @@ def import_assets(
     actor_user_id: Optional[int],
     session_factory: SessionFactory,
     model_name: Optional[str] = None,
+    nest_subdirs: bool = False,
 ) -> None:
     """Ingest each staged 3D file as its own Model, reporting aggregate progress.
 
@@ -383,6 +402,10 @@ def import_assets(
     ``model_name`` is an optional display-name override; it only applies to a
     single-file import (it makes no sense to name many archive entries alike),
     otherwise each model is named after its filename stem.
+
+    When ``nest_subdirs`` is set, each file's archive-relative directory is
+    appended to ``collection`` so a zipped folder tree is mirrored into nested
+    sub-collections; otherwise every file lands directly in ``collection``.
     """
     total = len(staged_files)
     if total == 0:
@@ -392,11 +415,17 @@ def import_assets(
     registry.update(job_id, state="running", total_steps=total)
     results: list[dict] = []
     done = 0
-    for staged, original_filename in staged_files:
+    for staged, rel_name in staged_files:
+        file_collection = collection
+        if nest_subdirs:
+            subdir = _safe_subdir(rel_name)
+            if subdir:
+                base = (collection or "").rstrip("/")
+                file_collection = f"{base}/{subdir}" if base else subdir
         res = _ingest_one_file(
             staged,
-            original_filename,
-            collection=collection,
+            rel_name,
+            collection=file_collection,
             tags=tags,
             source_url=source_url,
             model_name=override,

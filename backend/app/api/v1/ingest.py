@@ -799,6 +799,7 @@ async def select_archive_entries(
         source_url=pending.source_url,
         actor_user_id=current_user.id,
         session_factory=session_factory,
+        nest_subdirs=True,
     )
     return IngestResponse(job_id=job_id, state="pending")
 

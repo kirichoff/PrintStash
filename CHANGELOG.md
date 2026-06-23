@@ -97,6 +97,14 @@
   form for every platform, so macOS users got a "load cancelled" error (or, if
   the slicer was already running, a silent no-op). The scheme is now chosen by
   client OS; OrcaSlicer and PrusaSlicer are unaffected.
+- **Zip imports now preserve the archive's folder structure.** Importing a zip
+  with sub-folders flattened every entry onto a single auto-collection named
+  after the archive, losing the layout the author organised the pack with. Each
+  entry now keeps its archive-relative path: a file inside `Terrain/` becomes a
+  model in a `Terrain` sub-collection nested under the archive's collection,
+  while files at the archive root stay on the collection itself. Path entries
+  are still validated against traversal (`..`, absolute, drive-letter) before
+  extraction.
 
 [#24]: https://github.com/xiao-villamor/PrintStash/issues/24
 [#27]: https://github.com/xiao-villamor/PrintStash/issues/27
