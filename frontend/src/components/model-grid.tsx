@@ -23,7 +23,6 @@ import {
   Plus,
 } from "lucide-react";
 import { listModels, createCollection, updateModel, moveCollection, deleteCollection } from "@/lib/api";
-// import { isMeshFile, isGcodeFile, extensionOf } from "@/lib/bulk-upload";
 import { isMeshFile, isGcodeFile, extensionOf, walkEntries, entriesFromDataTransfer, BulkItem } from "@/lib/bulk-upload";
 import { useCollections, usePrinters, useTags } from "@/lib/queries";
 import { toast } from "@/lib/toast";
@@ -418,7 +417,6 @@ async function onMainDrop(e: React.DragEvent) {
 
   return (
     <>
-      {/* <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} onUploaded={refresh} defaultCollection={uploadDefaultCollection} /> */}
       <UploadModal
         open={uploadOpen}
         onClose={() => { setUploadOpen(false); setDropPreload(null); setDropCollection(null); }}
@@ -454,7 +452,6 @@ async function onMainDrop(e: React.DragEvent) {
         loading={facetsLoading}
       />
 
-      {/* <main className="flex-1 overflow-y-auto bg-background flex flex-col"> */}
       <main
           className="flex-1 overflow-y-auto bg-background flex flex-col relative"
           onDragEnter={onMainDragEnter}
