@@ -27,11 +27,11 @@ services:
       # Generate one with: openssl rand -hex 32
       VAULT_JWT_SECRET: "changeme_jwt_secret_please_change"
     volumes:
-      - /foo/barPrintStash/files:/data/files
-      - /foo/barPrintStash/thumbs:/data/thumbs
-      - /foo/barPrintStash/db:/data/db
-      - /foo/barPrintStash/staging:/data/staging
-      - /foo/barPrintStash/backups:/data/backups
+      - /foo/bar/PrintStash/files:/data/files
+      - /foo/bar/PrintStash/thumbs:/data/thumbs
+      - /foo/bar/PrintStash/db:/data/db
+      - /foo/bar/PrintStash/staging:/data/staging
+      - /foo/bar/PrintStash/backups:/data/backups
     networks:
       - printstash_net
     healthcheck:
