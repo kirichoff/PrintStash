@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   File as FileIcon,
+  Layers,
   Link2,
   Loader2,
   Package,
@@ -32,6 +33,17 @@ import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
 import { formatBytes } from "@/lib/format";
 import {
+  bulkTargetCollection,
+  entriesFromDataTransfer,
+  extensionOf,
+  fileListToItems,
+  isMeshFile,
+  mergeBulkItems,
+  walkEntries,
+  MESH_ACCEPT,
+  type BulkItem,
+} from "@/lib/bulk-upload";
+import {
   ArchiveManifest,
   CollectionManifest,
   CollectionRead,
@@ -40,25 +52,35 @@ import {
   ModelFilesManifest,
 } from "@/types";
 
-type UploadMode = "files" | "url" | "zip";
+// `webkitdirectory` enables folder selection on a file input but isn't in the
+// standard DOM typings — augment so the JSX attribute typechecks.
+declare module "react" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface InputHTMLAttributes<T> {
+    webkitdirectory?: string;
+  }
+}
 
-const MESH_EXT = new Set([".stl", ".3mf", ".obj", ".step", ".stp"]);
+type UploadMode = "files" | "bulk" | "url" | "zip";
+
 const GCODE_EXT = new Set([".gcode", ".g", ".gco"]);
-const MESH_ACCEPT = ".stl,.3mf,.obj,.step,.stp";
 const GCODE_ACCEPT = ".gcode,.g,.gco";
 
-function ext(filename: string): string {
-  return "." + (filename.split(".").pop()?.toLowerCase() ?? "");
-}
-
-function isMesh(name: string): boolean {
-  return MESH_EXT.has(ext(name));
-}
-
 function isGcode(name: string): boolean {
-  return GCODE_EXT.has(ext(name));
+  return GCODE_EXT.has(extensionOf(name));
 }
 
+// Whether a filename matches a comma-separated `accept` extension list
+// (e.g. ".stl,.3mf,.obj"). Used to validate drag-and-drop drops, which —
+// unlike a native file input — don't enforce the `accept` attribute.
+function acceptsFile(accept: string, name: string): boolean {
+  const exts = accept.split(",").map((e) => e.trim().toLowerCase());
+  return exts.includes(extensionOf(name));
+}
+
+function stemName(filename: string): string {
+  return filename.replace(/\.[^/.]+$/, "");
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -89,6 +111,12 @@ export function UploadModal({
   const [meshFile, setMeshFile] = useState<File | null>(null);
   const [gcodeFile, setGcodeFile] = useState<File | null>(null);
   const [mode, setMode] = useState<UploadMode>("files");
+  // Bulk mode: each mesh becomes its own model, queued as an independent
+  // ingest task. No mesh+G-code linking (that stays on the "Files" tab).
+  // Picking/dropping a folder mirrors its subfolders into nested collections.
+  const [bulkFiles, setBulkFiles] = useState<BulkItem[]>([]);
+  const bulkRef = useRef<HTMLInputElement>(null);
+  const bulkFolderRef = useRef<HTMLInputElement>(null);
   const [urlValue, setUrlValue] = useState("");
   const [zipFile, setZipFile] = useState<File | null>(null);
   const zipRef = useRef<HTMLInputElement>(null);
@@ -185,13 +213,25 @@ export function UploadModal({
   if (!open) return null;
 
   function autoName(f: File) {
-    if (!modelName)
-      setModelName(f.name.replace(/\.[^/.]+$/, ""));
+    if (!modelName) setModelName(stemName(f.name));
+  }
+
+  // Merge newly picked/dropped meshes into the bulk queue (drops non-mesh
+  // files and duplicates), then surface a notice for anything skipped.
+  function addBulkItems(items: BulkItem[]) {
+    setBulkFiles((prev) => mergeBulkItems(prev, items).items);
+    const skipped = items.length - items.filter((it) => isMeshFile(it.file.name)).length;
+    if (skipped > 0) {
+      toast.warning(
+        "Some files skipped",
+        `${skipped} file${skipped === 1 ? "" : "s"} ignored — only 3D models (${MESH_ACCEPT}) are accepted here.`,
+      );
+    }
   }
 
   function sortIntoSlots(files: FileList | File[]) {
     for (const f of Array.from(files)) {
-      if (isMesh(f.name)) {
+      if (isMeshFile(f.name)) {
         setMeshFile(f);
         autoName(f);
       } else if (isGcode(f.name)) {
@@ -205,6 +245,7 @@ export function UploadModal({
     setMeshFile(null);
     setGcodeFile(null);
     setMode("files");
+    setBulkFiles([]);
     setUrlValue("");
     setZipFile(null);
     setManifest(null);
@@ -414,6 +455,48 @@ export function UploadModal({
         detail: msg,
       });
       toast.error(err);
+    }
+  }
+
+  // Bulk: create one task per mesh upfront (so the whole queue is visible in
+  // the task center), then process sequentially to avoid hammering the vault
+  // with concurrent uploads. Each file becomes its own model — no G-code
+  // linking, which is what keeps this distinct from the "Files" tab.
+  async function runBulkUpload({
+    files,
+    collection,
+    tagsForUpload,
+    libraryId,
+  }: {
+    files: BulkItem[];
+    collection: string;
+    tagsForUpload: string[];
+    libraryId: number | "";
+  }) {
+    const queue = files.map((item) => ({
+      item,
+      taskId: createTask({
+        title: `Upload ${item.relPath ? `${item.relPath}/` : ""}${item.file.name}`,
+        detail: "Queued",
+        status: "pending" as const,
+        progress: 0,
+      }),
+    }));
+    for (const { item, taskId } of queue) {
+      // Mirror the file's source folder into a nested collection under the
+      // chosen base — the backend auto-creates intermediate collections.
+      const targetCollection = bulkTargetCollection(collection, item.relPath);
+      // runUploadTask owns its own error handling and marks the task failed,
+      // so one bad file doesn't abort the rest of the queue.
+      await runUploadTask({
+        taskId,
+        mesh: item.file,
+        gcode: null,
+        name: stemName(item.file.name),
+        collection: targetCollection,
+        tagsForUpload,
+        libraryId,
+      });
     }
   }
 
@@ -647,6 +730,22 @@ export function UploadModal({
       void doInspectZip();
       return;
     }
+    if (mode === "bulk") {
+      if (bulkFiles.length === 0) return;
+      if (!collectionGate()) return;
+      void runBulkUpload({
+        files: bulkFiles,
+        collection: collectionPath,
+        tagsForUpload: [...selectedTags],
+        libraryId: targetLibraryId,
+      });
+      toast.success(
+        `Queued ${bulkFiles.length} upload${bulkFiles.length === 1 ? "" : "s"} — track progress in the task center`,
+      );
+      reset();
+      onClose();
+      return;
+    }
     if (!meshFile && !gcodeFile) return;
     if (!collectionGate()) return;
     const taskId = createTask({
@@ -759,6 +858,7 @@ export function UploadModal({
                   {(
                     [
                       ["files", "Files", Upload],
+                      ["bulk", "Bulk", Layers],
                       ["url", "From URL", Link2],
                       ["zip", "From ZIP", Package],
                     ] as const
@@ -850,6 +950,17 @@ export function UploadModal({
                     inputRef={gcodeRef}
                   />
                 </div>
+              ) : mode === "bulk" ? (
+                <BulkFiles
+                  items={bulkFiles}
+                  fileInputRef={bulkRef}
+                  folderInputRef={bulkFolderRef}
+                  onAddItems={addBulkItems}
+                  onRemove={(idx) =>
+                    setBulkFiles((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                  onClear={() => setBulkFiles([])}
+                />
               ) : mode === "url" ? (
                 <div>
                   <label className="block font-mono text-xs text-[var(--on-surface-variant)] tracking-wider uppercase mb-2">
@@ -979,7 +1090,7 @@ export function UploadModal({
               </div>
 
               {/* Destination (NAS write-back) — only when mirroring is enabled */}
-              {mode === "files" && libraries.length > 0 && (
+              {(mode === "files" || mode === "bulk") && libraries.length > 0 && (
                 <div>
                   <label className="block font-mono text-xs text-[var(--on-surface-variant)] tracking-wider uppercase mb-2">
                     Store in
@@ -1109,9 +1220,11 @@ export function UploadModal({
                       ? selectedEntries.size === 0
                       : mode === "files"
                         ? !meshFile && !gcodeFile
-                        : mode === "url"
-                          ? !urlValue.trim()
-                          : !zipFile)
+                        : mode === "bulk"
+                          ? bulkFiles.length === 0
+                          : mode === "url"
+                            ? !urlValue.trim()
+                            : !zipFile)
                   }
                   className="px-4 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-mono text-xs uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
@@ -1126,6 +1239,10 @@ export function UploadModal({
                     </>
                   ) : reviewing ? (
                     `Import ${selectedEntries.size} selected`
+                  ) : mode === "bulk" ? (
+                    bulkFiles.length > 0
+                      ? `Upload ${bulkFiles.length} model${bulkFiles.length === 1 ? "" : "s"}`
+                      : "Upload to vault"
                   ) : mode === "url" ? (
                     "Import from URL"
                   ) : mode === "zip" ? (
@@ -1157,6 +1274,7 @@ function FileSlot({
   placeholder: string;
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
+  const [dragActive, setDragActive] = useState(false);
   return (
     <div>
       <span className="block font-mono text-[10px] text-[var(--on-surface-variant)] tracking-wider uppercase mb-1.5">
@@ -1166,10 +1284,31 @@ function FileSlot({
         onClick={() => {
           if (!file) inputRef.current?.click();
         }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragActive(true);
+        }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragActive(false);
+          const dropped = e.dataTransfer.files?.[0];
+          if (!dropped) return;
+          if (!acceptsFile(accept, dropped.name)) {
+            toast.warning(
+              `Wrong file type for ${label}`,
+              `Drop a ${accept} file here.`,
+            );
+            return;
+          }
+          setFile(dropped);
+        }}
         className={`flex items-center justify-between rounded border border-dashed px-3 py-2.5 transition-colors cursor-pointer ${
           file
             ? "border-[var(--primary)] bg-[var(--primary)]/5"
-            : "border-[var(--outline-variant)] hover:border-[var(--outline)]"
+            : dragActive
+              ? "border-[var(--primary)] bg-[var(--primary)]/10"
+              : "border-[var(--outline-variant)] hover:border-[var(--outline)]"
         }`}
       >
         {file ? (
@@ -1206,6 +1345,153 @@ function FileSlot({
           className="hidden"
         />
       </div>
+    </div>
+  );
+}
+
+// Exported for unit tests; not used outside this module.
+export function BulkFiles({
+  items,
+  fileInputRef,
+  folderInputRef,
+  onAddItems,
+  onRemove,
+  onClear,
+}: {
+  items: BulkItem[];
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  folderInputRef: React.RefObject<HTMLInputElement | null>;
+  onAddItems: (items: BulkItem[]) => void;
+  onRemove: (index: number) => void;
+  onClear: () => void;
+}) {
+  const [dragActive, setDragActive] = useState(false);
+  const totalBytes = items.reduce((sum, it) => sum + it.file.size, 0);
+  const folderCount = new Set(
+    items.map((it) => it.relPath).filter(Boolean),
+  ).size;
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragActive(false);
+    const dt = e.dataTransfer;
+    // Entries must be pulled out synchronously — the DataTransfer is emptied
+    // once this handler returns; the async folder walk happens afterwards.
+    const entries = entriesFromDataTransfer(dt.items);
+    if (entries.length > 0) {
+      void walkEntries(entries).then(onAddItems);
+    } else if (dt.files?.length) {
+      // Browsers without the entries API still give a flat FileList.
+      onAddItems(fileListToItems(dt.files));
+    }
+  }
+
+  return (
+    <div>
+      <div
+        onClick={() => fileInputRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragActive(true);
+        }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={handleDrop}
+        className={`flex flex-col items-center justify-center gap-1.5 rounded border border-dashed px-3 py-6 text-center transition-colors cursor-pointer ${
+          dragActive
+            ? "border-[var(--primary)] bg-[var(--primary)]/10"
+            : "border-[var(--outline-variant)] hover:border-[var(--outline)]"
+        }`}
+      >
+        <Layers className="h-5 w-5 text-[var(--on-surface-variant)]" />
+        <span className="text-xs text-[var(--on-surface)]">
+          Drop 3D models or a folder here
+        </span>
+        <span className="font-mono text-[10px] text-[var(--on-surface-variant)]/60">
+          {MESH_ACCEPT} · subfolders become nested collections
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            folderInputRef.current?.click();
+          }}
+          className="mt-1 font-mono text-[10px] text-[var(--primary)] uppercase tracking-wider hover:underline"
+        >
+          Or select a folder
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={MESH_ACCEPT}
+          multiple
+          onChange={(e) => {
+            if (e.target.files?.length) onAddItems(fileListToItems(e.target.files));
+            // Allow re-picking the same files after a removal.
+            e.target.value = "";
+          }}
+          className="hidden"
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          webkitdirectory=""
+          multiple
+          onChange={(e) => {
+            if (e.target.files?.length) onAddItems(fileListToItems(e.target.files));
+            e.target.value = "";
+          }}
+          className="hidden"
+        />
+      </div>
+      {items.length > 0 && (
+        <>
+          <div className="flex items-center justify-between mt-2 mb-1.5">
+            <span className="font-mono text-[10px] text-[var(--on-surface-variant)] tracking-wider uppercase">
+              {items.length} file{items.length === 1 ? "" : "s"}
+              {folderCount > 0
+                ? ` · ${folderCount} folder${folderCount === 1 ? "" : "s"}`
+                : ""}{" "}
+              · {formatBytes(totalBytes)}
+            </span>
+            <button
+              type="button"
+              onClick={onClear}
+              className="font-mono text-[10px] text-[var(--on-surface-variant)] uppercase tracking-wider hover:text-[var(--on-surface)]"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="rounded border border-[var(--outline-variant)] divide-y divide-[var(--outline-variant)] max-h-56 overflow-y-auto">
+            {items.map((it, idx) => (
+              <div
+                key={`${it.relPath}/${it.file.name}:${it.file.size}:${idx}`}
+                className="flex items-center gap-2 px-3 py-2"
+              >
+                <FileIcon className="h-4 w-4 text-[var(--primary)] flex-shrink-0" />
+                <span className="min-w-0 flex-1 truncate text-xs text-[var(--on-surface)]">
+                  {it.relPath && (
+                    <span className="text-[var(--on-surface-variant)]/60">
+                      {it.relPath}/
+                    </span>
+                  )}
+                  {it.file.name}
+                </span>
+                <span className="font-mono text-[10px] text-[var(--on-surface-variant)] flex-shrink-0">
+                  {formatBytes(it.file.size)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onRemove(idx)}
+                  aria-label={`Remove ${it.file.name}`}
+                  className="h-5 w-5 rounded hover:bg-[var(--surface-container)] flex items-center justify-center text-[var(--on-surface-variant)] flex-shrink-0"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
