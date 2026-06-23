@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.core.config import _overlay
+from app.core.time import utcnow
 from app.db.models import ExternalLibrary, ExternalLibraryScanStatus
 from app.services import external_library
 from app.services.jobs import JobRegistry
@@ -71,7 +73,16 @@ def test_reset_orphaned_scans_recovers_stranded_library(db_session: Session) -> 
     assert lib.last_scan_status == ExternalLibraryScanStatus.ERROR
     assert json.loads(lib.last_scan_summary)["error"] == "interrupted by restart"
 
-    # Now it is eligible for scanning again.
+    # Loop-breaker (issue #24): the reset stamps last_scanned_at, so a scan that
+    # crashed the process is NOT immediately due again on the next tick — it
+    # waits for the schedule instead of crash-looping the container.
+    assert lib.last_scanned_at is not None
+    assert lib.id not in external_library.libraries_due_for_scan(db_session)
+
+    # Once the schedule has elapsed, it becomes eligible again as normal.
+    lib.last_scanned_at = utcnow() - timedelta(minutes=2)
+    db_session.add(lib)
+    db_session.commit()
     assert lib.id in external_library.libraries_due_for_scan(db_session)
 
 

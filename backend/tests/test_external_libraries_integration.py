@@ -441,7 +441,82 @@ def test_per_file_error_is_isolated_and_scan_continues(
     assert len(summary["errors"]) == 1
     assert "bad.gcode" in summary["errors"][0]
     db_session.refresh(lib)
+    # A completed-with-failures scan is PARTIAL, not a misleading green OK.
+    assert lib.last_scan_status == ExternalLibraryScanStatus.PARTIAL
+
+
+def test_clean_scan_reports_ok(tmp_path: Path, db_session: Session) -> None:
+    """A scan with no per-file failures stays OK (PARTIAL is only for errors)."""
+    _configure_storage(tmp_path)
+    _enable_feature(db_session)
+    nas = tmp_path / "nas"
+    _drop_gcode(nas, "good.gcode", marker="ok")
+    lib = _make_library(db_session, nas)
+
+    external_library.scan_library(lib.id)
+
+    db_session.refresh(lib)
     assert lib.last_scan_status == ExternalLibraryScanStatus.OK
+
+
+def test_unexpected_failure_never_strands_scan_running(
+    tmp_path: Path, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An exception outside the per-file boundary (e.g. a NAS mount dropping
+    mid-walk) must land the library in a terminal ERROR state, not leave it
+    stranded RUNNING where the scheduler would skip it forever (#24 follow-up)."""
+    _configure_storage(tmp_path)
+    _enable_feature(db_session)
+    nas = tmp_path / "nas"
+    _drop_gcode(nas, "any.gcode", marker="x")
+    lib = _make_library(db_session, nas)
+
+    def boom(_root):  # the walk itself fails, outside any per-file try/except
+        raise OSError("transport endpoint is not connected")
+
+    monkeypatch.setattr(external_library, "_walk", boom)
+
+    summary = external_library.scan_library(lib.id)
+
+    assert summary["aborted"] is True
+    assert "scan_failed" in summary["error"]
+    db_session.refresh(lib)
+    assert lib.last_scan_status == ExternalLibraryScanStatus.ERROR
+    # last_scanned_at is stamped so the scheduler treats it as due again (a
+    # terminal state), rather than a permanently-skipped RUNNING row.
+    assert lib.last_scanned_at is not None
+
+
+def test_mtime_jitter_within_tolerance_skips_rehash(
+    tmp_path: Path, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sub-second/FAT-granularity mtime drift on unchanged content takes the
+    cheap skip path — it must not trigger a full sha256 re-hash over the NAS."""
+    _configure_storage(tmp_path)
+    _enable_feature(db_session)
+    nas = tmp_path / "nas"
+    path = _drop_gcode(nas, "stable.gcode", marker="jitter")
+    lib = _make_library(db_session, nas)
+    external_library.scan_library(lib.id)
+
+    # Nudge mtime by less than the tolerance (content identical).
+    jittered = path.stat().st_mtime + 1.0
+    os.utime(path, (jittered, jittered))
+
+    calls = {"n": 0}
+    real_hash = external_library.sha256_file
+
+    def counting_hash(p):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        return real_hash(p)
+
+    monkeypatch.setattr(external_library, "sha256_file", counting_hash)
+
+    summary = external_library.scan_library(lib.id)
+
+    assert summary["skipped"] == 1
+    assert summary["updated"] == 0
+    assert calls["n"] == 0  # no re-hash storm for jitter under the tolerance
 
 
 # --------------------------------------------------------------------------- #

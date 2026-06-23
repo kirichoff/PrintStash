@@ -3,26 +3,56 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ExternalLink } from "lucide-react";
 
-const SLICERS = [
-  { name: "OrcaSlicer", scheme: "orcaslicer" },
-  { name: "Bambu Studio", scheme: "bambustudio" },
-  { name: "PrusaSlicer", scheme: "prusaslicer" },
+import { getJson } from "@/lib/api/request";
+import { toast } from "@/lib/toast";
+
+type Slicer = {
+  name: string;
+  scheme: string;
+  // File extensions this slicer can actually open from a URL.
+  types: ReadonlySet<string>;
+};
+
+// Which file types each slicer opens from a URL. Bambu Studio only loads 3MF
+// via URL (other formats error with "unknown format"); OrcaSlicer is broad.
+// PrusaSlicer doesn't reliably open arbitrary self-hosted URLs yet
+// (prusa3d/PrusaSlicer#13752) but is kept listed as best-effort.
+const ORCA_TYPES = new Set(["stl", "3mf", "obj", "step", "gcode"]);
+const SLICERS: Slicer[] = [
+  { name: "OrcaSlicer", scheme: "orcaslicer", types: ORCA_TYPES },
+  { name: "Bambu Studio", scheme: "bambustudio", types: new Set(["3mf"]) },
+  { name: "PrusaSlicer", scheme: "prusaslicer", types: ORCA_TYPES },
 ];
+
+function isMacOS() {
+  if (typeof navigator === "undefined") return false;
+  // navigator.platform is deprecated but still the most reliable signal here;
+  // fall back to the user-agent string.
+  const platform = navigator.platform ?? "";
+  return /Mac/i.test(platform) || /Mac OS X/i.test(navigator.userAgent ?? "");
+}
+
+function slicerHref(scheme: string, fileUrl: string) {
+  // Bambu Studio uses a different URL scheme on macOS: the file URL is
+  // appended directly to the `bambustudioopen://` host instead of being passed
+  // as an `open?file=` query parameter (issue #27).
+  if (scheme === "bambustudio" && isMacOS()) {
+    return `bambustudioopen://${encodeURIComponent(fileUrl)}`;
+  }
+  return `${scheme}://open?file=${encodeURIComponent(fileUrl)}`;
+}
 
 export function SlicerOpenButton({
   fileId,
+  fileType,
   size = "md",
 }: {
   fileId: number;
+  fileType: string;
   size?: "sm" | "md";
 }) {
   const [open, setOpen] = useState(false);
-  const [origin, setOrigin] = useState("");
   const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setOrigin(window.location.origin);
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -38,9 +68,25 @@ export function SlicerOpenButton({
   const iconSize = size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4";
   const chevronSize = size === "sm" ? "h-2.5 w-2.5" : "h-3 w-3";
 
-  function slicerHref(scheme: string) {
-    const fileUrl = `${origin}/api/v1/files/${fileId}/download`;
-    return `${scheme}://open?file=${encodeURIComponent(fileUrl)}`;
+  const slicers = SLICERS.filter((s) => s.types.has(fileType));
+  if (slicers.length === 0) return null;
+
+  async function openInSlicer(scheme: string) {
+    setOpen(false);
+    try {
+      // The slicer is a separate process with no login session, so it can't
+      // send our bearer token. The backend returns a short-lived, filename-
+      // bearing download URL (the path carries the extension so the slicer can
+      // detect the format) with a file-scoped token embedded.
+      const { url } = await getJson<{ url: string }>(
+        `/api/v1/files/${fileId}/slicer-url`,
+        { fresh: true },
+      );
+      const fileUrl = `${window.location.origin}${url}`;
+      window.location.assign(slicerHref(scheme, fileUrl));
+    } catch {
+      toast.error("Couldn't open in slicer");
+    }
   }
 
   return (
@@ -58,15 +104,15 @@ export function SlicerOpenButton({
           <p className="px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)] border-b border-[var(--outline-variant)]">
             Open in slicer
           </p>
-          {SLICERS.map(({ name, scheme }) => (
-            <a
+          {slicers.map(({ name, scheme }) => (
+            <button
               key={scheme}
-              href={slicerHref(scheme)}
-              onClick={() => setOpen(false)}
+              type="button"
+              onClick={() => openInSlicer(scheme)}
               className="block w-full px-3 py-2 text-left font-mono text-xs text-[var(--on-surface)] hover:bg-[var(--surface-container-low)] transition-colors last:rounded-b"
             >
               {name}
-            </a>
+            </button>
           ))}
         </div>
       )}

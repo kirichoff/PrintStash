@@ -162,9 +162,11 @@ def test_import_zip_archive_creates_models(
     assert payload["state"] == "completed", payload
     assert payload["result"]["imported"] == 2
 
-    # Both files landed under one auto-created collection named after the archive.
+    # Both files sit under the zip's "parts/" folder, so they are mirrored into
+    # a sub-collection ("bundle/parts") nested beneath the archive's auto
+    # collection rather than flattened onto it.
     collection = db_session.exec(
-        select(Collection).where(Collection.name.ilike("%bundle%"))  # type: ignore[attr-defined]
+        select(Collection).where(Collection.path == "bundle/parts")
     ).first()
     assert collection is not None
     models = db_session.exec(

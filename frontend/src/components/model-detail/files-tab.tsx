@@ -47,7 +47,7 @@ export function FilesTab({ sourceFiles }: { sourceFiles: FileRead[] }) {
             </div>
             <div className="flex items-center gap-0.5 flex-shrink-0">
               {SLICEABLE_TYPES.has(f.file_type) && (
-                <SlicerOpenButton fileId={f.id} />
+                <SlicerOpenButton fileId={f.id} fileType={f.file_type} />
               )}
               <button
                 type="button"

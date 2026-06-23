@@ -503,16 +503,76 @@ def test_import_zip_built_from_testdata_benchy_files(
     assert payload["state"] == "completed", payload
     assert payload["result"]["imported"] == 2
 
-    # Both g-code files were grouped under one auto-created collection named
-    # after the archive.
+    # Both g-code files sit under the zip's "3DBenchy/" folder, so they are
+    # mirrored into a sub-collection nested beneath the archive's auto
+    # collection ("benchy-bundle"), not flattened onto it.
     collection = db_session.exec(
-        select(Collection).where(Collection.name.ilike("%benchy-bundle%"))  # type: ignore[attr-defined]
+        select(Collection).where(Collection.path == "benchy-bundle/3dbenchy")
     ).first()
     assert collection is not None
     models = db_session.exec(
         select(Model).where(Model.collection_id == collection.id)
     ).all()
     assert len(models) == 2
+
+
+@_requires(BENCHY_GCODE_A, BENCHY_GCODE_B)
+def test_import_zip_mirrors_folder_structure_into_collections(
+    tmp_path: Path,
+    client: TestClient,
+    db_session: Session,
+    auth_headers: dict[str, str],
+) -> None:
+    """A zip with sub-folders mirrors its layout into nested sub-collections,
+    while a file at the archive root stays in the archive's own collection."""
+    _configure_storage(tmp_path)
+    # Two distinct g-code files (distinct hashes → distinct models) arranged so
+    # one sits at the root and one inside a "Terrain/" folder.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("root_benchy.gcode", BENCHY_GCODE_A.read_bytes())
+        zf.writestr("Terrain/wall_benchy.gcode", BENCHY_GCODE_B.read_bytes())
+    zip_bytes = buf.getvalue()
+
+    manifest = client.post(
+        "/api/v1/ingest/archive",
+        headers=auth_headers,
+        files={"file": ("structured-pack.zip", zip_bytes, "application/zip")},
+    )
+    assert manifest.status_code == 200, manifest.text
+    body = manifest.json()
+    archive_id = body["archive_id"]
+    names = sorted(e["name"] for e in body["entries"] if e["file_type"])
+    # The manifest carries each entry's archive-relative path, not a bare name.
+    assert names == ["Terrain/wall_benchy.gcode", "root_benchy.gcode"]
+
+    payload = _job(
+        client,
+        client.post(
+            f"/api/v1/ingest/archive/{archive_id}/select",
+            headers=auth_headers,
+            json={"names": names},
+        ),
+        auth_headers,
+    )
+    assert payload["state"] == "completed", payload
+    assert payload["result"]["imported"] == 2
+
+    def _models_in(path: str) -> list[Model]:
+        coll = db_session.exec(
+            select(Collection).where(Collection.path == path)
+        ).first()
+        assert coll is not None, f"missing collection {path!r}"
+        return list(
+            db_session.exec(
+                select(Model).where(Model.collection_id == coll.id)
+            ).all()
+        )
+
+    # The root-level file lands directly in the archive's auto collection...
+    assert len(_models_in("structured-pack")) == 1
+    # ...and the "Terrain/" folder becomes a nested sub-collection beneath it.
+    assert len(_models_in("structured-pack/terrain")) == 1
 
 
 # --------------------------------------------------------------------------- #

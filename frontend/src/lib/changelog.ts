@@ -21,6 +21,22 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.7.0",
+    date: "Jun 2026",
+    changes: [
+      "Notifications: get alerted when a print completes, fails, or is cancelled, or when a printer goes offline — delivered to webhooks, Discord, Telegram, or ntfy",
+      "Set up channels under Settings → Notifications with per-event and per-printer toggles, a Test button, and a recent-deliveries log; failed sends retry automatically",
+      "Smoother, better-framed model thumbnails — organic models render as smooth surfaces in a 3/4 hero view instead of a faceted, top-down blob",
+      "Fixed the 3D viewer laying models on their side with the floor grid cutting through them — models now stand upright and sit on the grid",
+      "“Open in slicer” now works on self-hosted instances, opening OrcaSlicer/Bambu Studio with the right file and format",
+      "Zip imports keep the archive’s folder structure as nested collections instead of flattening everything into one",
+      "Fixed wildly wrong filament length on OrcaSlicer G-code — a benchy could report millions of millimetres because a start-G-code comment was misread as a metres value; lengths (and the costs derived from them) are now correct",
+      "Bed temperature now shows for OrcaSlicer and Bambu Studio G-code",
+      "Infill percentage now shows for PrusaSlicer G-code",
+      "Very dense meshes (multi-million-triangle lattice/gyroid models) skip thumbnail rendering to avoid out-of-memory crashes during library scans; the files are still indexed and 3MF keeps its embedded preview",
+    ],
+  },
+  {
     version: "0.6.7",
     date: "Jun 2026",
     changes: [

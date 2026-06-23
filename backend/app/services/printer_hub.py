@@ -19,9 +19,16 @@ from sqlmodel import Session, select
 
 from app.core.logging import get_logger
 from app.core.time import utcnow
-from app.db.models import PrintJob, PrintJobState, Printer, PrinterStatus
+from app.db.models import (
+    NotificationEventType,
+    PrintJob,
+    PrintJobState,
+    Printer,
+    PrinterStatus,
+)
 from app.db.session import get_session_factory
 from app.services import filament as filament_svc
+from app.services import notifications
 from app.services import print_results
 from app.services.printer_provider import ProviderError, get_provider_client
 from app.services.runtime_config import auto_mark_known_good_enabled
@@ -55,6 +62,14 @@ _WEBHOOK_STATE_MAP: Dict[str, PrinterStatus] = {
     "ready": PrinterStatus.READY,
     "shutdown": PrinterStatus.OFFLINE,
     "error": PrinterStatus.ERROR,
+}
+
+# Terminal PrintJob states that emit a notification, mapped to their event.
+# CANCELLED is split from FAILED so self-cancellations can be muted separately.
+_TERMINAL_EVENT: Dict[PrintJobState, NotificationEventType] = {
+    PrintJobState.COMPLETED: NotificationEventType.PRINT_COMPLETED,
+    PrintJobState.FAILED: NotificationEventType.PRINT_FAILED,
+    PrintJobState.CANCELLED: NotificationEventType.PRINT_CANCELLED,
 }
 
 
@@ -292,11 +307,25 @@ class PrinterHub:
             p = session.get(Printer, printer_id)
             if p is None:
                 return
+            prev_status = p.status
             p.status = status
             p.last_seen_at = utcnow()
             p.last_error = error
             p.updated_at = utcnow()
             session.add(p)
+            # Edge-trigger the offline event: only when transitioning *into*
+            # OFFLINE from a previously-live status. Skipping UNKNOWN avoids
+            # spurious alerts on startup/first-connect, and equality skips the
+            # heartbeat re-write path that re-persists an unchanged status.
+            if (
+                status == PrinterStatus.OFFLINE
+                and prev_status not in (PrinterStatus.OFFLINE, PrinterStatus.UNKNOWN)
+            ):
+                notifications.enqueue_for_event(
+                    session,
+                    NotificationEventType.PRINTER_OFFLINE,
+                    printer_id=printer_id,
+                )
             session.commit()
 
     async def _sync_active_job(
@@ -446,6 +475,20 @@ class PrinterHub:
                 if new_state == PrintJobState.FAILED:
                     job.error = print_stats.get("message")
                 session.add(job)
+                # Enqueue the terminal-state notification in the *same*
+                # transaction as the job writeback (transactional outbox).
+                # ``just_finished`` guarantees this fires exactly once per job.
+                if just_finished:
+                    event_type = _TERMINAL_EVENT.get(new_state)
+                    if event_type is not None:
+                        # job.id is already assigned (existing row, or the
+                        # external placeholder committed above).
+                        notifications.enqueue_for_event(
+                            session,
+                            event_type,
+                            printer_id=printer_id,
+                            job=job,
+                        )
                 session.commit()
 
             # Auto-mark the printed revision known_good after a successful print.

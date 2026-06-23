@@ -65,6 +65,34 @@ def verify_access_token(token: str) -> Optional[dict]:
         return None
 
 
+def create_file_download_token(file_id: int) -> str:
+    """Mint a short-lived, file-scoped token for "Open in slicer" downloads.
+
+    An external slicer process opens the download URL with no Authorization
+    header, so it can't use a normal access token. This token is a bearer
+    capability for *one* file, narrowly scoped and short-lived.
+    """
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.slicer_download_token_expire_minutes
+    )
+    payload = {
+        "scope": "file_download",
+        "file_id": int(file_id),
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def verify_file_download_token(token: str, file_id: int) -> bool:
+    """True iff *token* is a valid, unexpired download token for *file_id*."""
+    payload = verify_access_token(token)
+    if not payload:
+        return False
+    if payload.get("scope") != "file_download":
+        return False
+    return payload.get("file_id") == int(file_id)
+
+
 def revoke_access_token(token: str) -> None:
     payload = verify_access_token(token)
     if not payload:

@@ -38,6 +38,8 @@ _init_test_db()
 
 
 _TRUNCATE_TABLES_ORDER = [
+    "notification_deliveries",
+    "notification_channels",
     "printer_files",
     "print_jobs",
     "printers",

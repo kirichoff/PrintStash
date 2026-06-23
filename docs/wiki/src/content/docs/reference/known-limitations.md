@@ -48,6 +48,24 @@ manufacturing platform.
   slicer-grade simulator. It does not validate firmware macros, acceleration,
   pressure advance, or printer safety.
 
+## Notifications
+
+- Notifications are opt-in, off by default, and superuser-managed.
+- Channels cover print completed/failed/cancelled and printer-offline events,
+  delivered to generic webhooks, Discord, Telegram, or ntfy.
+- Channel secrets (webhook URLs, bot tokens, signing secrets) are stored
+  unencrypted in the database, like the other configured secrets. Keep your
+  install on a trusted network.
+- Delivery is at-least-once: a retried or recovered send can arrive more than
+  once, so receivers should de-duplicate on the `Idempotency-Key` header.
+- The dispatcher is built for the default single-node deployment. It claims work
+  safely against Postgres if you run multiple instances, but PrintStash is not
+  otherwise designed or tested for horizontal scaling.
+- Message formatting is fixed (no per-channel templates), the event set is the
+  four above, and there is no separate "printer back online" event.
+- An auto-disabled channel is not re-enabled automatically and does not raise a
+  separate alert — check Settings → Notifications if alerts go quiet.
+
 ## UI and workflow
 
 - The UI is functional and responsive, but repeated daily workflows still need

@@ -32,6 +32,8 @@ token. Generate something long and random and treat it as a credential.
 | `VAULT_CORS_ORIGINS`                | _(empty)_                            | Comma-separated browser origins allowed to call the API. Only needed if the UI is served from a different origin than the API. |
 | `VAULT_MAX_UPLOAD_MB`               | `512`                                | Maximum size per uploaded file, in MB. Docker Compose also maps this to the frontend nginx proxy body limit. |
 | `VAULT_LOG_LEVEL`                   | `INFO`                               | Backend log verbosity.                         |
+| `VAULT_MESH_MAX_RENDER_TRIANGLES`   | `2000000`                            | Cap on mesh density for geometry extraction and thumbnail rendering. A mesh whose estimated triangle count exceeds this is not loaded (the file is still indexed, and 3MF keeps its embedded preview). Loading a mesh costs ~700 MB of peak RAM per million triangles, so this prevents a dense lattice/gyroid model from OOM-killing a library scan. Lower it on memory-constrained hosts. |
+| `VAULT_SLICER_DOWNLOAD_TOKEN_EXPIRE_MINUTES` | `15`                        | Lifetime of the short-lived, file-scoped token embedded in "Open in slicer" download URLs so an external slicer can fetch the file without the user's login session. |
 
 ## Storage
 

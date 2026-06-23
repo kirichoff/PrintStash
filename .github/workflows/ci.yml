@@ -119,4 +119,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          # ignore-error: a transient GitHub Actions Cache outage (e.g. a 503
+          # while exporting) should not fail an otherwise-successful build.
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max,ignore-error=true

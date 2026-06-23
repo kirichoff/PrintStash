@@ -52,7 +52,13 @@ from app.services.storage_backend import get_backend
 
 logger = get_logger(__name__)
 
-_MTIME_TOLERANCE_S = 1e-6
+# Filesystem mtime granularity varies wildly (FAT rounds to 2 s, SMB/CIFS round,
+# floats lose precision on round-trip), so the cheap "unchanged" skip needs real
+# slack — 1e-6 absorbed nothing and forced a full sha256 re-hash of every file
+# with sub-second mtime jitter on each scan. 2 s covers the worst case (FAT);
+# the hash compare in _reindex_changed still catches any genuine edit on the
+# next size change, so this only trades a re-hash storm for the cheap skip.
+_MTIME_TOLERANCE_S = 2.0
 
 FsKind = Literal["local", "network", "unknown"]
 
@@ -372,99 +378,127 @@ def scan_library(
         session.add(library)
         session.commit()
 
-        root = Path(library.root_path)
+        # Everything past the RUNNING commit runs under a blanket guard: only the
+        # per-file loop below has its own boundary, so a failure in _walk (a NAS
+        # mount dropping mid-scan), the deletion loop, or _finish would otherwise
+        # escape with the row stranded RUNNING. libraries_due_for_scan skips
+        # RUNNING libraries, so that strands all future scheduled scans until a
+        # restart runs reset_orphaned_scans. Instead, always land in a terminal
+        # state (#24 follow-up).
+        try:
+            root = Path(library.root_path)
 
-        # --- Safety guard: never mass-delete on an unmounted/unreadable root. ---
-        if not root.exists() or not root.is_dir() or not os.access(root, os.R_OK):
-            summary.error = "root_path_missing_or_unreadable"
-            summary.aborted = True
-            _finish(session, library, ExternalLibraryScanStatus.ERROR, summary)
-            logger.warning(
-                "scan[lib=%s] aborted: root %s missing/unreadable", library_id, root
-            )
-            if job_id:
-                registry.update(job_id, state="failed", error=summary.error)
-            return summary.as_dict()
-
-        # Refresh the detected filesystem class so the UI / watcher know whether
-        # real-time watching can work for this root.
-        library.fs_kind = detect_fs_kind(root)
-        session.add(library)
-        session.commit()
-
-        disk = _walk(root)
-
-        live_files = session.exec(
-            select(File).where(
-                File.external_library_id == library_id,
-                live(File),
-            )
-        ).all()
-        db_by_path = {f.path: f for f in live_files}
-
-        if not disk and db_by_path:
-            summary.error = "root_empty_aborted"
-            summary.aborted = True
-            _finish(session, library, ExternalLibraryScanStatus.ERROR, summary)
-            logger.warning(
-                "scan[lib=%s] aborted: root %s empty but %d indexed files exist",
-                library_id,
-                root,
-                len(db_by_path),
-            )
-            if job_id:
-                registry.update(job_id, state="failed", error=summary.error)
-            return summary.as_dict()
-
-        if job_id:
-            registry.update(job_id, state="running", total_steps=len(disk) or 1)
-
-        for index, (path, (size, mtime)) in enumerate(disk.items(), start=1):
-            if job_id:
-                registry.update(
-                    job_id,
-                    step=index,
-                    total_steps=len(disk),
-                    label=f"scanning {Path(path).name}",
-                    progress=index / len(disk) * 100,
+            # --- Safety guard: never mass-delete on an unmounted/unreadable root.
+            if not root.exists() or not root.is_dir() or not os.access(root, os.R_OK):
+                summary.error = "root_path_missing_or_unreadable"
+                summary.aborted = True
+                _finish(session, library, ExternalLibraryScanStatus.ERROR, summary)
+                logger.warning(
+                    "scan[lib=%s] aborted: root %s missing/unreadable",
+                    library_id,
+                    root,
                 )
-            existing = db_by_path.get(path)
-            try:
-                if existing is None:
-                    _index_external_file(session, library, Path(path), size, mtime)
-                    summary.added += 1
-                elif (
-                    existing.size_bytes == size
-                    and existing.source_mtime is not None
-                    and abs(existing.source_mtime - mtime) <= _MTIME_TOLERANCE_S
-                ):
-                    summary.skipped += 1
-                else:
-                    if _reindex_changed(session, existing, Path(path), size, mtime):
-                        summary.updated += 1
-                    else:
+                if job_id:
+                    registry.update(job_id, state="failed", error=summary.error)
+                return summary.as_dict()
+
+            # Refresh the detected filesystem class so the UI / watcher know
+            # whether real-time watching can work for this root.
+            library.fs_kind = detect_fs_kind(root)
+            session.add(library)
+            session.commit()
+
+            disk = _walk(root)
+
+            live_files = session.exec(
+                select(File).where(
+                    File.external_library_id == library_id,
+                    live(File),
+                )
+            ).all()
+            db_by_path = {f.path: f for f in live_files}
+
+            if not disk and db_by_path:
+                summary.error = "root_empty_aborted"
+                summary.aborted = True
+                _finish(session, library, ExternalLibraryScanStatus.ERROR, summary)
+                logger.warning(
+                    "scan[lib=%s] aborted: root %s empty but %d indexed files exist",
+                    library_id,
+                    root,
+                    len(db_by_path),
+                )
+                if job_id:
+                    registry.update(job_id, state="failed", error=summary.error)
+                return summary.as_dict()
+
+            if job_id:
+                registry.update(job_id, state="running", total_steps=len(disk) or 1)
+
+            for index, (path, (size, mtime)) in enumerate(disk.items(), start=1):
+                if job_id:
+                    registry.update(
+                        job_id,
+                        step=index,
+                        total_steps=len(disk),
+                        label=f"scanning {Path(path).name}",
+                        progress=index / len(disk) * 100,
+                    )
+                existing = db_by_path.get(path)
+                try:
+                    if existing is None:
+                        _index_external_file(session, library, Path(path), size, mtime)
+                        summary.added += 1
+                    elif (
+                        existing.size_bytes == size
+                        and existing.source_mtime is not None
+                        and abs(existing.source_mtime - mtime) <= _MTIME_TOLERANCE_S
+                    ):
                         summary.skipped += 1
-            except Exception as exc:  # noqa: BLE001 — per-file boundary, keep scanning
-                logger.exception("scan[lib=%s] failed on %s", library_id, path)
-                summary.errors.append(f"{path}: {exc}")
+                    else:
+                        if _reindex_changed(session, existing, Path(path), size, mtime):
+                            summary.updated += 1
+                        else:
+                            summary.skipped += 1
+                except Exception as exc:  # noqa: BLE001 — per-file boundary
+                    logger.exception("scan[lib=%s] failed on %s", library_id, path)
+                    summary.errors.append(f"{path}: {exc}")
 
-        for path, file_row in db_by_path.items():
-            if path not in disk:
-                _remove_external_file(session, file_row)
-                summary.removed += 1
+            for path, file_row in db_by_path.items():
+                if path not in disk:
+                    _remove_external_file(session, file_row)
+                    summary.removed += 1
 
-        _finish(session, library, ExternalLibraryScanStatus.OK, summary)
-        logger.info(
-            "scan[lib=%s] done added=%d updated=%d removed=%d skipped=%d errors=%d",
-            library_id,
-            summary.added,
-            summary.updated,
-            summary.removed,
-            summary.skipped,
-            len(summary.errors),
-        )
-        if job_id:
-            registry.update(job_id, state="completed", result=summary.as_dict())
+            # A clean run is OK; a run that completed but had per-file failures is
+            # PARTIAL so the green status never hides a persistent error.
+            final_status = (
+                ExternalLibraryScanStatus.PARTIAL
+                if summary.errors
+                else ExternalLibraryScanStatus.OK
+            )
+            _finish(session, library, final_status, summary)
+            logger.info(
+                "scan[lib=%s] done added=%d updated=%d removed=%d skipped=%d errors=%d",
+                library_id,
+                summary.added,
+                summary.updated,
+                summary.removed,
+                summary.skipped,
+                len(summary.errors),
+            )
+            if job_id:
+                # The job itself completed even with per-file errors; the PARTIAL
+                # signal lives on the library status and in result.errors.
+                registry.update(job_id, state="completed", result=summary.as_dict())
+        except Exception as exc:  # noqa: BLE001 — never leave the row RUNNING
+            logger.exception("scan[lib=%s] crashed", library_id)
+            summary.error = f"scan_failed: {exc}"
+            summary.aborted = True
+            # _finish stamps last_scanned_at so the scheduler doesn't immediately
+            # re-fire the same failing scan; ERROR is terminal so it's due again.
+            _finish(session, library, ExternalLibraryScanStatus.ERROR, summary)
+            if job_id:
+                registry.update(job_id, state="failed", error=summary.error)
 
     return summary.as_dict()
 
@@ -509,16 +543,25 @@ def reset_orphaned_scans(session: Session) -> int:
     Call this once at startup: mark any RUNNING library ERROR with an
     interrupted note so the scheduler picks it up again. Returns the count
     reset. Reuses the existing ERROR status — no new enum or migration.
+
+    We also stamp ``last_scanned_at`` so the next attempt waits for the library's
+    schedule instead of re-firing on the very next 60s tick. Without this, a scan
+    that crashes the process (e.g. a pathological file — issue #24) restarts, is
+    immediately due again, and crash-loops the container. The schedule gap turns
+    a tight loop into at most one attempt per interval, and a manual scan is
+    always still available.
     """
     orphaned = session.exec(
         select(ExternalLibrary).where(
             ExternalLibrary.last_scan_status == ExternalLibraryScanStatus.RUNNING
         )
     ).all()
+    now = utcnow()
     for library in orphaned:
         library.last_scan_status = ExternalLibraryScanStatus.ERROR
         library.last_scan_summary = json.dumps({"error": "interrupted by restart"})
-        library.updated_at = utcnow()
+        library.last_scanned_at = now
+        library.updated_at = now
         session.add(library)
     if orphaned:
         session.commit()

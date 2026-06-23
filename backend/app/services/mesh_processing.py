@@ -12,16 +12,138 @@ here as `render_thumbnail` for backwards compatibility. Ingestion uses
 from __future__ import annotations
 
 import io
+import struct
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 import zipfile
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.services import mesh_render
 
 logger = get_logger(__name__)
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _estimate_triangle_count(path: Path) -> Optional[int]:
+    """Best-effort triangle count *without* loading the mesh into memory.
+
+    Loading is itself the memory blow-up (trimesh.load of a 5M-triangle mesh
+    peaks at ~3.5 GB), so the only way to keep a dense lattice/gyroid model from
+    OOM-killing the process is to estimate before we load and bail out (#24).
+
+    Exact for binary STL (the triangle count is a uint32 in the header) and for
+    PLY (the face count is declared in the ASCII header); a face-directive count
+    for OBJ; a size-based estimate for ASCII STL and 3MF (uncompressed mesh XML).
+    For an STL that fails the exact binary size check we distinguish ASCII from a
+    binary file with trailing bytes and pick the *conservative* density, so we
+    never underestimate a binary mesh into an unsafe load. Returns None for
+    formats we can't cheaply size up (incl. STEP, which trimesh can't mesh
+    without optional CAD deps anyway) — the caller then relies on the post-load
+    cap, which still skips the render.
+    """
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".stl":
+            size = path.stat().st_size
+            with path.open("rb") as fh:
+                sample = fh.read(1024)
+            if len(sample) >= 84:
+                count = struct.unpack("<I", sample[80:84])[0]
+                # Binary STL is exactly 84 + 50 bytes per triangle; if the math
+                # checks out we trust the header count exactly.
+                if size == 84 + count * 50:
+                    return count
+            # The exact binary check failed. Now disambiguate a true ASCII STL
+            # from a binary STL with trailing bytes (which also fails the check).
+            # Guessing wrong toward ASCII is dangerous: ASCII is ~250 B/triangle
+            # but binary is only ~50 B/triangle, so an ASCII estimate of a binary
+            # file underestimates 5x and can let an over-cap mesh slip through to
+            # the exact OOM load #24 set out to prevent. An ASCII STL starts with
+            # the text "solid" and contains no NUL bytes; binary headers do.
+            looks_ascii = (
+                sample[:6].lower().startswith(b"solid") and b"\x00" not in sample
+            )
+            if looks_ascii:
+                # ASCII STL: ~7 lines / ~250 bytes per triangle.
+                return size // 250
+            # Binary STL body is exactly 50 bytes per facet after the 84-byte
+            # header; this stays a safe upper bound even with trailing bytes.
+            return max(size - 84, 0) // 50
+        if suffix == ".ply":
+            # The PLY header is ASCII even when the body is binary, and it
+            # declares the face count up front ("element face N"), so we can size
+            # the mesh without parsing the (possibly huge) body.
+            with path.open("rb") as fh:
+                for _ in range(256):  # headers are short; bound the scan
+                    line = fh.readline()
+                    if not line:
+                        break
+                    parts = line.split()
+                    if (
+                        len(parts) >= 3
+                        and parts[0].lower() == b"element"
+                        and parts[1].lower() == b"face"
+                    ):
+                        try:
+                            return int(parts[2])
+                        except ValueError:
+                            return None
+                    if parts and parts[0].lower() == b"end_header":
+                        break
+            return None
+        if suffix == ".obj":
+            # OBJ is plain text; each "f " line is one face. trimesh triangulates
+            # an n-gon face into (n - 2) triangles, so summing that keeps the
+            # estimate a conservative upper bound (tris/quads dominate real files,
+            # where it's already exact). A full text scan is cheap — no float
+            # parsing, no mesh build — versus the trimesh.load it guards against.
+            faces = 0
+            with path.open("rb") as fh:
+                for line in fh:
+                    if not line.startswith(b"f ") and not line.startswith(b"f\t"):
+                        continue
+                    # vertex refs on the line, minus 2 = triangles after fan
+                    # triangulation; clamp at 1 so a malformed face never
+                    # subtracts from the count.
+                    verts = len(line.split()) - 1
+                    faces += max(verts - 2, 1)
+            return faces or None
+        if suffix == ".3mf":
+            with zipfile.ZipFile(path) as zf:
+                xml_bytes = sum(
+                    info.file_size
+                    for info in zf.infolist()
+                    if info.filename.lower().endswith(".model")
+                )
+            # 3MF mesh XML runs ~70 bytes per <triangle> (verts are shared).
+            return xml_bytes // 70 if xml_bytes else None
+    except (OSError, zipfile.BadZipFile, struct.error):
+        return None
+    return None
+
+def _exceeds_cap(path: Path) -> bool:
+    """True when the pre-load triangle estimate is over the render cap (#24).
+
+    Centralises the "estimate before loading and bail out" guard so every entry
+    point (analyze/geometry/thumbnail/export) skips the same monster meshes and
+    logs consistently. Returns False when the count can't be estimated cheaply —
+    callers that load anyway then rely on the post-load backstop.
+    """
+    estimate = _estimate_triangle_count(path)
+    cap = settings.mesh_max_render_triangles
+    if estimate is not None and estimate > cap:
+        logger.warning(
+            "mesh_processing: %s is ~%d triangles (> cap %d); skipping mesh load "
+            "to avoid OOM",
+            path.name,
+            estimate,
+            cap,
+        )
+        return True
+    return False
+
 
 # Slicer-generated 3MF archives usually embed a pre-rendered preview
 # (Metadata/thumbnail.png per spec; plate_*.png from Orca/Bambu).
@@ -33,7 +155,9 @@ def _load_mesh(path: Path):
     import trimesh
 
     try:
-        loaded = trimesh.load(str(path), force="mesh")
+        # process=False skips trimesh's vertex-merge + adjacency build, which we
+        # don't need for bbox/volume/render and which adds ~15% peak memory.
+        loaded = trimesh.load(str(path), force="mesh", process=False)
     except Exception:
         logger.warning(
             "mesh_processing: trimesh.load failed for %s", path.name, exc_info=True
@@ -143,7 +267,10 @@ def analyze_mesh(
             report(label)
 
     _report("loading_mesh")
-    mesh = _load_mesh(path)
+    cap = settings.mesh_max_render_triangles
+    # Too dense to load safely — skip it rather than risk an OOM kill (#24).
+    # The file is still indexed; a 3MF still gets its embedded preview below.
+    mesh = None if _exceeds_cap(path) else _load_mesh(path)
 
     _report("extracting_geometry")
     geometry = _geometry_from_mesh(mesh)
@@ -154,9 +281,20 @@ def analyze_mesh(
     # Slicer-embedded previews (orange G-code plate renders, off-centre 3MF
     # plate shots) are visually inconsistent, so they're only a fallback for
     # when the software rasteriser can't render the geometry.
-    thumb = mesh_render.render_mesh_thumbnail(
-        mesh, path.name, width=width, height=height
-    )
+    thumb: Optional[bytes] = None
+    if mesh is not None and len(mesh.faces) > cap:
+        # Backstop: the estimate missed (unknown format / bad header) but the
+        # loaded mesh is over budget — keep the cheap geometry, skip the render.
+        logger.warning(
+            "mesh_processing: %s loaded with %d triangles (> cap %d); skipping render",
+            path.name,
+            len(mesh.faces),
+            cap,
+        )
+    elif mesh is not None:
+        thumb = mesh_render.render_mesh_thumbnail(
+            mesh, path.name, width=width, height=height
+        )
     if thumb is None:
         thumb = extract_embedded_3mf_thumbnail(path)
     return geometry, thumb
@@ -168,6 +306,8 @@ def extract_geometry(path: Path) -> Dict[str, Optional[float]]:
     The returned dict is shaped for direct use as **kwargs to the
     `Metadata` SQLModel constructor. Missing values are returned as None.
     """
+    if _exceeds_cap(path):
+        return _geometry_from_mesh(None)
     return _geometry_from_mesh(_load_mesh(path))
 
 
@@ -175,11 +315,14 @@ def render_thumbnail(
     path: Path, width: int = 640, height: int = 480
 ) -> Optional[bytes]:
     """Render a PNG thumbnail of *path*. Returns PNG bytes or None on failure."""
+    cap = settings.mesh_max_render_triangles
+    mesh = None if _exceeds_cap(path) else _load_mesh(path)
     # Prefer the in-house render for a consistent look across all cards; fall
-    # back to the slicer-embedded preview only when rendering fails.
-    thumb = mesh_render.render_thumbnail(_load_mesh, path, width=width, height=height)
-    if thumb is not None:
-        return thumb
+    # back to the slicer-embedded preview only when rendering fails or is skipped.
+    if mesh is not None and len(mesh.faces) <= cap:
+        thumb = mesh_render.render_mesh_thumbnail(mesh, path.name, width=width, height=height)
+        if thumb is not None:
+            return thumb
     return extract_embedded_3mf_thumbnail(path)
 
 
@@ -194,6 +337,12 @@ def to_stl_bytes(path: Path) -> Optional[bytes]:
             return path.read_bytes()
         except OSError:
             return None
+
+    # Converting means a full trimesh.load + export; an over-cap mesh would OOM
+    # the process and take every request down with it (#24). Refuse it cleanly —
+    # the caller surfaces a 500 instead, which is far better than a crash-loop.
+    if _exceeds_cap(path):
+        return None
 
     mesh = _load_mesh(path)
     if mesh is None:

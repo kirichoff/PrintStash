@@ -57,10 +57,22 @@ class Settings(BaseSettings):
     jwt_secret: str = "changeme_jwt_secret_please_change"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    # Short-lived token embedded in slicer ("Open in slicer") download URLs so an
+    # external slicer process can fetch the file without the user's login session.
+    slicer_download_token_expire_minutes: int = 15
     cors_origins: str = ""
 
     max_upload_mb: int = 512
     log_level: str = "INFO"
+
+    # Cap on mesh density for geometry extraction + thumbnail rendering. Loading
+    # and rasterising a mesh costs ~700 MB of peak RSS per million triangles
+    # (measured), and the cost is paid inside trimesh.load itself — so a dense
+    # lattice/gyroid model (tens of millions of triangles from a small file) can
+    # OOM-kill the process during a library scan (issue #24). Above this estimate
+    # the mesh is not loaded; the file is still indexed, and 3MF still gets its
+    # embedded slicer preview. Lower it on memory-constrained hosts.
+    mesh_max_render_triangles: int = 2_000_000
 
     # Optional static bearer token guarding the Prometheus /metrics endpoint.
     # Empty = open on the trusted internal network (see docs/known-limitations).
@@ -98,7 +110,7 @@ class Settings(BaseSettings):
     backup_s3_secret_key: str = ""
 
     app_name: str = "PrintStash"
-    app_version: str = "0.6.7"
+    app_version: str = "0.7.0"
 
     @property
     def incoming_dir(self) -> Path:

@@ -1,5 +1,163 @@
 # Changelog
 
+## 0.7.0 - Notifications & event hooks
+
+### Added
+
+- **Outbound notifications on print and printer events.** PrintStash can now
+  alert you when a print completes, fails, or is cancelled, and when a printer
+  goes offline — no need to watch the dashboard. Cancellations are a separate
+  event from failures, so you can mute self-cancellations without silencing real
+  failures.
+- **Four delivery targets.** Generic JSON webhooks, Discord, Telegram, and ntfy.
+  Configure channels under **Settings → Notifications** (administrators only).
+- **Per-event and per-printer toggles.** Each channel subscribes to the events
+  you choose and, optionally, only specific printers.
+- **Richer, linked notifications.** Messages now lead with an event glyph and
+  carry a "View model" link straight to the model's source page (Printables,
+  MakerWorld, …) where one is known: Discord makes the embed title clickable
+  (with a footer), Telegram adds an inline link, and ntfy gets a tap target plus
+  a "View model" action button. Only safe `http(s)` links are ever rendered.
+- **Reliable delivery.** Events are enqueued atomically with the state change
+  that produced them (so none are lost) and delivered by a background dispatcher
+  with automatic retry and exponential backoff. Each channel shows its last
+  delivery status, and a recent-deliveries log records outcomes. A **Test**
+  button sends a sample notification to verify a channel end to end. The whole
+  feature is off until you enable it with a master switch.
+- **Much better mesh thumbnails.** The STL/3MF/OBJ thumbnail renderer now uses
+  crease-aware smooth (Gouraud) shading instead of flat per-facet shading, with
+  retuned lighting and a subtle specular highlight. Organic models render as
+  smooth surfaces like the interactive 3D viewer instead of a faceted, washed-out
+  blob, while mechanical parts keep their crisp flat faces and sharp edges. The
+  camera is also fixed: models are framed in a Z-up 3/4 "hero" view (the way the
+  viewer shows them) instead of staring straight down the Z axis, which showed
+  the top of upright models rather than their front.
+
+### Fixed
+
+- **Filament length no longer corrupted on OrcaSlicer files.** Real OrcaSlicer
+  output embeds a `;Filament used:4.20m` comment in its start G-code, which was
+  mistaken for Cura's metres figure and multiplied the true millimetre length by
+  1000 (e.g. a benchy reported ~4,200,000 mm of filament). The metres conversion
+  now only applies when no explicit `[mm]` length is present.
+- **Bed temperature now detected on OrcaSlicer / BambuStudio.** These slicers
+  name the heated bed `hot_plate_temp`, which the parser previously ignored.
+- **Infill percentage now detected on PrusaSlicer.** It writes `fill_density`
+  (underscore), which the older space-separated pattern missed.
+- **Telegram notifications no longer fail on ordinary filenames.** The Telegram
+  renderer now uses `parse_mode=HTML` with every interpolated value escaped,
+  instead of legacy Markdown. A common name like `benchy_v2.gcode` (a single
+  `_`) previously made the message unparseable and Telegram rejected it with
+  HTTP 400; arbitrary printer/model/file names are now always safe.
+- **ntfy notifications no longer fail on Unicode titles.** Notification titles
+  carry an em-dash (`—`) and printer names can contain any Unicode, which broke
+  *every* ntfy send because HTTP headers must be latin-1. Non-latin-1 header
+  values are now RFC 2047-encoded (and decoded by ntfy for display).
+- **Library scans no longer get OOM-killed by a dense mesh ([#24]).** A
+  high-polygon model (a gyroid/lattice "infill core" 3MF or STL — tens of
+  millions of triangles from a small file) made `trimesh.load` + the thumbnail
+  rasteriser allocate **~700 MB of RAM per million triangles**, peaking at
+  multiple GB *inside the load itself*. On a NAS scan that quietly drove the
+  process to ~7 GB RSS and the kernel OOM-killed it; Docker misreported the death
+  as a clean exit and restarted it, so it looped. The mesh's triangle count is
+  now estimated **before** loading (exact for binary STL, from the uncompressed
+  mesh XML for 3MF); anything over `mesh_max_render_triangles` (2,000,000 by
+  default, env `VAULT_MESH_MAX_RENDER_TRIANGLES`) skips the load entirely. The
+  file is still indexed, and a 3MF still shows its embedded slicer preview.
+  Measured effect on a 5.2 M-triangle mesh: peak RSS drops from ~5.9 GB to
+  ~45 MB. Mesh loading also now runs with `process=False` to trim memory further.
+- **Dense-mesh OOM guard closed in three more spots ([#24]).** Hardening the
+  pre-load triangle estimate after the initial fix:
+  - **Binary STL with trailing bytes** (some exporters append metadata) failed
+    the exact `84 + 50·N` size check and fell back to the *ASCII* density of
+    ~250 B/triangle — a 5x underestimate for a binary file that could let an
+    over-cap mesh slip through to the very OOM load the cap exists to stop. The
+    estimator now distinguishes ASCII from binary STL and uses the binary
+    body size (50 B/facet) as a safe upper bound.
+  - **PLY meshes** (scans, point-cloud exports) were not estimated at all and so
+    relied on the post-load backstop, i.e. they still loaded fully first. The
+    face count is now read straight from the PLY header (which is ASCII even for
+    binary bodies), so over-cap PLY files are skipped before loading too.
+  - **"Download as STL"** ran an unbounded `trimesh.load` to convert a 3MF/OBJ,
+    so a single click on a monster mesh could OOM the process and take every
+    request down with it. The same cap now applies; an over-cap conversion
+    returns a clean error instead of crashing the server. (Raw STL downloads are
+    streamed byte-for-byte and never affected.)
+- **An interrupted library scan no longer crash-loops the container ([#24]).**
+  A scan stranded RUNNING by a process restart was reset to ERROR but kept its
+  old `last_scanned_at`, so the scheduler found it immediately due again and
+  re-ran it on the very next tick — a tight restart loop whenever the scan was
+  what killed the process. The reset now stamps `last_scanned_at`, so an
+  interrupted scan waits for its next scheduled slot (a manual scan is always
+  still available).
+- **Dense OBJ meshes are now guarded before loading too ([#24]).** OBJ is a
+  first-class mesh type but was the one format the pre-load estimator didn't
+  size, so a dense OBJ bypassed `mesh_max_render_triangles` and hit the exact
+  full-`trimesh.load` OOM the cap exists to prevent. The estimator now counts
+  OBJ face directives (triangulating n-gons for a conservative upper bound)
+  without building the mesh, so over-cap OBJ files are skipped like STL/PLY/3MF.
+- **Serving an STL no longer reads the whole file into RAM ([#24]).** The
+  raw-STL preview/download path slurped the entire blob into memory before
+  responding, so a multi-GB STL ballooned RSS per request. It now streams off
+  disk (`FileResponse`/chunked) like the regular download route; the cached
+  3MF/OBJ→STL conversion is streamed too.
+- **A scan that hits an unexpected error can no longer strand a library
+  `RUNNING` ([#24]).** Only the per-file loop was guarded, so a failure in the
+  folder walk (a NAS mount dropping mid-scan), the deletion pass, or the final
+  commit escaped with the row still committed `RUNNING` — and the scheduler
+  permanently skips `RUNNING` libraries, so every future scheduled scan was
+  silently dead until a restart. The whole scan now lands in a terminal state
+  (`ERROR`, with `last_scanned_at` stamped) on any unexpected failure.
+- **Scans with per-file failures now report `partial`, not `ok` ([#24]).** A
+  scan where some files failed to index still showed a green `ok` status,
+  hiding a persistent error behind the `errors` array. Such scans now finish
+  with a new `partial` status (terminal, like `ok`); a clean run stays `ok`.
+- **Unchanged NAS files no longer re-hash on mtime jitter ([#24]).** The
+  "unchanged" skip tolerance was `1e-6` s — effectively exact-match — so any
+  sub-second/FAT-granularity mtime drift forced a full sha256 re-hash of the
+  file over the network on every scan. The tolerance is now 2 s (the FAT
+  worst case); a genuine edit is still caught by the content-hash compare.
+- **"Open in slicer" now works on self-hosted instances ([#27]).** The download
+  URL handed to the slicer required a logged-in bearer token, but a slicer is a
+  separate process with no login session — so it fetched the URL unauthenticated,
+  got a 401, and showed a "load cancelled" error (or silently no-op'd if already
+  running). The button now mints a short-lived, file-scoped download token and
+  embeds it in a URL that *ends* in the original filename
+  (`…/slicer/<token>/part.3mf`), so OrcaSlicer/Bambu Studio can fetch the file
+  *and* detect its format. (Slicers take the URL tail as the download name, so a
+  trailing `?token=…` query made them save e.g. `part.3mf?token=…` and never
+  open it — the token has to come before the filename.)
+  Each slicer is also gated by file type: Bambu Studio only opens 3MF via URL
+  (other formats error with "unknown format"), matching what Manyfold ships,
+  while OrcaSlicer handles STL/3MF/OBJ/STEP/G-code. The macOS `bambustudioopen://`
+  scheme handling from the previous release is retained.
+- **Zip imports now preserve the archive's folder structure.** Importing a zip
+  with sub-folders flattened every entry onto a single auto-collection named
+  after the archive, losing the layout the author organised the pack with. Each
+  entry now keeps its archive-relative path: a file inside `Terrain/` becomes a
+  model in a `Terrain` sub-collection nested under the archive's collection,
+  while files at the archive root stay on the collection itself. Path entries
+  are still validated against traversal (`..`, absolute, drive-letter) before
+  extraction.
+- **3D viewer no longer lays models on their side.** STL and other print meshes
+  are authored Z-up, but the interactive viewer dropped them into its Y-up scene
+  unrotated — so a model rested on its back and the floor grid sliced through its
+  middle. Meshes are now stood upright before measuring (object `+Z` → screen-up,
+  matching the thumbnail renderer), so they sit on the grid the right way up.
+
+[#24]: https://github.com/xiao-villamor/PrintStash/issues/24
+[#27]: https://github.com/xiao-villamor/PrintStash/issues/27
+
+### Internal
+
+- Parser hardening is now driven by self-sourced fixtures trimmed from real
+  public slicer output (OrcaSlicer 2.3.2, PrusaSlicer 2.6.1), with regression
+  tests for each bug above. Binary `.bgcode` remains unparsed (returns empty
+  metadata gracefully) and is tracked as a follow-up.
+- New end-to-end test suite (`backend/tests/e2e/`) boots the real app against
+  contract-enforcing fakes and covers auth, ingest, notification delivery, and
+  sharing. Marked `e2e` and runnable in isolation with `pytest tests/e2e`.
+
 ## 0.6.7 - Collection & file-level import
 
 ### Added
