@@ -23,7 +23,8 @@ import {
   Plus,
 } from "lucide-react";
 import { listModels, createCollection, updateModel, moveCollection, deleteCollection } from "@/lib/api";
-import { isMeshFile, isGcodeFile, extensionOf } from "@/lib/bulk-upload";
+// import { isMeshFile, isGcodeFile, extensionOf } from "@/lib/bulk-upload";
+import { isMeshFile, isGcodeFile, extensionOf, walkEntries, entriesFromDataTransfer, BulkItem } from "@/lib/bulk-upload";
 import { useCollections, usePrinters, useTags } from "@/lib/queries";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
@@ -132,7 +133,8 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [dropPreload, setDropPreload] = useState<{ files: File[]; mode: UploadMode } | null>(null);
+  // const [dropPreload, setDropPreload] = useState<{ files: File[]; mode: UploadMode } | null>(null);
+  const [dropPreload, setDropPreload] = useState<{ files: File[]; items?: BulkItem[]; mode: UploadMode } | null>(null);
 const [dropCollection, setDropCollection] = useState<string | null>(null);
 const [isDragging, setIsDragging] = useState(false);
 const dragEnterCount = useRef(0);
@@ -160,16 +162,25 @@ function onMainDragLeave(e: React.DragEvent) {
   e.preventDefault();
   if (--dragEnterCount.current <= 0) { dragEnterCount.current = 0; setIsDragging(false); }
 }
-function onMainDrop(e: React.DragEvent) {
+async function onMainDrop(e: React.DragEvent) {
   e.preventDefault();
   dragEnterCount.current = 0;
   setIsDragging(false);
   if (!canUploadToVault) return;
-  const result = classifyDrop(Array.from(e.dataTransfer.files));
-  if (!result) return;
   const collPath = (e.target as Element).closest("[data-collection-path]")
     ?.getAttribute("data-collection-path") ?? null;
-  setDropPreload(result);
+  const entries = entriesFromDataTransfer(e.dataTransfer.items);
+  let bulkItems: BulkItem[] | undefined;
+  let files: File[];
+  if (entries.length > 0) {
+    bulkItems = await walkEntries(entries);
+    files = bulkItems.map((it) => it.file);
+  } else {
+    files = Array.from(e.dataTransfer.files);
+  }
+  const result = classifyDrop(files);
+  if (!result) return;
+  setDropPreload({ ...result, items: bulkItems });
   setDropCollection(collPath);
   setUploadOpen(true);
 }

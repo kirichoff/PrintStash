@@ -93,11 +93,29 @@ function canWriteCollection(collection: CollectionRead): boolean {
   return collection.effective_role === "edit" || collection.effective_role === "admin";
 }
 
+// export function UploadModal({
+//   open, onClose, onUploaded, defaultCollection, preloadFiles, initialMode,
+// }: {
+//   open: boolean; onClose: () => void; onUploaded: () => void; defaultCollection?: string | null;
+//   preloadFiles?: File[] | null;
+//   initialMode?: UploadMode;
+// }) {
+
 export function UploadModal({
-  open, onClose, onUploaded, defaultCollection, preloadFiles, initialMode,
+  open,
+  onClose,
+  onUploaded,
+  defaultCollection,
+  preloadFiles,
+  preloadItems,
+  initialMode,
 }: {
-  open: boolean; onClose: () => void; onUploaded: () => void; defaultCollection?: string | null;
+  open: boolean;
+  onClose: () => void;
+  onUploaded: () => void;
+  defaultCollection?: string | null;
   preloadFiles?: File[] | null;
+  preloadItems?: BulkItem[] | null;
   initialMode?: UploadMode;
 }) {
   const auth = useRequireAuth();
@@ -179,18 +197,34 @@ export function UploadModal({
   }, [open]);
 
   useEffect(() => {
-    if (!open || !preloadFiles?.length) return;
+    if (!open || (!preloadFiles?.length && !preloadItems?.length)) return;
     if (initialMode) setMode(initialMode);
     if (initialMode === "bulk") {
-      setBulkFiles(fileListToItems(preloadFiles));
+      setBulkFiles(preloadItems?.length ? preloadItems : fileListToItems(preloadFiles ?? []));
+    } else if (initialMode === "zip") {
+      setZipFile(preloadFiles?.[0] ?? null);
     } else {
       setMeshFile(null);
       setGcodeFile(null);
       setModelName("");
-      sortIntoSlots(preloadFiles);
+      sortIntoSlots(preloadFiles ?? []);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, preloadFiles, initialMode]);
+  }, [open, preloadFiles, preloadItems, initialMode]);
+
+  // useEffect(() => {
+  //   if (!open || !preloadFiles?.length) return;
+  //   if (initialMode) setMode(initialMode);
+  //   if (initialMode === "bulk") {
+  //     setBulkFiles(fileListToItems(preloadFiles));
+  //   } else {
+  //     setMeshFile(null);
+  //     setGcodeFile(null);
+  //     setModelName("");
+  //     sortIntoSlots(preloadFiles);
+  //   }
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [open, preloadFiles, initialMode]);
 
   useEffect(() => {
     if (!open) return;
