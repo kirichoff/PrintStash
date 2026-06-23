@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.1b1 - Upload methods improvement & Docker Compose light 
+
+### Added
+- **Drag file(s) or folder directly** in the new port (or over a specific folder) to open a prefilled upload wizard
+- **Added docker-compose.light.yml** since env only JWT secret and all the other service aren't used in basic config.
+  so i made a light compose that requires no env with JWT in compose and removed optional services.
+
+### Changed
+- **Drag is now available in every tab** o the upload wizard 
+
 ## 0.7.0 - Notifications & event hooks
 
 ### Added
