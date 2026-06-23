@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { Canvas, useLoader, useThree } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera } from "@react-three/drei";
 import * as THREE from "three";
@@ -55,6 +55,10 @@ function Mesh({
     const mesh = meshRef.current;
     mesh.scale.setScalar(1);
     mesh.position.set(0, 0, 0);
+    // 3D-print meshes are authored Z-up; stand them upright in this Y-up scene
+    // (matches the thumbnail renderer) so the model rests on the grid instead of
+    // lying on its back and being sliced through the middle.
+    mesh.rotation.set(-Math.PI / 2, 0, 0);
     mesh.updateMatrixWorld();
 
     box.setFromObject(mesh);

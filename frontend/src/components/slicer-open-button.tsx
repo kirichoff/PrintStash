@@ -83,7 +83,7 @@ export function SlicerOpenButton({
         { fresh: true },
       );
       const fileUrl = `${window.location.origin}${url}`;
-      window.location.href = slicerHref(scheme, fileUrl);
+      window.location.assign(slicerHref(scheme, fileUrl));
     } catch {
       toast.error("Couldn't open in slicer");
     }
