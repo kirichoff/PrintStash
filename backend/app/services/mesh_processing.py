@@ -34,12 +34,14 @@ def _estimate_triangle_count(path: Path) -> Optional[int]:
     OOM-killing the process is to estimate before we load and bail out (#24).
 
     Exact for binary STL (the triangle count is a uint32 in the header) and for
-    PLY (the face count is declared in the ASCII header); a size-based estimate
-    for ASCII STL and 3MF (uncompressed mesh XML). For an STL that fails the
-    exact binary size check we distinguish ASCII from a binary file with trailing
-    bytes and pick the *conservative* density, so we never underestimate a binary
-    mesh into an unsafe load. Returns None for formats we can't cheaply size up —
-    the caller then relies on the post-load cap, which still skips the render.
+    PLY (the face count is declared in the ASCII header); a face-directive count
+    for OBJ; a size-based estimate for ASCII STL and 3MF (uncompressed mesh XML).
+    For an STL that fails the exact binary size check we distinguish ASCII from a
+    binary file with trailing bytes and pick the *conservative* density, so we
+    never underestimate a binary mesh into an unsafe load. Returns None for
+    formats we can't cheaply size up (incl. STEP, which trimesh can't mesh
+    without optional CAD deps anyway) — the caller then relies on the post-load
+    cap, which still skips the render.
     """
     suffix = path.suffix.lower()
     try:
@@ -91,6 +93,23 @@ def _estimate_triangle_count(path: Path) -> Optional[int]:
                     if parts and parts[0].lower() == b"end_header":
                         break
             return None
+        if suffix == ".obj":
+            # OBJ is plain text; each "f " line is one face. trimesh triangulates
+            # an n-gon face into (n - 2) triangles, so summing that keeps the
+            # estimate a conservative upper bound (tris/quads dominate real files,
+            # where it's already exact). A full text scan is cheap — no float
+            # parsing, no mesh build — versus the trimesh.load it guards against.
+            faces = 0
+            with path.open("rb") as fh:
+                for line in fh:
+                    if not line.startswith(b"f ") and not line.startswith(b"f\t"):
+                        continue
+                    # vertex refs on the line, minus 2 = triangles after fan
+                    # triangulation; clamp at 1 so a malformed face never
+                    # subtracts from the count.
+                    verts = len(line.split()) - 1
+                    faces += max(verts - 2, 1)
+            return faces or None
         if suffix == ".3mf":
             with zipfile.ZipFile(path) as zf:
                 xml_bytes = sum(

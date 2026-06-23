@@ -90,6 +90,33 @@
   what killed the process. The reset now stamps `last_scanned_at`, so an
   interrupted scan waits for its next scheduled slot (a manual scan is always
   still available).
+- **Dense OBJ meshes are now guarded before loading too ([#24]).** OBJ is a
+  first-class mesh type but was the one format the pre-load estimator didn't
+  size, so a dense OBJ bypassed `mesh_max_render_triangles` and hit the exact
+  full-`trimesh.load` OOM the cap exists to prevent. The estimator now counts
+  OBJ face directives (triangulating n-gons for a conservative upper bound)
+  without building the mesh, so over-cap OBJ files are skipped like STL/PLY/3MF.
+- **Serving an STL no longer reads the whole file into RAM ([#24]).** The
+  raw-STL preview/download path slurped the entire blob into memory before
+  responding, so a multi-GB STL ballooned RSS per request. It now streams off
+  disk (`FileResponse`/chunked) like the regular download route; the cached
+  3MF/OBJ→STL conversion is streamed too.
+- **A scan that hits an unexpected error can no longer strand a library
+  `RUNNING` ([#24]).** Only the per-file loop was guarded, so a failure in the
+  folder walk (a NAS mount dropping mid-scan), the deletion pass, or the final
+  commit escaped with the row still committed `RUNNING` — and the scheduler
+  permanently skips `RUNNING` libraries, so every future scheduled scan was
+  silently dead until a restart. The whole scan now lands in a terminal state
+  (`ERROR`, with `last_scanned_at` stamped) on any unexpected failure.
+- **Scans with per-file failures now report `partial`, not `ok` ([#24]).** A
+  scan where some files failed to index still showed a green `ok` status,
+  hiding a persistent error behind the `errors` array. Such scans now finish
+  with a new `partial` status (terminal, like `ok`); a clean run stays `ok`.
+- **Unchanged NAS files no longer re-hash on mtime jitter ([#24]).** The
+  "unchanged" skip tolerance was `1e-6` s — effectively exact-match — so any
+  sub-second/FAT-granularity mtime drift forced a full sha256 re-hash of the
+  file over the network on every scan. The tolerance is now 2 s (the FAT
+  worst case); a genuine edit is still caught by the content-hash compare.
 - **"Open in slicer" now works on self-hosted instances ([#27]).** The download
   URL handed to the slicer required a logged-in bearer token, but a slicer is a
   separate process with no login session — so it fetched the URL unauthenticated,
@@ -100,6 +127,10 @@
   *and* detect its format. (Slicers take the URL tail as the download name, so a
   trailing `?token=…` query made them save e.g. `part.3mf?token=…` and never
   open it — the token has to come before the filename.)
+  Each slicer is also gated by file type: Bambu Studio only opens 3MF via URL
+  (other formats error with "unknown format"), matching what Manyfold ships,
+  while OrcaSlicer handles STL/3MF/OBJ/STEP/G-code. The macOS `bambustudioopen://`
+  scheme handling from the previous release is retained.
 - **Zip imports now preserve the archive's folder structure.** Importing a zip
   with sub-folders flattened every entry onto a single auto-collection named
   after the archive, losing the layout the author organised the pack with. Each

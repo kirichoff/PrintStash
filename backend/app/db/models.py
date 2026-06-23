@@ -507,6 +507,9 @@ class ExternalLibraryScanStatus(str, Enum):
     OK = "ok"
     ERROR = "error"
     RUNNING = "running"
+    # Scan completed but one or more files failed to index — terminal, like OK,
+    # but surfaces the partial failure instead of a misleading green status.
+    PARTIAL = "partial"
 
 
 class ExternalLibraryWatchMode(str, Enum):

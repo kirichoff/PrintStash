@@ -300,3 +300,49 @@ def test_to_stl_bytes_passes_through_raw_stl(tmp_path: Path) -> None:
     p = tmp_path / "raw.stl"
     _write_binary_stl(p, 10)
     assert mesh_processing.to_stl_bytes(p) == p.read_bytes()
+
+
+# ---------------------------------------------------------------------------
+# Estimator: OBJ face-directive count (a first-class type that was unguarded).
+# ---------------------------------------------------------------------------
+
+
+def _write_obj(path: Path, tri_faces: int, *, quads: int = 0) -> None:
+    lines = [b"# comment\n", b"o mesh\n", b"v 0 0 0\n", b"vn 0 0 1\n"]
+    lines += [b"f 1//1 2//1 3//1\n"] * tri_faces
+    lines += [b"f 1 2 3 4\n"] * quads  # quad = 2 triangles after fan
+    path.write_bytes(b"".join(lines))
+
+
+def test_obj_triangle_count_from_face_directives(tmp_path: Path) -> None:
+    p = tmp_path / "mesh.obj"
+    _write_obj(p, tri_faces=300)
+    # 300 triangular faces -> 300 triangles (exact for tris).
+    assert mesh_processing._estimate_triangle_count(p) == 300
+
+
+def test_obj_ngon_faces_count_conservatively(tmp_path: Path) -> None:
+    p = tmp_path / "quads.obj"
+    _write_obj(p, tri_faces=10, quads=5)  # 10 + 5*(4-2) = 20 triangles
+    assert mesh_processing._estimate_triangle_count(p) == 20
+
+
+def test_obj_without_faces_returns_none(tmp_path: Path) -> None:
+    p = tmp_path / "points.obj"
+    p.write_bytes(b"v 0 0 0\nv 1 0 0\nvn 0 0 1\n")
+    assert mesh_processing._estimate_triangle_count(p) is None
+
+
+def test_over_cap_obj_skips_load(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 1000)
+    p = tmp_path / "dense.obj"
+    _write_obj(p, tri_faces=5000)  # well over the cap
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("over-cap OBJ must not load")),
+    )
+
+    assert mesh_processing.extract_geometry(p)["triangle_count"] is None
+    assert mesh_processing.render_thumbnail(p) is None
+    assert mesh_processing.to_stl_bytes(p) is None
