@@ -173,7 +173,7 @@ export function RevisionsTab({
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
-                    <SlicerOpenButton fileId={f.id} size="sm" />
+                    <SlicerOpenButton fileId={f.id} fileType={f.file_type} size="sm" />
                     <button
                       type="button"
                       onClick={() =>

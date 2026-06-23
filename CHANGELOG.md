@@ -90,13 +90,16 @@
   what killed the process. The reset now stamps `last_scanned_at`, so an
   interrupted scan waits for its next scheduled slot (a manual scan is always
   still available).
-- **"Open in Bambu Studio" now works on macOS ([#27]).** Bambu Studio expects a
-  different URL scheme on macOS — the file URL is appended directly to a
-  `bambustudioopen://` host rather than passed as the `bambustudio://open?file=`
-  query the slicer uses on Windows/Linux. The button emitted the Windows/Linux
-  form for every platform, so macOS users got a "load cancelled" error (or, if
-  the slicer was already running, a silent no-op). The scheme is now chosen by
-  client OS; OrcaSlicer and PrusaSlicer are unaffected.
+- **"Open in slicer" now works on self-hosted instances ([#27]).** The download
+  URL handed to the slicer required a logged-in bearer token, but a slicer is a
+  separate process with no login session — so it fetched the URL unauthenticated,
+  got a 401, and showed a "load cancelled" error (or silently no-op'd if already
+  running). The button now mints a short-lived, file-scoped download token and
+  embeds it in a URL that *ends* in the original filename
+  (`…/slicer/<token>/part.3mf`), so OrcaSlicer/Bambu Studio can fetch the file
+  *and* detect its format. (Slicers take the URL tail as the download name, so a
+  trailing `?token=…` query made them save e.g. `part.3mf?token=…` and never
+  open it — the token has to come before the filename.)
 - **Zip imports now preserve the archive's folder structure.** Importing a zip
   with sub-folders flattened every entry onto a single auto-collection named
   after the archive, losing the layout the author organised the pack with. Each

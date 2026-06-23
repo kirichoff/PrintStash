@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -18,12 +19,12 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.http import get_or_404
 from app.core.logging import get_logger
-from app.core.security import require_superuser, require_user
+from app.core.security import get_current_user, require_superuser, require_user
 from app.db.models import CollectionRole, File, FileType, Model, User
 from app.db.scopes import live
 from app.db.session import SessionFactory, get_session, get_session_factory
 from app.schemas.ingest import IngestResponse
-from app.services import thumbnail
+from app.services import auth, thumbnail
 from app.services.jobs import registry
 from app.services import rbac
 from app.services.storage_backend import get_backend
@@ -35,15 +36,25 @@ router = APIRouter(prefix="/files", tags=["files"])
 _MESH_TYPES = {FileType.STL, FileType.THREE_MF, FileType.OBJ, FileType.STEP}
 
 
-def _accessible_file(session: Session, file_id: int, user: User) -> File:
+def _live_file(session: Session, file_id: int) -> File:
+    """Load a live file (its model and the file itself not deleted).
+
+    No access control — callers must authorise via a user (``_accessible_file``)
+    or a bearer capability such as a slicer download token.
+    """
     f = get_or_404(session, File, file_id, "file_not_found")
     model = session.get(Model, f.model_id)
     if model is None or model.deleted_at is not None or f.deleted_at is not None:
         raise HTTPException(status_code=404, detail="file_not_found")
+    return f
+
+
+def _accessible_file(session: Session, file_id: int, user: User) -> File:
+    f = _live_file(session, file_id)
     rbac.require_model_collection_role(
         session,
         user,
-        model.collection_id,
+        session.get(Model, f.model_id).collection_id,
         CollectionRole.VIEW,
     )
     return f
@@ -75,6 +86,27 @@ def _serve_file(
     )
 
 
+def _serve_download(
+    session: Session,
+    file_id: int,
+    slicer_token: str | None,
+    current_user: User | None,
+):
+    # A logged-in user goes through the normal RBAC check. Otherwise the request
+    # must carry a valid slicer download token — a short-lived bearer capability
+    # for this one file, used by "Open in slicer" so an external slicer process
+    # (which has no login session) can fetch the file. See `slicer_download_url`.
+    if current_user is not None:
+        f = _accessible_file(session, file_id, current_user)
+    elif slicer_token and auth.verify_file_download_token(slicer_token, file_id):
+        f = _live_file(session, file_id)
+    else:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    if not get_backend().exists(f.path):
+        raise HTTPException(status_code=410, detail="file_blob_missing")
+    return _serve_file(f.path, f.original_filename)
+
+
 @router.get(
     "/{file_id}/download",
     summary="Download the raw file blob",
@@ -82,13 +114,53 @@ def _serve_file(
 )
 def download_file(
     file_id: int,
-    current_user: User = Depends(require_user),
+    slicer_token: str | None = None,
+    current_user: User | None = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
+    return _serve_download(session, file_id, slicer_token, current_user)
+
+
+@router.get(
+    "/{file_id}/slicer/{slicer_token}/{filename}",
+    summary="Login-free download for opening in a slicer (token in path)",
+    description=(
+        "Streams the file blob for 'Open in slicer'. The token lives in the path "
+        "and the original filename is the LAST path segment, so the URL ends in "
+        "the file's extension. Slicers (OrcaSlicer, Bambu Studio, …) take the URL "
+        "tail as the download name — if the extension isn't last (e.g. a "
+        "?token=… query trailing it) they save the blob but won't open it. The "
+        "filename is cosmetic; access is governed solely by the token."
+    ),
+)
+def slicer_download(
+    file_id: int,
+    slicer_token: str,
+    filename: str,
+    session: Session = Depends(get_session),
+):
+    return _serve_download(session, file_id, slicer_token, current_user=None)
+
+
+@router.get(
+    "/{file_id}/slicer-url",
+    summary="Signed, login-free download URL for opening in a slicer",
+    description=(
+        "Returns a short-lived download URL the slicer (OrcaSlicer, Bambu "
+        "Studio, …) can fetch without the user's login session. The token is in "
+        "the path and the original filename is last, so the URL ends in the "
+        "file's extension and the slicer detects the format."
+    ),
+)
+def slicer_download_url(
+    file_id: int,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> dict:
     f = _accessible_file(session, file_id, current_user)
-    if not get_backend().exists(f.path):
-        raise HTTPException(status_code=410, detail="file_blob_missing")
-    return _serve_file(f.path, f.original_filename)
+    token = auth.create_file_download_token(file_id)
+    name = quote(f.original_filename, safe="")
+    return {"url": f"/api/v1/files/{file_id}/slicer/{token}/{name}"}
 
 
 @router.get(
@@ -130,7 +202,7 @@ def download_direct(
     url = backend.presigned_download_url(f.path, f.original_filename)
     if url:
         return RedirectResponse(url=url, status_code=307)
-    return download_file(file_id=file_id, session=session)
+    return download_file(file_id=file_id, current_user=current_user, session=session)
 
 
 @router.get(
@@ -197,28 +269,34 @@ def stl_response(f: File, request: Request):
     # STL never changes (content-addressed), but keep the browser TTL modest;
     # the ETag still lets it revalidate cheaply after expiry.
     etag = f'"{f.sha256}"'
+    # Content-Disposition is added per-response below: _serve_file derives it
+    # from the filename, the in-memory Response sets it explicitly.
     cache_headers = {
-        "Content-Disposition": f'attachment; filename="{stem}.stl"',
         "Cache-Control": "public, max-age=3600",
         "ETag": etag,
     }
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=cache_headers)
 
-    # Already STL: stream the blob straight through, no conversion.
+    # Already STL: stream the blob straight through, no conversion — never read
+    # a (potentially multi-GB) STL fully into memory just to serve it.
     if Path(f.original_filename).suffix.lower() == ".stl":
-        data = backend.read_bytes(f.path)
-        return Response(
-            content=data, media_type="application/sla", headers=cache_headers
+        return _serve_file(
+            f.path,
+            f"{stem}.stl",
+            media_type="application/sla",
+            headers=cache_headers,
         )
 
     # 3MF/OBJ: trimesh conversion is expensive, so cache the result keyed by the
     # source sha256 and serve the cached STL on every subsequent request.
     cache_key = backend.stl_cache_key(f.sha256)
     if backend.exists(cache_key):
-        data = backend.read_bytes(cache_key)
-        return Response(
-            content=data, media_type="application/sla", headers=cache_headers
+        return _serve_file(
+            cache_key,
+            f"{stem}.stl",
+            media_type="application/sla",
+            headers=cache_headers,
         )
 
     # Lazy import: trimesh is heavy; pull it in only when we must convert.
@@ -234,8 +312,15 @@ def stl_response(f: File, request: Request):
     except Exception:
         logger.warning("stl cache write failed for file %s", f.id, exc_info=True)
 
+    # Freshly converted bytes are already in memory (and bounded by the render
+    # cap), so serve them directly; subsequent requests hit the streamed cache.
     return Response(
-        content=data, media_type="application/sla", headers=cache_headers
+        content=data,
+        media_type="application/sla",
+        headers={
+            "Content-Disposition": f'attachment; filename="{stem}.stl"',
+            **cache_headers,
+        },
     )
 
 
