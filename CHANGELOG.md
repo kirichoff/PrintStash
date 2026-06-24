@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.7.1
+
+### Fixed
+
+- **Further hardening against OOM during library scans.** The mesh-density caps
+  added in 0.7.0 (#24) are the primary fix for scan OOMs; this adds a second,
+  format-blind backstop for the cases the triangle estimate can't size up — e.g.
+  a 3MF with no parseable mesh parts, where the estimate came up empty and the
+  file was loaded anyway. A byte-size ceiling (`VAULT_MESH_MAX_LOAD_MB`, default
+  200 MB) is now checked before any load, and the 3MF estimator falls back to the
+  total uncompressed payload when it finds no mesh parts. Such files are indexed
+  and skipped (3MF keeps its embedded preview) instead of risking a crash. If you
+  hit a scan OOM on an older image, upgrading to 0.7.0+ is the actual fix. (#29)
+- **RAM-aware mesh cap.** The thumbnail/geometry cap now scales with the memory
+  the process actually has. PrintStash reads the cgroup limit (or host RAM) and
+  derives a per-format triangle ceiling from `VAULT_MESH_MEMORY_BUDGET_FRACTION`
+  (default 0.5), combined with the static cap — so a 4 GB container automatically
+  skips meshes a 32 GB host renders, without per-host tuning. Measured cost is
+  format-specific (3MF's XML loader is ~4.5× heavier per triangle than STL), and
+  the cap accounts for that. (#29)
+- **~50 % less thumbnail-render memory + no leak.** The software renderer now
+  works in float32 instead of float64, roughly halving the peak RSS of the arrays
+  that scale with triangle count (a 2.2 M-triangle model's render dropped from
+  ~3.0 GB to ~1.6 GB) with no visible change to thumbnails. And every mesh's
+  buffers are explicitly freed with the heap returned to the OS (`malloc_trim`)
+  after each file, so a long scan's memory recedes between files instead of only
+  climbing. (#29)
+- **Face-chunked thumbnail rendering — peak memory is now O(chunk), not O(mesh).**
+  The software rasteriser built every per-face array (screen-space triangles,
+  smoothed corner normals, per-vertex colours, …) for the *whole* mesh at once,
+  so peak RAM scaled with total triangle count. It now processes faces in chunks
+  of `VAULT_MESH_RENDER_FACE_CHUNK_SIZE` (default 200k), building and freeing each
+  chunk's arrays before the next, so a million-triangle mesh no longer materialises
+  several large arrays simultaneously. Thumbnails are visually identical. (#29)
+- **Concurrency-aware render budget.** Bulk/folder uploads (#26) run in a
+  background-task threadpool and could fire many simultaneous renders that
+  collectively OOM the box. A new `VAULT_MAX_RENDER_JOBS` (default 1) caps how
+  many mesh load+render jobs run at once via a semaphore, and the RAM-aware
+  triangle cap now divides its budget by the same value so each concurrent job
+  stays within its share. `VAULT_MESH_MEMORY_BUDGET_FRACTION` stays 0.5 by
+  default, with 0.30–0.35 now documented as safer for production hosts. (#29)
+- **Large 3MF files skip the costly XML parse.** A 3MF whose estimate exceeds the
+  adaptive cap now uses its embedded slicer preview directly instead of handing
+  the archive to the loader, whose XML parse is the dominant memory cost.
+  Controlled by `VAULT_USE_EMBEDDED_3MF_PREVIEW_FOR_LARGE_FILES` (default on). (#29)
+- **"All Models" now shows the real library total.** The count on the root
+  "All Models" view only reflected models sitting loose at the root, so a library
+  whose models all live in (folder-mirrored) collections showed `0`. It now shows
+  the access-scoped library total. (#30)
+
 ## 0.7.0 - Notifications & event hooks
 
 ### Added

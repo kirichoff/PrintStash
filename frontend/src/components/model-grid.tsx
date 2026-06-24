@@ -22,7 +22,7 @@ import {
   Plus,
 } from "lucide-react";
 import { listModels, createCollection, updateModel, moveCollection, deleteCollection } from "@/lib/api";
-import { useCollections, usePrinters, useTags } from "@/lib/queries";
+import { useCollections, usePrinters, useTags, useVaultStats } from "@/lib/queries";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
@@ -118,6 +118,10 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   // collection/tag mutation (the api layer invalidates the query cache).
   const collectionsQuery = useCollections();
   const tagsQuery = useTags();
+  // Library-wide totals (access-scoped, excludes trashed + sentinel models).
+  // Used to label the "All Models" root, where the grid only fetches the models
+  // sitting directly at the root (see #30).
+  const vaultStatsQuery = useVaultStats();
   const collections = collectionsQuery.data ?? [];
   const tags = tagsQuery.data ?? [];
   // Printers (superuser-only filter) share the same cache as the printers page
@@ -184,6 +188,20 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const query = searchParams.get("q") ?? "";
 
   const sortedModels = useMemo(() => sortModels(models, "date-desc"), [models]);
+  // "All Models" is a folder explorer: at the root the grid shows collection
+  // cards plus only the models sitting directly at the root, so models.length is
+  // the uncollected handful — 0 for a fully-foldered NAS library. When we're at
+  // the root with no filter narrowing the view, label it with the real library
+  // total instead of that root-only count (#30).
+  const hasActiveFilters =
+    selectedTags.length > 0 ||
+    selectedPrinterId !== null ||
+    selectedPrinterPresence !== null ||
+    !!query.trim();
+  const totalLibraryCount = vaultStatsQuery.data?.model_count ?? null;
+  const showLibraryTotal =
+    !selectedCollection && !hasActiveFilters && totalLibraryCount !== null;
+  const displayCount = showLibraryTotal ? totalLibraryCount : models.length;
   const visibleCollections = useMemo(
     () => childCollections(collections, selectedCollection),
     [collections, selectedCollection],
@@ -433,7 +451,7 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
                 {selectedName ?? "All Models"}
               </h2>
               <p className="text-sm text-muted-foreground">
-                {loading ? "Loading..." : `${models.length} model${models.length !== 1 ? "s" : ""} total${selectedName ? ` in this collection` : ""}`}
+                {loading ? "Loading..." : `${displayCount} model${displayCount !== 1 ? "s" : ""} total${selectedName ? ` in this collection` : ""}`}
                 {refreshing && <span className="ml-2 font-mono text-xs text-muted-foreground">Updating...</span>}
               </p>
             </div>
