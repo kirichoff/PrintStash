@@ -29,10 +29,12 @@ from pathlib import Path
 
 import pytest
 
-trimesh = pytest.importorskip("trimesh")
-
 from app.core.config import _overlay
 from app.services import mesh_processing
+
+# mesh_processing lazy-imports trimesh, so importing it above is safe without it;
+# skip the whole module when trimesh itself is unavailable (these build real meshes).
+trimesh = pytest.importorskip("trimesh")
 
 
 @pytest.fixture(autouse=True)

@@ -21,6 +21,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.7.1",
+    date: "Jun 2026",
+    changes: [
+      "Upload many files at once, or a whole folder — the folder structure is kept as nested collections instead of being flattened",
+      "Big libraries no longer run the app out of memory during a scan: files too large for your machine's RAM are skipped safely (still indexed, and 3MF keeps its embedded preview), memory is freed between files, and large models are processed in smaller pieces",
+      "New settings to tune memory use on small or busy servers (max concurrent renders, memory budget, render chunk size) — see the configuration docs",
+      "The “All Models” view now counts your whole library, not just models sitting at the top level",
+    ],
+  },
+  {
     version: "0.7.0",
     date: "Jun 2026",
     changes: [
