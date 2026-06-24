@@ -93,6 +93,10 @@ function MetricCell({ id, model, isLast }: { id: CardMetricId; model: ModelListI
 function ModelCardInner({ model, metrics }: { model: ModelListItem; metrics: CardMetrics }) {
   const router = useRouter();
   const thumb = useAuthenticatedAssetUrl(model.thumbnail_url);
+  // Lazy thumbnails used to snap in at full opacity the instant their bytes
+  // arrived. Fade each one in on load so scrolling/searching settles smoothly
+  // instead of popping card by card.
+  const [thumbLoaded, setThumbLoaded] = useState(false);
   const printerPresence = model.printer_presence ?? [];
   const hasPrinter = printerPresence.length > 0;
   const ps = model.print_summary;
@@ -106,7 +110,7 @@ function ModelCardInner({ model, metrics }: { model: ModelListItem; metrics: Car
 
   return (
     <article
-      className="group flex h-full flex-col bg-card border border-border rounded transition-all duration-200 hover:border-blue-500 dark:hover:border-orange-500 overflow-hidden"
+      className="animate-card-in group flex h-full flex-col bg-card border border-border rounded transition-all duration-200 hover:border-blue-500 dark:hover:border-orange-500 overflow-hidden"
       onMouseEnter={handleHover}
       onTouchStart={handleHover}
     >
@@ -117,10 +121,18 @@ function ModelCardInner({ model, metrics }: { model: ModelListItem; metrics: Car
           {thumb ? (
             <img
               alt={model.name}
-              className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
+              className={`w-full h-full object-cover transition-opacity duration-300 ease-out ${
+                thumbLoaded ? "opacity-90 group-hover:opacity-100" : "opacity-0"
+              }`}
               src={thumb}
               loading="lazy"
               decoding="async"
+              onLoad={() => setThumbLoaded(true)}
+              // Cached images can finish before React attaches onLoad; catch that
+              // case so they don't stay stuck at opacity-0.
+              ref={(node) => {
+                if (node?.complete && node.naturalWidth > 0) setThumbLoaded(true);
+              }}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center">
