@@ -21,7 +21,6 @@ the old image around** until the new one has proven itself.
 ```bash
 docker compose down
 docker compose pull
-docker compose run --rm api uv run alembic upgrade head
 docker compose up -d
 ```
 
@@ -30,13 +29,21 @@ If you build from source instead of pulling published images:
 ```bash
 docker compose down
 docker compose build --pull
-docker compose run --rm api uv run alembic upgrade head
 docker compose up -d
 ```
 
-Running migrations as an explicit step (rather than letting the app do it on
-boot) means a migration failure stops you *before* the new app starts serving,
-which is exactly when you want to know.
+**Migrations run automatically.** The API image's entrypoint runs
+`alembic upgrade head` on every start, before the server launches, so a fresh
+`up -d` migrates the database for you. A failed migration aborts startup *before*
+the app serves a request — which is exactly when you want to know. You no longer
+need a separate migration step or a migration line in the Compose `command:`.
+
+If you prefer to run migrations explicitly first (e.g. to inspect them before the
+app comes up), it's still supported and idempotent:
+
+```bash
+docker compose run --rm api uv run alembic upgrade head
+```
 
 ### Pinning images
 
