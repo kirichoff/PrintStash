@@ -73,6 +73,7 @@ export function invalidateQueriesForPath(path: string): void {
     // Vault totals (count, size, material breakdown) are derived from models,
     // so any model/file write can change them.
     bust(queryKeys.vaultStats);
+    bust(queryKeys.collections);
   }
   if (/\/printers(\/|$|\?)/.test(path)) {
     bust(queryKeys.printers);
