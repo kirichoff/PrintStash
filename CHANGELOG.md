@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.2
+
+### Changed
+
+- **Database migrations now run automatically on startup.** The API image's
+  entrypoint runs `alembic upgrade head` before the server launches, so migrations
+  happen however the container is started (Compose, Portainer, Unraid, bare
+  `docker run`) — editing or removing the Compose `command:` can no longer skip
+  them (issue #29). A failed migration aborts startup *before* the app serves a
+  request. The previous explicit `docker compose run … alembic upgrade head` step
+  is now optional.
+
+### Fixed
+
+- **Fresh installs and upgrades come up cleanly on SQLite *and* PostgreSQL.** The
+  migration runner now bootstraps a brand-new database directly from the models
+  (then stamps it at head) instead of replaying the historical migration chain,
+  whose SQLite-authored baseline failed outright on a fresh Postgres. Existing
+  databases still upgrade normally. (#29)
+- **A database started once without migrations is adopted safely.** If the schema
+  was built by the app's own `create_all()` and never recorded a migration version
+  (e.g. after the Compose migration step was removed), the runner now detects it,
+  stamps it at head, and continues — no "table already exists" crash on the next
+  upgrade, and no data is touched. A one-time manual repair is also documented. (#29)
+- **Deleting a model keeps you in its folder.** It previously returned to the root
+  "All Models" view; it now returns to the collection the model lived in. (#30)
+- **The PrintStash logo returns you to the collection you were browsing** instead
+  of always resetting to "All Models" — the last-viewed folder is remembered. (#30)
+
 ## 0.7.1
 
 ### Fixed

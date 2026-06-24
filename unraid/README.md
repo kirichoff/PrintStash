@@ -37,7 +37,8 @@ From the `printstash-api` template:
   or point them wherever you keep app data.
 
 The template already:
-- runs database migrations on every start (`alembic upgrade head`), and
+- relies on the API image, which runs database migrations on every start
+  (`alembic upgrade head`) from its entrypoint — no command override needed, and
 - gives the container the network alias **`api`** so the frontend can reach it.
 
 > Install the API **before** the frontend — the frontend expects `api` to
@@ -154,6 +155,6 @@ Checklist before submitting on the CA submit page:
    (`curl -I <raw-url>` → `200`): the two `templates/*.xml`, `icon.svg`, and the
    `<ReadMe>`/`<Icon>` targets.
 
-Nice-to-have: provide a square **PNG** icon (CA prefers PNG over SVG), and
-consider baking `alembic upgrade head` into the API image entrypoint so the
-default command works without the Post Arguments override.
+Nice-to-have: provide a square **PNG** icon (CA prefers PNG over SVG). Migrations
+are now baked into the API image entrypoint (they run on every start, before the
+server), so the default command works without any Post Arguments override.

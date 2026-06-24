@@ -21,6 +21,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.7.2",
+    date: "Jun 2026",
+    changes: [
+      "Database migrations now run automatically when the app starts — there's no separate migration step, and editing or removing the Compose command can no longer skip them",
+      "Fresh installs and existing databases both come up cleanly on SQLite and PostgreSQL; a database that was once started without migrations is detected and adopted safely, without changing any data",
+      "Deleting a model now returns you to the folder you were browsing instead of jumping back to All Models",
+      "The PrintStash logo now takes you back to the collection you were in, rather than always to All Models",
+    ],
+  },
+  {
     version: "0.7.1",
     date: "Jun 2026",
     changes: [

@@ -31,6 +31,8 @@ RUN uv run patchright install --with-deps chromium
 COPY app ./app
 COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 
 ENV VAULT_DATA_DIR=/data/files \
     VAULT_THUMB_DIR=/data/thumbs \
@@ -38,4 +40,7 @@ ENV VAULT_DATA_DIR=/data/files \
 
 EXPOSE 8000
 
+# Entrypoint runs DB migrations, then execs CMD. Migrations therefore run on
+# every container start regardless of the orchestrator's command (issue #29).
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--proxy-headers"]

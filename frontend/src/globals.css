@@ -178,6 +178,20 @@
   }
 }
 
+/* Cards settle in with a small fade + rise instead of appearing abruptly. Runs
+   once per mounted card (stable React keys), so it plays for a new folder /
+   search result / next page — not on every keystroke re-render. */
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* Thin styled scrollbars */
 ::-webkit-scrollbar {
   width: 4px;
@@ -210,7 +224,18 @@
     animation: slide-in-left 0.2s ease-out;
   }
 
+  .animate-card-in {
+    animation: card-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom, 8px);
+  }
+}
+
+/* Respect reduced-motion: keep the cards, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-card-in {
+    animation: none;
   }
 }

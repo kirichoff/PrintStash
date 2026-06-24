@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "@/lib/navigation";
 import { CollectionRead, ModelListItem, PrinterRead, TagRead } from "@/types";
 import { ModelCard } from "@/components/model-card";
@@ -21,13 +22,23 @@ import {
   ChevronRight,
   Plus,
 } from "lucide-react";
-import { listModels, createCollection, updateModel, moveCollection, deleteCollection } from "@/lib/api";
-import { useCollections, usePrinters, useTags, useVaultStats } from "@/lib/queries";
+import { createCollection, updateModel, moveCollection, deleteCollection } from "@/lib/api";
+import {
+  useCollections,
+  useModelList,
+  useOutlinerModels,
+  usePrinters,
+  useTags,
+  useVaultStats,
+  type ModelListFilters,
+} from "@/lib/queries";
+import { queryKeys } from "@/lib/query-client";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
 import { Link } from "@/lib/navigation";
 import { timeAgo } from "@/lib/format";
+import { rememberLastCollection } from "@/lib/last-collection";
 import { useAuthenticatedAssetUrl } from "@/lib/use-authenticated-asset-url";
 
 type SortKey = "date-desc" | "date-asc" | "name-asc" | "name-desc";
@@ -108,11 +119,6 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
   const { user } = useAuth();
-  const [models, setModels] = useState<ModelListItem[]>(initial?.models ?? []);
-  // Unfiltered model list for the outliner tree. The grid's `models` shrink to
-  // the active collection/tag filter; feeding those to the sidebar made other
-  // folders' leaves vanish (tree branches appeared to collapse on selection).
-  const [outlinerModels, setOutlinerModels] = useState<ModelListItem[]>(initial?.models ?? []);
   // Shared taxonomy facets from the TanStack Query cache: one cache entry shared
   // with the detail/upload views, revalidated on focus, and refetched after any
   // collection/tag mutation (the api layer invalidates the query cache).
@@ -128,44 +134,28 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   // and send-to dialog; gated so non-admins don't fetch a list they can't use.
   const printers =
     usePrinters({ enabled: !!user?.is_superuser }).data ?? initial?.printers ?? [];
-  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(null);
   const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [loading, setLoading] = useState(!initial);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(initial ? initial.models.length === PAGE_SIZE : false);
   const facetsLoading = collectionsQuery.isLoading || tagsQuery.isLoading;
-  const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
-  const hasLoadedModels = useRef(!!initial);
-  // The server already rendered the first page with the current search query;
-  // skip the redundant client fetch on hydration.
-  const skipFirstFetch = useRef(!!initial);
   const { open: filterDrawerOpen, openDrawer, closeDrawer } = useMobileFilterDrawer();
 
   // Collection selection lives in the URL (`?c=<path>`) so it resets when the
   // user navigates away (e.g. to Settings) and clicks "Vault" again — that link
-  // points at "/" with no param. Without this, Next's router cache kept the
-  // component mounted and the old folder stuck around.
-  const collectionParam = searchParams.get("c");
+  // points at "/" with no param. Deriving it straight from the param (instead of
+  // mirroring into state) means a folder switch just re-keys the model query;
+  // `keepPreviousData` holds the old cards on screen until the new page lands, so
+  // there's no manual clearing or loading flash.
+  const selectedCollection = searchParams.get("c") || null;
   useEffect(() => {
-    const next = collectionParam || null;
-    if (next !== selectedCollection) {
-      // Clear stale models immediately so old cards don't flash for the 200 ms
-      // debounce window before the new collection loads.
-      setModels([]);
-      setLoading(true);
-      hasLoadedModels.current = false;
-      setSelectedCollection(next);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collectionParam]);
+    // Remember the folder we're in so the logo / post-delete nav can return
+    // here instead of resetting to the root once the `?c=` param is dropped.
+    rememberLastCollection(selectedCollection);
+  }, [selectedCollection]);
 
   function handleCollectionChange(path: string | null) {
     const params = new URLSearchParams(searchParams.toString());
@@ -186,6 +176,54 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   }, [searchParams, router]);
 
   const query = searchParams.get("q") ?? "";
+  const searchQuery = query.trim() || undefined;
+  const canViewPrinters = !!user?.is_superuser;
+  const queryClient = useQueryClient();
+
+  // Filters shared by the grid + outliner queries; only the search query and
+  // pagination differ between them.
+  const baseFilters: ModelListFilters = {
+    tag: selectedTags.length ? selectedTags : undefined,
+    printer_id: canViewPrinters ? selectedPrinterId ?? undefined : undefined,
+    printer_presence:
+      canViewPrinters && selectedPrinterId === null
+        ? selectedPrinterPresence ?? undefined
+        : undefined,
+  };
+  // The paginated grid. `keepPreviousData` (in the hook) holds the current page
+  // on screen while a new search/folder loads, and results are cached per filter
+  // set so backspacing a query or re-entering a folder is instant.
+  const modelQuery = useModelList(
+    {
+      ...baseFilters,
+      collection: selectedCollection ?? undefined,
+      // A search spans the whole library; a folder view lists only its direct
+      // children so subfolders' models don't leak into the parent (#30).
+      direct: !searchQuery,
+      q: searchQuery,
+    },
+    PAGE_SIZE,
+  );
+  const outlinerQuery = useOutlinerModels(baseFilters, 500);
+
+  const models = useMemo(
+    () => modelQuery.data?.pages.flat() ?? [],
+    [modelQuery.data],
+  );
+  const outlinerModels = outlinerQuery.data ?? [];
+  // First load shows skeletons; a filter change keeps the previous page visible
+  // and just flags `refreshing` for the subtle "Updating…" hint.
+  const loading = modelQuery.isLoading;
+  const refreshing = modelQuery.isFetching && !modelQuery.isFetchingNextPage && !loading;
+  const loadingMore = modelQuery.isFetchingNextPage;
+  const hasMore = modelQuery.hasNextPage ?? false;
+  const error = modelQuery.error ? (modelQuery.error as Error).message : null;
+  function loadMore() {
+    if (hasMore && !loadingMore) modelQuery.fetchNextPage();
+  }
+  function refresh() {
+    queryClient.invalidateQueries({ queryKey: queryKeys.models });
+  }
 
   const sortedModels = useMemo(() => sortModels(models, "date-desc"), [models]);
   // "All Models" is a folder explorer: at the root the grid shows collection
@@ -202,10 +240,19 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const showLibraryTotal =
     !selectedCollection && !hasActiveFilters && totalLibraryCount !== null;
   const displayCount = showLibraryTotal ? totalLibraryCount : models.length;
-  const visibleCollections = useMemo(
-    () => childCollections(collections, selectedCollection),
-    [collections, selectedCollection],
-  );
+  // While searching, the grid is a global result list, not a folder view: show
+  // only collections whose name matches the query (anywhere in the tree), to
+  // mirror the matching models. Without a query we fall back to the normal
+  // folder explorer (immediate children of the selected collection).
+  const visibleCollections = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (needle) {
+      return collections
+        .filter((c) => c.name.toLowerCase().includes(needle))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return childCollections(collections, selectedCollection);
+  }, [collections, selectedCollection, query]);
   const breadcrumbs = useMemo(
     () => collectionBreadcrumbs(collections, selectedCollection),
     [collections, selectedCollection],
@@ -228,93 +275,8 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
     user?.is_superuser || canWriteCollection(selectedCollectionRow)
       ? selectedCollection
       : null;
-  const canViewPrinters = !!user?.is_superuser;
-  // Collections + tags are fetched by useCollections()/useTags() above.
-
-  // The outliner tree mirrors the active tag/printer filters so the collections
-  // sidebar narrows to matching models instead of always listing everything.
-  useEffect(() => {
-    let alive = true;
-    listModels({
-      limit: 500,
-      tag: selectedTags.length ? selectedTags : undefined,
-      printer_id: canViewPrinters ? selectedPrinterId ?? undefined : undefined,
-      printer_presence:
-        canViewPrinters && selectedPrinterId === null
-          ? selectedPrinterPresence ?? undefined
-          : undefined,
-    })
-      .then((data) => { if (alive) setOutlinerModels(data); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [reloadKey, selectedTags, selectedPrinterId, selectedPrinterPresence, canViewPrinters]);
-
-  useEffect(() => {
-    if (skipFirstFetch.current) {
-      skipFirstFetch.current = false;
-      return;
-    }
-    let alive = true;
-    const handle = setTimeout(async () => {
-      if (hasLoadedModels.current) setRefreshing(true);
-      else setLoading(true);
-      try {
-        const searchQuery = query.trim() || undefined;
-        const data = await listModels({
-          limit: PAGE_SIZE,
-          offset: 0,
-          collection: selectedCollection ?? undefined,
-          direct: !searchQuery,
-          tag: selectedTags.length ? selectedTags : undefined,
-          q: searchQuery,
-          printer_id: canViewPrinters ? selectedPrinterId ?? undefined : undefined,
-          printer_presence:
-            canViewPrinters && selectedPrinterId === null
-              ? selectedPrinterPresence ?? undefined
-              : undefined,
-        });
-        if (!alive) return;
-        setModels(data);
-        setHasMore(data.length === PAGE_SIZE);
-        setError(null);
-        hasLoadedModels.current = true;
-      } catch (e: any) {
-        if (alive) setError(e.message);
-      } finally {
-        if (alive) { setLoading(false); setRefreshing(false); }
-      }
-    }, 200);
-    return () => { alive = false; clearTimeout(handle); };
-  }, [selectedCollection, selectedTags, selectedPrinterId, selectedPrinterPresence, query, reloadKey, canViewPrinters]);
-
-  async function loadMore() {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    try {
-      const searchQuery = query.trim() || undefined;
-      const data = await listModels({
-        limit: PAGE_SIZE,
-        offset: models.length,
-        collection: selectedCollection ?? undefined,
-        direct: !searchQuery,
-        tag: selectedTags.length ? selectedTags : undefined,
-        q: searchQuery,
-        printer_id: canViewPrinters ? selectedPrinterId ?? undefined : undefined,
-        printer_presence:
-          canViewPrinters && selectedPrinterId === null
-            ? selectedPrinterPresence ?? undefined
-            : undefined,
-      });
-      setModels((prev) => [...prev, ...data]);
-      setHasMore(data.length === PAGE_SIZE);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoadingMore(false);
-    }
-  }
-
-  function refresh() { setReloadKey((k) => k + 1); }
+  // Collections + tags are fetched by useCollections()/useTags() above; the
+  // model grid + outliner come from useModelList()/useOutlinerModels() above.
 
   async function handleCreateCollection() {
     const name = newCollectionName.trim();
@@ -333,7 +295,6 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
       setIsCreatingCollection(false);
       toast.success(`Collection "${name}" created`);
     } catch (e: any) {
-      setError(e.message);
       toast.error(e);
     }
   }
@@ -611,7 +572,7 @@ function CollectionFolderCard({ collection, onSelect }: { collection: Collection
     <button
       type="button"
       onClick={() => onSelect(collection.path)}
-      className="group flex flex-col text-left bg-muted border border-border rounded-lg hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-sm transition-all relative overflow-hidden"
+      className="animate-card-in group flex flex-col text-left bg-muted border border-border rounded-lg hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-sm transition-all relative overflow-hidden"
     >
       <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-[var(--surface-container-high)] min-h-[140px]">
         <Folder className="w-16 h-16 text-blue-600/30 dark:text-orange-500/25" />
