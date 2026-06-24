@@ -22,6 +22,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
+from sqlmodel import SQLModel
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -59,36 +60,66 @@ def _has_application_tables(engine) -> bool:
     return bool(tables)
 
 
+def _create_all(url: str) -> None:
+    """Build the full current schema directly from the SQLModel models."""
+    import app.db.models  # noqa: F401 — register all tables on SQLModel.metadata
+
+    engine = create_engine(url)
+    try:
+        SQLModel.metadata.create_all(engine)
+    finally:
+        engine.dispose()
+
+
 def run_migrations(database_url: str | None = None) -> None:
     """Bring *database_url* (default: configured DB) to the latest revision.
 
     Handles all three states the entrypoint can meet:
 
-    * **fresh** (no tables): runs the whole chain from baseline and stamps head.
     * **already managed** (has ``alembic_version``): applies any pending
       migrations; a no-op when already at head.
     * **orphan** (app tables but no ``alembic_version``): stamps head to adopt the
       existing schema, then upgrades — no data touched, no "table exists" error.
+    * **fresh** (no tables): builds the schema directly from the models and stamps
+      head, rather than replaying the historical migration chain. That chain was
+      authored against SQLite and does not apply cleanly on stricter engines like
+      Postgres (its baseline fails outright); on an empty database the chain's
+      data backfills are no-ops, so ``create_all`` + ``stamp head`` yields an
+      equivalent, head-stamped schema on every supported engine.
     """
     url = database_url or settings.db_url
 
     engine = create_engine(url)
     try:
         revision = _current_revision(engine)
-        orphan = revision is None and _has_application_tables(engine)
+        has_tables = _has_application_tables(engine)
     finally:
         engine.dispose()
 
     cfg = _alembic_config(url)
-    if orphan:
+
+    if revision is not None:
+        # Already managed by Alembic — apply any pending migrations.
+        command.upgrade(cfg, "head")
+    elif has_tables:
+        # Orphan: schema built without recording a version (issue #29).
         logger.warning(
             "migrate: database has tables but no Alembic version — stamping head "
             "to adopt the existing schema before upgrading (orphan rescue). This "
             "writes only the version marker; no data is changed."
         )
         command.stamp(cfg, "head")
+        command.upgrade(cfg, "head")
+    else:
+        # Fresh database — create the schema from the models, then stamp head so
+        # Alembic considers it current (engine-agnostic; avoids the SQLite-only
+        # baseline migration). Future migrations apply normally from here.
+        logger.info(
+            "migrate: empty database — creating schema from models and stamping head"
+        )
+        _create_all(url)
+        command.stamp(cfg, "head")
 
-    command.upgrade(cfg, "head")
     logger.info("migrate: database is at the latest revision (head)")
 
 

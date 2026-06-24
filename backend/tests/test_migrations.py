@@ -174,3 +174,69 @@ def test_init_db_is_strict_noop_on_alembic_managed_db(tmp_path: Path) -> None:
         assert migrate_mod._current_revision(engine) == _head_revision()
     finally:
         engine.dispose()
+
+
+# --------------------------------------------------------------------------- #
+# State dispatch: a fresh DB must NOT replay the historical migration chain
+# (its baseline is SQLite-only and fails on Postgres) — it bootstraps via
+# create_all + stamp instead. This is what makes Postgres work; asserted here
+# without needing a Postgres service in CI.
+# --------------------------------------------------------------------------- #
+class _Spy:
+    def __init__(self) -> None:
+        self.upgrade: list = []
+        self.stamp: list = []
+        self.create_all: list = []
+
+    def install(self, monkeypatch, tmp_path: Path) -> str:
+        url = _url(tmp_path, "dispatch.sqlite")
+        monkeypatch.setattr(
+            migrate_mod.command, "upgrade", lambda *a, **k: self.upgrade.append(a)
+        )
+        monkeypatch.setattr(
+            migrate_mod.command, "stamp", lambda *a, **k: self.stamp.append(a)
+        )
+        monkeypatch.setattr(
+            migrate_mod, "_create_all", lambda u: self.create_all.append(u)
+        )
+        return url
+
+
+def test_fresh_db_bootstraps_via_create_all_not_baseline(tmp_path, monkeypatch) -> None:
+    spy = _Spy()
+    url = spy.install(monkeypatch, tmp_path)  # empty DB → fresh
+    migrate_mod.run_migrations(url)
+    assert spy.create_all == [url]  # schema built from models
+    assert len(spy.stamp) == 1  # stamped head
+    assert spy.upgrade == []  # baseline chain NOT replayed (Postgres-safe)
+
+
+def test_orphan_db_stamps_then_upgrades(tmp_path, monkeypatch) -> None:
+    # Real orphan: tables but no alembic_version.
+    url = _url(tmp_path, "dispatch.sqlite")
+    engine = create_engine(url)
+    SQLModel.metadata.create_all(engine)
+    engine.dispose()
+
+    spy = _Spy()
+    # Re-point spies at the SAME url (already has tables).
+    monkeypatch.setattr(migrate_mod.command, "upgrade", lambda *a, **k: spy.upgrade.append(a))
+    monkeypatch.setattr(migrate_mod.command, "stamp", lambda *a, **k: spy.stamp.append(a))
+    monkeypatch.setattr(migrate_mod, "_create_all", lambda u: spy.create_all.append(u))
+
+    migrate_mod.run_migrations(url)
+    assert len(spy.stamp) == 1 and len(spy.upgrade) == 1  # adopt then upgrade
+    assert spy.create_all == []  # never rebuilds an existing schema
+
+
+def test_managed_db_only_upgrades(tmp_path, monkeypatch) -> None:
+    url = _url(tmp_path, "dispatch.sqlite")
+    migrate_mod.run_migrations(url)  # make it managed (real run)
+
+    spy = _Spy()
+    monkeypatch.setattr(migrate_mod.command, "upgrade", lambda *a, **k: spy.upgrade.append(a))
+    monkeypatch.setattr(migrate_mod.command, "stamp", lambda *a, **k: spy.stamp.append(a))
+    monkeypatch.setattr(migrate_mod, "_create_all", lambda u: spy.create_all.append(u))
+
+    migrate_mod.run_migrations(url)
+    assert spy.upgrade and not spy.stamp and not spy.create_all
