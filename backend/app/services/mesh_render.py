@@ -13,6 +13,22 @@ need a Rust toolchain. Rasterisation is fully vectorised: candidate
 pixels for all triangles are expanded into flat arrays and resolved against
 the z-buffer with a single lexsort per chunk, so cost scales with covered
 pixel area rather than with Python-level triangle count.
+
+Memory shape: the per-face geometry/shading arrays (``tri``, ``view_tri``,
+corner normals, RGB, …) are each O(faces). They are built and freed one
+``mesh_render_face_chunk_size`` chunk at a time, so peak render memory is
+O(chunk_size) rather than O(total_faces) — a million-triangle mesh no longer
+materialises several ~70 MB float32 arrays at once (#29). Only the vertex-scale
+arrays (the projected vertices and the welded smooth-normal table) are held whole.
+
+Future architecture (not yet implemented): ``render_mesh_thumbnail`` is a pure
+function — it takes an already-loaded mesh and returns PNG bytes, touching no
+shared state — so it can be moved wholesale into a separate thumbnail worker
+process. The intended split is: the API process accepts the upload; a worker
+renders one job at a time under a timeout and the memory-aware cap; on failure or
+over-cap it falls back to the embedded preview; and an OOM kills only the worker,
+never the API. Keeping this function isolatable is what makes that move a
+drop-in later.
 """
 
 from __future__ import annotations
@@ -21,6 +37,7 @@ import io
 from pathlib import Path
 from typing import Optional
 
+from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -72,7 +89,12 @@ def render_mesh_thumbnail(
         return None
 
     try:
-        verts = np.asarray(mesh.vertices, dtype=np.float64)
+        # float32 throughout the per-face geometry/shading pipeline halves the
+        # peak RSS of the arrays that scale with triangle count — and the render
+        # is ~3/4 of a dense mesh's memory cost (#29). Screen-space thumbnail
+        # rendering doesn't need float64 precision; the view-selection and weld
+        # quantisation below are unaffected at this scale.
+        verts = np.asarray(mesh.vertices, dtype=np.float32)
         faces = np.asarray(mesh.faces, dtype=np.int64)
 
         ss_width = width * _SUPERSAMPLE
@@ -93,7 +115,9 @@ def render_mesh_thumbnail(
         # ------------------------------------------------------------------
         rotation = _select_view_rotation(verts, np)
         view_handedness = float(np.linalg.det(rotation))
-        view = verts @ rotation.T  # (N, 3)  — camera is at -Z, looks toward +Z
+        # Keep the matmul in float32 (rotation is built in float64 for accuracy)
+        # so `view` and everything derived from it stays half-width.
+        view = verts @ rotation.T.astype(np.float32)  # (N, 3) camera at -Z → +Z
 
         # ------------------------------------------------------------------
         # 3. Orthographic projection with 8% margin on each side.
@@ -114,48 +138,12 @@ def render_mesh_thumbnail(
         screen = np.stack([px, py, pz], axis=1)  # (N, 3)
 
         # ------------------------------------------------------------------
-        # 4. Per-face normals in view-space.
-        #    Back-face cull: visible normals have z < 0 (they face the camera
-        #    which sits at -Z).
+        # 4. Weld coincident vertices once (vertex-scale, O(N) — held whole).
+        #     Quantise + pack each position into one integer key so the weld is a
+        #     fast 1-D unique; the smoothed per-position normal table is then
+        #     accumulated chunk-by-chunk below so we never build a (3F, 3) corner
+        #     array for the whole mesh at once.
         # ------------------------------------------------------------------
-        tri = screen[faces]  # (F, 3, 3) screen-space
-        view_tri = view[faces]  # (F, 3, 3) view-space
-
-        edge1 = view_tri[:, 1] - view_tri[:, 0]
-        edge2 = view_tri[:, 2] - view_tri[:, 0]
-        normals = np.cross(edge1, edge2)  # (F, 3)
-        norm_len = np.linalg.norm(normals, axis=1, keepdims=True)
-        norm_len = np.where(norm_len == 0, 1.0, norm_len)
-        normals = normals / norm_len  # unit normals
-
-        # Flip normals so they consistently point toward the camera (-Z direction).
-        # After this, every valid visible normal has z > 0 (pointing at camera).
-        normals = np.where(normals[:, 2:3] > 0, normals, -normals)
-
-        # ------------------------------------------------------------------
-        # 4b. Crease-aware smooth normals (per triangle corner).
-        #     Smooth normals are what let shading interpolate across a triangle
-        #     (Gouraud, below) instead of flat-shading every facet. But blindly
-        #     smoothing rounds off the hard edges of mechanical parts, so we
-        #     smooth only where neighbouring faces are near-coplanar and fall
-        #     back to the flat face normal across a crease. Result: organic
-        #     models look smooth like the 3D viewer, boxes keep crisp edges.
-        # ------------------------------------------------------------------
-        # Object-space face normals (the view normals above are flipped toward
-        # the camera, which would corrupt the smoothing across silhouettes).
-        f_obj = verts[faces]  # (F, 3, 3)
-        fn = np.cross(f_obj[:, 1] - f_obj[:, 0], f_obj[:, 2] - f_obj[:, 0])
-        fn = fn / np.where(
-            np.linalg.norm(fn, axis=1, keepdims=True) == 0,
-            1.0,
-            np.linalg.norm(fn, axis=1, keepdims=True),
-        )
-
-        # Weld coincident vertices and average incident face normals into one
-        # smoothed normal per welded position. Vertices are quantised and packed
-        # into a single integer key so the weld is a fast 1-D unique, and the
-        # accumulation uses bincount rather than the much slower np.add.at —
-        # both matter on million-triangle meshes.
         extent = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0))) or 1.0
         q = np.round(verts / (extent * 1e-5)).astype(np.int64)
         q -= q.min(axis=0)
@@ -163,41 +151,52 @@ def render_mesh_thumbnail(
         key = (q[:, 0] * span[1] + q[:, 1]) * span[2] + q[:, 2]
         _, pos_id = np.unique(key, return_inverse=True)
         n_pos = int(pos_id.max()) + 1
+        del q, key
 
-        flat_pos = pos_id[faces].ravel()  # (3F,) welded id per face corner
-        fn_per_corner = np.repeat(fn, 3, axis=0)  # (3F, 3)
-        vacc = np.stack(
-            [
-                np.bincount(flat_pos, weights=fn_per_corner[:, a], minlength=n_pos)
-                for a in range(3)
-            ],
-            axis=1,
-        )
+        rot_T = rotation.T  # original-space -> view-space, applied per chunk
+        n_faces = int(faces.shape[0])
+        # Per-face arrays below are each O(faces); building them one chunk at a
+        # time keeps peak render memory O(chunk_size) rather than O(total_faces).
+        chunk = max(int(settings.mesh_render_face_chunk_size), 1)
+
+        # ------------------------------------------------------------------
+        # 4b. Crease-aware smooth normals — accumulation pass.
+        #     Average each welded position's incident face normals into one
+        #     smoothed normal. Smooth normals let shading interpolate across a
+        #     triangle (Gouraud, below) instead of flat-shading every facet; the
+        #     crease test in the shading pass falls back to the flat face normal
+        #     across hard edges so mechanical parts keep crisp corners while
+        #     organic models read smooth. bincount accumulation is additive, so
+        #     summing it chunk-by-chunk (rather than over a full (3F, 3) array)
+        #     gives the same table at O(chunk_size) memory.
+        # ------------------------------------------------------------------
+        vacc = np.zeros((n_pos, 3), dtype=np.float64)
+        for s in range(0, n_faces, chunk):
+            fc = faces[s : s + chunk]
+            f_obj = verts[fc]  # (c, 3, 3)
+            fn = np.cross(f_obj[:, 1] - f_obj[:, 0], f_obj[:, 2] - f_obj[:, 0])
+            fn = fn / np.where(
+                np.linalg.norm(fn, axis=1, keepdims=True) == 0,
+                1.0,
+                np.linalg.norm(fn, axis=1, keepdims=True),
+            )
+            flat_pos = pos_id[fc].ravel()  # (3c,) welded id per face corner
+            fn_per_corner = np.repeat(fn, 3, axis=0)  # (3c, 3)
+            for a in range(3):
+                vacc[:, a] += np.bincount(
+                    flat_pos, weights=fn_per_corner[:, a], minlength=n_pos
+                )
+            del f_obj, fn, flat_pos, fn_per_corner
         vsm = vacc / np.where(
             np.linalg.norm(vacc, axis=1, keepdims=True) == 0,
             1.0,
             np.linalg.norm(vacc, axis=1, keepdims=True),
         )
-        corner_smooth = vsm[pos_id[faces]]  # (F, 3, 3) object-space
-
-        # Per corner: use the smoothed normal only when it stays close to this
-        # face's own normal (smooth surface); otherwise keep the face normal so
-        # the edge reads as a crease. cos(35°) ≈ 0.82.
-        cos_crease = np.sum(corner_smooth * fn[:, None, :], axis=2)  # (F, 3)
-        corner_n = np.where(cos_crease[..., None] >= 0.82, corner_smooth, fn[:, None, :])
-        corner_n = corner_n / np.where(
-            np.linalg.norm(corner_n, axis=2, keepdims=True) == 0,
-            1.0,
-            np.linalg.norm(corner_n, axis=2, keepdims=True),
-        )
-
-        # Into view-space and flip toward the camera (+Z), matching the per-face
-        # normals used for culling.
-        cvn = corner_n @ rotation.T  # (F, 3, 3)
-        cvn = np.where(cvn[..., 2:3] >= 0, cvn, -cvn)
+        del vacc
 
         # ------------------------------------------------------------------
-        # 5. Three-light shading + specular, evaluated per corner.
+        # 5. Three-light shading + specular constants (per corner). Defined once,
+        #    applied per chunk in the rasterisation pass below.
         #
         #    View-space axes: X=right, Y=up, Z=toward camera.
         #    Light directions point FROM the surface TOWARD the light. The
@@ -233,37 +232,12 @@ def render_mesh_thumbnail(
         spec_str = 0.35
 
         def _diff(n: "np.ndarray", d: "np.ndarray") -> "np.ndarray":
-            return np.clip(n @ d, 0.0, 1.0)[..., None]  # (F, 3, 1)
-
-        face_vert_rgb = (
-            ambient_color
-            + key_str * _diff(cvn, key_dir) * key_color
-            + fill_str * _diff(cvn, fill_dir) * fill_color
-            + rim_str * _diff(cvn, rim_dir) * rim_color
-            + spec_str * np.clip(cvn @ half, 0.0, 1.0)[..., None] ** 24.0
-        )
-        face_vert_rgb = np.clip(face_vert_rgb, 0.0, 1.0)  # (F, 3, 3) in [0,1]
-
-        # Back-face cull: in right-handed view-space, visible faces have
-        # raw z<0. Front-on flat views preserve screen orientation with a
-        # negative-determinant transform, which flips that sign.
-        # Re-derive original-z sign from the raw (pre-flip) cross product.
-        raw_normals = np.cross(edge1, edge2)
-        front = (raw_normals[:, 2] * view_handedness) < 0.0
-        valid = front & (norm_len.squeeze() > 1e-8)
-
-        tri = tri[valid]
-        face_vert_rgb = face_vert_rgb[valid]
-
-        if tri.shape[0] == 0:
-            logger.warning(
-                "mesh_render: no visible triangles for %s — using silhouette", name
-            )
-            tri = screen[faces]
-            face_vert_rgb = np.tile(ambient_color + 0.4, (faces.shape[0], 3, 1))
+            return np.clip(n @ d, 0.0, 1.0)[..., None]  # (c, 3, 1)
 
         # ------------------------------------------------------------------
-        # 6. Rasterise (z-buffered — no painter's sort needed).
+        # 6. Rasterise (z-buffered — no painter's sort needed), one face chunk at
+        #    a time into the shared image/z-buffer. The z-buffer makes chunk order
+        #    irrelevant, so the result is identical to a single-pass render.
         # ------------------------------------------------------------------
         # Model colour: a mid blue-grey. Darker than before so the lit gradient
         # has room to breathe instead of clipping to a pale wash.
@@ -273,7 +247,86 @@ def render_mesh_thumbnail(
         img = np.zeros((ss_height, ss_width, 3), dtype=np.uint8)
         zbuf = np.full((ss_height, ss_width), np.inf, dtype=np.float64)
 
-        _rasterise_triangles(img, zbuf, tri, face_vert_rgb, base_color, ss_width, ss_height)
+        visible_total = 0
+        for s in range(0, n_faces, chunk):
+            fc = faces[s : s + chunk]
+            tri = screen[fc]  # (c, 3, 3) screen-space
+            view_tri = view[fc]  # (c, 3, 3) view-space
+
+            edge1 = view_tri[:, 1] - view_tri[:, 0]
+            edge2 = view_tri[:, 2] - view_tri[:, 0]
+            # Back-face cull: in right-handed view-space visible faces have raw
+            # z<0; a negative-determinant (front-on flat) view flips that sign.
+            raw_normals = np.cross(edge1, edge2)  # (c, 3)
+            norm_len = np.linalg.norm(raw_normals, axis=1)  # (c,)
+
+            # Object-space face normals for the crease test (the view normals are
+            # flipped toward the camera, which would corrupt smoothing across
+            # silhouettes).
+            f_obj = verts[fc]  # (c, 3, 3)
+            fn = np.cross(f_obj[:, 1] - f_obj[:, 0], f_obj[:, 2] - f_obj[:, 0])
+            fn = fn / np.where(
+                np.linalg.norm(fn, axis=1, keepdims=True) == 0,
+                1.0,
+                np.linalg.norm(fn, axis=1, keepdims=True),
+            )
+
+            corner_smooth = vsm[pos_id[fc]]  # (c, 3, 3) object-space
+            # Use the smoothed normal only when it stays close to this face's own
+            # normal (smooth surface); else keep the face normal so the edge reads
+            # as a crease. cos(35°) ≈ 0.82.
+            cos_crease = np.sum(corner_smooth * fn[:, None, :], axis=2)  # (c, 3)
+            corner_n = np.where(
+                cos_crease[..., None] >= 0.82, corner_smooth, fn[:, None, :]
+            )
+            corner_n = corner_n / np.where(
+                np.linalg.norm(corner_n, axis=2, keepdims=True) == 0,
+                1.0,
+                np.linalg.norm(corner_n, axis=2, keepdims=True),
+            )
+            # Into view-space and flip toward the camera (+Z).
+            cvn = corner_n @ rot_T  # (c, 3, 3)
+            cvn = np.where(cvn[..., 2:3] >= 0, cvn, -cvn)
+
+            face_vert_rgb = (
+                ambient_color
+                + key_str * _diff(cvn, key_dir) * key_color
+                + fill_str * _diff(cvn, fill_dir) * fill_color
+                + rim_str * _diff(cvn, rim_dir) * rim_color
+                + spec_str * np.clip(cvn @ half, 0.0, 1.0)[..., None] ** 24.0
+            )
+            face_vert_rgb = np.clip(face_vert_rgb, 0.0, 1.0)  # (c, 3, 3) in [0,1]
+
+            front = (raw_normals[:, 2] * view_handedness) < 0.0
+            valid = front & (norm_len > 1e-8)
+            tri = tri[valid]
+            face_vert_rgb = face_vert_rgb[valid]
+            visible_total += int(tri.shape[0])
+
+            _rasterise_triangles(
+                img, zbuf, tri, face_vert_rgb, base_color, ss_width, ss_height
+            )
+            # Free this chunk's temporaries before the next one so only one
+            # chunk's worth of per-face arrays is ever live. No gc.collect() here:
+            # there are no reference cycles in the hot loop, and the per-file
+            # _reclaim_memory() in mesh_processing already returns arenas to the OS.
+            del view_tri, edge1, edge2, raw_normals, norm_len, f_obj, fn
+            del corner_smooth, cos_crease, corner_n, cvn, face_vert_rgb, tri, valid
+
+        if visible_total == 0:
+            # Degenerate / fully back-facing mesh: paint every face flat so the
+            # silhouette still reads, matching the single-pass fallback.
+            logger.warning(
+                "mesh_render: no visible triangles for %s — using silhouette", name
+            )
+            for s in range(0, n_faces, chunk):
+                fc = faces[s : s + chunk]
+                tri = screen[fc]
+                face_vert_rgb = np.tile(ambient_color + 0.4, (tri.shape[0], 3, 1))
+                _rasterise_triangles(
+                    img, zbuf, tri, face_vert_rgb, base_color, ss_width, ss_height
+                )
+                del tri, face_vert_rgb
 
         # Alpha = 255 wherever a triangle was painted, 0 elsewhere.
         alpha = np.where(zbuf < np.inf, np.uint8(255), np.uint8(0)).astype(np.uint8)

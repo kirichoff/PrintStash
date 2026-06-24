@@ -65,14 +65,64 @@ class Settings(BaseSettings):
     max_upload_mb: int = 512
     log_level: str = "INFO"
 
-    # Cap on mesh density for geometry extraction + thumbnail rendering. Loading
-    # and rasterising a mesh costs ~700 MB of peak RSS per million triangles
-    # (measured), and the cost is paid inside trimesh.load itself — so a dense
-    # lattice/gyroid model (tens of millions of triangles from a small file) can
-    # OOM-kill the process during a library scan (issue #24). Above this estimate
+    # Static ceiling on mesh density for geometry extraction + thumbnail
+    # rendering. Loading + rasterising a mesh peaks (measured) at ~0.8–2 GB of RSS
+    # per million triangles for STL/PLY/OBJ and ~3–4 GB/M for 3MF (its XML loader
+    # is far heavier) — paid mostly inside trimesh.load and our rasteriser, so a
+    # dense model can OOM-kill a library scan (issues #24/#29). Above this estimate
     # the mesh is not loaded; the file is still indexed, and 3MF still gets its
-    # embedded slicer preview. Lower it on memory-constrained hosts.
+    # embedded slicer preview. This is the hard ceiling; the RAM-aware cap below
+    # tightens it further on small hosts.
     mesh_max_render_triangles: int = 2_000_000
+
+    # Fraction of detected available RAM that a single mesh load+render may peak
+    # to. The effective triangle cap is derived from this (per format, using the
+    # measured per-triangle peak cost), divided by ``max_render_jobs`` so the
+    # budget is shared across concurrent renders, and combined with the static
+    # ceiling above via a min(), so a small 4 GB container automatically skips
+    # meshes a 32 GB host would happily render — no per-host tuning needed to keep
+    # a scan from being OOM-killed (#29). Container-aware: honours the cgroup
+    # memory limit, not just host RAM. Set to 0 to disable RAM-aware capping. 0.5
+    # leaves headroom for the rest of the app and the OS while still rendering
+    # typical detailed models; 0.30–0.35 is safer for production / self-hosted
+    # setups that run other workloads alongside the scan.
+    mesh_memory_budget_fraction: float = 0.5
+
+    # Maximum number of mesh load+render jobs allowed to run at once. Ingestion
+    # runs in FastAPI's background-task threadpool, so a bulk/folder upload (#26)
+    # can otherwise fire dozens of concurrent renders that each peak hundreds of
+    # MB and collectively OOM the box. This bounds concurrency two ways: a
+    # semaphore caps how many renders run simultaneously, and the RAM-aware
+    # triangle cap divides its budget by this count so each concurrent job stays
+    # within its share. 1 (serialised) is the safe default; raise it on hosts with
+    # RAM headroom. Values <= 0 are treated as 1.
+    max_render_jobs: int = 1
+
+    # Number of faces processed per chunk in the software rasteriser. The renderer
+    # builds its per-face geometry/shading arrays (each O(faces)) one chunk at a
+    # time and frees them before the next, so peak render memory is O(chunk_size)
+    # rather than O(total_faces) — a million-triangle mesh no longer materialises
+    # ~70 MB float32 arrays all at once (#29). Lower it to shrink peak RSS further
+    # on tiny containers; raise it for marginally less Python-loop overhead.
+    mesh_render_face_chunk_size: int = 200_000
+
+    # For large 3MF files, prefer the slicer-embedded preview before handing the
+    # archive to trimesh, whose XML loader is the dominant memory cost. When on
+    # (default), a 3MF whose estimate exceeds the adaptive cap uses its embedded
+    # preview directly and never decompresses/parses the mesh. Off restores the
+    # previous load-then-fallback behaviour.
+    use_embedded_3mf_preview_for_large_files: bool = True
+
+    # Hard ceiling on the on-disk size of a mesh file we will hand to trimesh.
+    # The triangle estimate above is format-specific and can come up empty — a
+    # 3MF with no parseable <triangle>/.model parts, an unfamiliar header, a
+    # compressed container whose mesh lives somewhere the estimator doesn't sum.
+    # When it can't estimate, the old code loaded the file anyway, and the OOM is
+    # paid *inside* trimesh.load: a ~900 MB 3MF decompresses into tens of GB of
+    # mesh and OOM-kills the scan (issue #29). This byte cap is the format-blind
+    # backstop: above it the mesh is never loaded — the file is still indexed and
+    # a 3MF still gets its embedded slicer preview. 0 disables the size guard.
+    mesh_max_load_mb: int = 200
 
     # Optional static bearer token guarding the Prometheus /metrics endpoint.
     # Empty = open on the trusted internal network (see docs/known-limitations).
@@ -110,7 +160,7 @@ class Settings(BaseSettings):
     backup_s3_secret_key: str = ""
 
     app_name: str = "PrintStash"
-    app_version: str = "0.7.0"
+    app_version: str = "0.7.1"
 
     @property
     def incoming_dir(self) -> Path:

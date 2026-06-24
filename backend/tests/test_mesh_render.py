@@ -159,3 +159,95 @@ def test_hard_edges_stay_flat_not_melted() -> None:
     )
     assert box is not None and sphere is not None
     assert _unique_opaque_colours(box) * 3 < _unique_opaque_colours(sphere)
+
+
+# ---------------------------------------------------------------------------
+# Face-chunked rendering: peak memory is O(chunk_size), not O(total_faces),
+# and the chunking is visually transparent (issue #29).
+# ---------------------------------------------------------------------------
+
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _set_chunk_size(monkeypatch, n: int) -> None:
+    from app.core.config import _overlay
+
+    monkeypatch.setitem(_overlay, "mesh_render_face_chunk_size", n)
+
+
+def test_chunked_render_produces_valid_png(monkeypatch) -> None:
+    import io
+
+    import trimesh
+    from PIL import Image
+
+    mesh = trimesh.creation.icosphere(subdivisions=4, radius=10.0)  # 5120 faces
+    _set_chunk_size(monkeypatch, 500)  # forces ~11 chunks
+    png = mesh_render.render_mesh_thumbnail(mesh, "sphere.stl", width=120, height=90)
+
+    assert png is not None and png.startswith(_PNG_MAGIC)
+    img = Image.open(io.BytesIO(png))
+    assert img.size == (120, 90)
+    alpha = np.array(img.convert("RGBA"))[:, :, 3]
+    assert alpha.max() == 255  # the model actually painted pixels
+
+
+def test_chunk_size_does_not_change_output(monkeypatch) -> None:
+    # A single-pass render and a many-chunk render of the same mesh must be
+    # visually identical — the shared z-buffer makes chunk order irrelevant and
+    # the smooth-normal table is welded globally before shading.
+    import io
+
+    import trimesh
+    from PIL import Image
+
+    mesh = trimesh.creation.icosphere(subdivisions=4, radius=10.0)
+
+    _set_chunk_size(monkeypatch, 10_000_000)  # one chunk
+    one = mesh_render.render_mesh_thumbnail(mesh, "sphere.stl")
+    _set_chunk_size(monkeypatch, 137)  # many small chunks
+    many = mesh_render.render_mesh_thumbnail(mesh, "sphere.stl")
+
+    assert one is not None and many is not None
+    a = np.array(Image.open(io.BytesIO(one)).convert("RGBA"), dtype=np.int16)
+    b = np.array(Image.open(io.BytesIO(many)).convert("RGBA"), dtype=np.int16)
+    # Allow a hair of tolerance for float-summation-order differences in the
+    # chunked weld; in practice this is bit-identical.
+    assert np.abs(a - b).max() <= 1
+
+
+def test_small_mesh_renders_in_a_single_chunk() -> None:
+    import io
+
+    import trimesh
+    from PIL import Image
+
+    mesh = trimesh.creation.box(extents=(10, 20, 30))
+    png = mesh_render.render_mesh_thumbnail(mesh, "box.stl", width=64, height=64)
+    assert png is not None and png.startswith(_PNG_MAGIC)
+    assert Image.open(io.BytesIO(png)).size == (64, 64)
+
+
+def test_huge_mesh_never_allocates_full_face_arrays(monkeypatch) -> None:
+    # Spy on the rasteriser: every chunk it receives must be bounded by the
+    # configured chunk size, proving per-face arrays are built per-chunk and a
+    # full (F, 3, 3) array is never materialised.
+    import trimesh
+
+    mesh = trimesh.creation.icosphere(subdivisions=5, radius=10.0)  # 20480 faces
+    chunk = 1000
+    _set_chunk_size(monkeypatch, chunk)
+
+    seen_max = {"n": 0}
+    real = mesh_render._rasterise_triangles
+
+    def _spy(img, zbuf, tri, vert_rgb, base_color, width, height):
+        seen_max["n"] = max(seen_max["n"], int(tri.shape[0]))
+        return real(img, zbuf, tri, vert_rgb, base_color, width, height)
+
+    monkeypatch.setattr(mesh_render, "_rasterise_triangles", _spy)
+    png = mesh_render.render_mesh_thumbnail(mesh, "big.stl", width=64, height=64)
+
+    assert png is not None
+    assert len(mesh.faces) > chunk  # the mesh really needed more than one chunk
+    assert 0 < seen_max["n"] <= chunk

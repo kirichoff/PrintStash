@@ -361,6 +361,28 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     sendJson(res, []);
     return;
   }
+  if (url.pathname === "/api/v1/models/stats") {
+    sendJson(res, {
+      model_count: modelList.length,
+      file_count: 1,
+      source_file_count: 1,
+      gcode_file_count: 0,
+      collection_count: 1,
+      tag_count: 0,
+      printer_count: 1,
+      indexed_size_bytes: 3115403,
+      storage: {
+        backend: "local",
+        prefix: null,
+        bucket: null,
+        object_count: 1,
+        total_size_bytes: 3115403,
+        ok: true,
+        error: null,
+      },
+    });
+    return;
+  }
   if (url.pathname === "/api/v1/models") {
     sendJson(res, modelList);
     return;
