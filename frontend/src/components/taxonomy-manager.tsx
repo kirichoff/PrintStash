@@ -344,14 +344,14 @@ export function TaxonomyManager() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 bg-card border border-border rounded overflow-hidden divide-x-0 lg:divide-x divide-y lg:divide-y-0 divide-slate-100">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-border border border-border rounded overflow-hidden">
         {[
           { label: "Collections", value: collections.length, detail: `${assignedCollectionModels} assigned` },
           { label: "Tags", value: tags.length, detail: `${assignedTagModels} assignments` },
           { label: "Top collection", value: topCollections[0]?.name ?? "None", detail: `${topCollections[0]?.model_count ?? 0} models` },
           { label: "Top tag", value: topTags[0]?.name ?? "None", detail: `${topTags[0]?.model_count ?? 0} models` },
         ].map((item) => (
-          <div key={item.label} className="p-4 sm:p-5 min-w-0">
+          <div key={item.label} className="bg-card p-4 sm:p-5 min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
               {item.label}
             </p>

@@ -373,7 +373,7 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
 
       <main className="flex-1 overflow-y-auto bg-background flex flex-col">
         {/* Breadcrumb */}
-        <nav className="px-6 py-3 bg-background border-b border-border flex items-center space-x-2 text-sm tracking-tight">
+        <nav className="px-4 sm:px-6 py-3 bg-background border-b border-border flex items-center space-x-2 text-sm tracking-tight">
           {selectedCollection && breadcrumbs.length > 0 ? (
             <>
               <button
@@ -405,10 +405,10 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
         </nav>
 
         {/* Content Top Bar */}
-        <div className="px-6 py-8 bg-background border-b border-border">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col space-y-1">
-              <h2 className="text-2xl font-bold text-foreground tracking-tight">
+        <div className="px-4 sm:px-6 py-5 sm:py-8 bg-background border-b border-border">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-col space-y-1">
+              <h2 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight truncate">
                 {selectedName ?? "All Models"}
               </h2>
               <p className="text-sm text-muted-foreground">
@@ -416,7 +416,7 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
                 {refreshing && <span className="ml-2 font-mono text-xs text-muted-foreground">Updating...</span>}
               </p>
             </div>
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={openDrawer}
@@ -521,7 +521,7 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
               )}
             </div>
           ) : viewMode === "grid" ? (
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(340px,340px))]">
                 {visibleCollections.map((collection) => (
                   <CollectionFolderCard
@@ -574,8 +574,8 @@ function CollectionFolderCard({ collection, onSelect }: { collection: Collection
       onClick={() => onSelect(collection.path)}
       className="animate-card-in group flex flex-col text-left bg-muted border border-border rounded-lg hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-sm transition-all relative overflow-hidden"
     >
-      <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-[var(--surface-container-high)] min-h-[140px]">
-        <Folder className="w-16 h-16 text-blue-600/30 dark:text-orange-500/25" />
+      <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-[var(--surface-container-high)] min-h-[100px] sm:min-h-[140px]">
+        <Folder className="w-12 h-12 sm:w-16 sm:h-16 text-blue-600/30 dark:text-orange-500/25" />
       </div>
       <div className="p-3 border-t border-border">
         <div className="flex items-center justify-between gap-2 mb-0.5">
