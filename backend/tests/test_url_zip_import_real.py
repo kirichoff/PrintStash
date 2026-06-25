@@ -9,7 +9,7 @@ These exercise the ``/ingest/url`` and ``/ingest/archive`` surfaces end-to-end:
   an archive manifest, then selective import creates one model per 3D file and
   propagates the source URL to each.
 * A plain ``.zip`` upload built from the real testdata files imports the
-  importable entries (and skips unsupported ones like ``.bgcode``/``.txt``).
+  importable entries (including binary ``.bgcode``) and skips ``.txt``.
 
 The network is never touched: ``download_to_staging`` is mocked to stage a
 *copy* of the real testdata file (ingestion *moves* staged blobs into the
@@ -470,10 +470,16 @@ def test_import_zip_built_from_testdata_benchy_files(
     auth_headers: dict[str, str],
 ) -> None:
     _configure_storage(tmp_path)
-    # Include a .bgcode (unsupported) and a README so we assert they're skipped.
+    # Include a binary .bgcode (now importable as G-code) and a README (skipped).
     sources = [BENCHY_GCODE_A, BENCHY_GCODE_B]
+    expected = [
+        "3DBenchy/3dbenchy_PLA_1h12m.gcode",
+        "3DBenchy/3dbenchy_PLA_1h13m.gcode",
+    ]
     if BENCHY_BGCODE.exists():
         sources.append(BENCHY_BGCODE)
+        expected.append(f"3DBenchy/{BENCHY_BGCODE.name}")
+    expected.sort()
     zip_bytes = _benchy_zip_bytes(*sources)
 
     manifest = client.post(
@@ -485,11 +491,8 @@ def test_import_zip_built_from_testdata_benchy_files(
     body = manifest.json()
     archive_id = body["archive_id"]
     importable = sorted(e["name"] for e in body["entries"] if e["file_type"])
-    # Only the two real g-code files are importable; .bgcode and .txt are not.
-    assert importable == [
-        "3DBenchy/3dbenchy_PLA_1h12m.gcode",
-        "3DBenchy/3dbenchy_PLA_1h13m.gcode",
-    ]
+    # The G-code files (including binary .bgcode) are importable; the .txt isn't.
+    assert importable == expected
 
     payload = _job(
         client,
@@ -501,9 +504,9 @@ def test_import_zip_built_from_testdata_benchy_files(
         auth_headers,
     )
     assert payload["state"] == "completed", payload
-    assert payload["result"]["imported"] == 2
+    assert payload["result"]["imported"] == len(expected)
 
-    # Both g-code files sit under the zip's "3DBenchy/" folder, so they are
+    # The g-code files sit under the zip's "3DBenchy/" folder, so they are
     # mirrored into a sub-collection nested beneath the archive's auto
     # collection ("benchy-bundle"), not flattened onto it.
     collection = db_session.exec(
@@ -513,7 +516,7 @@ def test_import_zip_built_from_testdata_benchy_files(
     models = db_session.exec(
         select(Model).where(Model.collection_id == collection.id)
     ).all()
-    assert len(models) == 2
+    assert len(models) == len(expected)
 
 
 @_requires(BENCHY_GCODE_A, BENCHY_GCODE_B)

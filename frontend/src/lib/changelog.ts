@@ -21,6 +21,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.7.3",
+    date: "Jun 2026",
+    changes: [
+      "PrusaSlicer binary G-code (.bgcode) is now a supported file type: upload, import, and shared-volume scans read its slicer metadata and embedded thumbnail just like a text .gcode",
+      "Binary G-code can't be printed by Moonraker/Klipper or Bambu and has no in-browser toolpath, so send-to-printer and the G-code preview are disabled for .bgcode files (metadata and thumbnail still show)",
+    ],
+  },
+  {
     version: "0.7.2",
     date: "Jun 2026",
     changes: [

@@ -52,7 +52,7 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
-_GCODE_SUFFIXES = {".gcode", ".g", ".gco"}
+_GCODE_SUFFIXES = {".gcode", ".g", ".gco", ".bgcode"}
 _MESH_SUFFIXES = {".stl", ".3mf", ".obj", ".step", ".stp"}
 
 

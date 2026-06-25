@@ -45,6 +45,8 @@ SUFFIX_TO_FILE_TYPE: dict[str, FileType] = {
     ".gcode": FileType.GCODE,
     ".g": FileType.GCODE,
     ".gco": FileType.GCODE,
+    # PrusaSlicer binary G-code: metadata + thumbnail parse like a text G-code.
+    ".bgcode": FileType.GCODE,
 }
 
 

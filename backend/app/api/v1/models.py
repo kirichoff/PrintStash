@@ -73,7 +73,7 @@ from app.services.trash import (
 
 router = APIRouter(prefix="/models", tags=["models"])
 
-_GCODE_SUFFIXES = {".gcode", ".g", ".gco"}
+_GCODE_SUFFIXES = {".gcode", ".g", ".gco", ".bgcode"}
 
 
 def _stage_gcode_upload(upload: UploadFile, suffix: str) -> Path:

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from app.core.logging import get_logger
+from app.services import bgcode
 
 logger = get_logger(__name__)
 
@@ -231,11 +232,19 @@ def parse(path: Path) -> Dict[str, Any]:
         "printer_preset_name": None,
     }
 
-    try:
-        text = _read_window(path)
-    except OSError as e:
-        logger.warning("gcode parse: cannot read %s: %s", path, e)
-        return out
+    # PrusaSlicer binary G-code stores its metadata in compressed container
+    # blocks, not as plain comments, so the head/tail window finds nothing.
+    # Render those blocks into the same "; key=value" shape the patterns expect.
+    if bgcode.is_bgcode(path):
+        text = bgcode.read_metadata_text(path)
+        if text is None:
+            return out
+    else:
+        try:
+            text = _read_window(path)
+        except OSError as e:
+            logger.warning("gcode parse: cannot read %s: %s", path, e)
+            return out
 
     for key, patterns in _PATTERNS.items():
         value = _first_match(text, patterns)

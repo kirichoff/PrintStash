@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from app.core.logging import get_logger
+from app.services import bgcode
 
 logger = get_logger(__name__)
 
@@ -105,8 +106,27 @@ def _iter_blocks(path: Path):
             buf.append(stripped)
 
 
+def _extract_bgcode(path: Path) -> Optional[bytes]:
+    """Return the largest PNG/JPG thumbnail embedded in a bgcode file, or None.
+
+    Thumbnails are stored as raw image bytes (not base64) in dedicated blocks.
+    QOI is skipped — Pillow can't decode it without a plugin, and bgcode always
+    ships a PNG alongside it."""
+    best: Optional[Tuple[int, bytes]] = None  # (area, image_bytes)
+    for fmt, width, height, data in bgcode.iter_thumbnails(path):
+        if bgcode.THUMBNAIL_FORMATS.get(fmt) not in ("png", "jpg"):
+            continue
+        area = width * height
+        if best is None or area > best[0]:
+            best = (area, data)
+    return best[1] if best else None
+
+
 def extract(path: Path) -> Optional[bytes]:
     """Return PNG bytes of the largest embedded thumbnail, or None."""
+    if bgcode.is_bgcode(path):
+        return _extract_bgcode(path)
+
     best: Optional[Tuple[int, str]] = None  # (area, b64)
 
     try:
