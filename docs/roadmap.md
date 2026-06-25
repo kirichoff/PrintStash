@@ -8,7 +8,7 @@ Roadmap feedback belongs in
 [the public roadmap discussion](https://github.com/xiao-villamor/PrintStash/discussions/1).
 Issues are better for confirmed bugs or scoped implementation work.
 
-## Current Release: 0.6.x — Self-Hosted Library
+## Current Release: 0.8.x — Self-Hosted Library
 
 Production hardening is in place. The app is useful for local-first 3D print
 library workflows, installable through Docker Compose (the default compose pulls
@@ -40,24 +40,11 @@ Developed features in the current app:
 - Moonraker/Klipper provider with live status, upload/send, optional start, pause/resume/cancel, printer file inventory sync, remote-file start, and job history
 - Optional Spoolman integration (OFF by default): spool inventory display, per-print spool selection, consumption write-back on measured-print completion, and Moonraker-native-hook double-count detection
 - Bambu LAN beta provider with local status plus pause/resume/cancel controls; upload/send, remote file inventory, and remote-file start remain unsupported
-- Responsive Vite/React UI with a light/dark theme toggle (system-preference aware), mobile bottom navigation, slide-out nav/filter drawers, and a floating action button across the library, model detail, upload, taxonomy, profiles, settings, setup, and printer workflows
+- Responsive Vite/React UI with a light/dark theme toggle (system-preference aware) and a refreshed mobile layout: a five-slot bottom navigation with an overflow "More" sheet, on-canvas mobile search, slide-out filter drawers, and a floating action button across the library, model detail, upload, taxonomy, profiles, settings, setup, and printer workflows
 
 The releases below are intentionally small: each is meant to be a single,
 shippable step rather than a multi-month epic. Versions are indicative, not
 promises, and the order can shift with real-world feedback.
-
-## 0.6.x — Release Validation and Feedback (in progress)
-
-Goal: keep the self-hosted release easy to install, easy to upgrade, and safe
-enough for real home use.
-
-- Publish and validate tagged release notes and Docker image guidance
-- Collect real-world feedback from Docker/NAS/homelab installs
-- Exercise backup/restore, upgrade, and provider diagnostics on fresh installs
-- Add parser fixtures from more slicers and printer profiles as users share samples
-- Improve first-run setup and error messages where new users get stuck
-- Scheduled release backup/restore smoke checks
-- Upgrade notes for SQLite and optional Postgres installs
 
 ## 0.7 — Notifications, Event Hooks, and Parser Robustness (delivered in 0.7.0)
 
@@ -163,7 +150,7 @@ queue manager.
 Goal: fit cleanly into existing homelab infrastructure.
 
 - OIDC / SSO login (Authentik, Authelia, and similar)
-- Installable PWA / improved mobile experience
+- Installable PWA with offline support (the mobile layout itself was refreshed in 0.8.x)
 - Localization (i18n) scaffolding
 
 ## Later — Optional Cloud-Ready Adapters

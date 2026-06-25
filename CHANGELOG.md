@@ -41,6 +41,25 @@
   keeping its own write-back off so a print is never counted twice. The
   write-back toggle can be overridden manually.
 
+### Changed
+
+- **Mobile UI refresh.** Rebuilt the bottom navigation as a five-slot
+  Material-style bar (four destination tabs plus an always-present "More"
+  sheet) instead of cramming up to seven items across the width — readable
+  labels, a clear active indicator, and the account actions (username +
+  Log out) moved into the More sheet.
+- **Search on mobile.** The top-bar search is now available on small screens;
+  the redundant user-avatar menu is hidden there since navigation and account
+  actions live in the bottom nav.
+- **Library header on mobile.** The "All Models" header stacks its title and
+  actions on narrow screens (so the heading no longer wraps), with tighter
+  padding and smaller folder cards.
+
+### Fixed
+
+- Dark-mode Catalog stat cards no longer show bright/stray dividers — the
+  Collections/Tags summary now uses theme-aware hairline separators.
+
 ### Internal
 
 - New `app.services.spoolman` (`SpoolmanClient` over the shared httpx pool, plus
