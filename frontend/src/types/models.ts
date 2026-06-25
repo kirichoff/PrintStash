@@ -159,6 +159,18 @@ export interface TrashPurgeRead {
   purged_count: number;
 }
 
+export interface ModelBatchFailure {
+  model_id: number;
+  reason: string;
+}
+
+export interface ModelBatchResult {
+  succeeded_ids: number[];
+  failed: ModelBatchFailure[];
+  succeeded_count: number;
+  failed_count: number;
+}
+
 export interface StorageUsageRead {
   backend: string;
   prefix: string | null;

@@ -75,6 +75,9 @@ export function invalidateQueriesForPath(path: string): void {
     // Vault totals (count, size, material breakdown) are derived from models,
     // so any model/file write can change them.
     bust(queryKeys.vaultStats);
+    // Collections carry a `model_count`; a move/delete/import shifts those
+    // counts, so refresh the collection list (and its sidebar badges) too.
+    bust(queryKeys.collections);
   }
   if (/\/printers(\/|$|\?)/.test(path)) {
     bust(queryKeys.printers);

@@ -7,6 +7,7 @@ all live here. Query-side filtering uses ``app.db.scopes.live/trashed``.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Iterable
 
 from sqlmodel import Session, delete, select
 
@@ -46,6 +47,19 @@ def soft_delete_model(session: Session, model: Model) -> None:
     model.updated_at = utcnow()
     session.add(model)
     session.commit()
+
+
+def soft_delete_models(session: Session, models: Iterable[Model]) -> None:
+    """Move several models to the trash without committing.
+
+    Caller is responsible for the single ``session.commit()`` so a batch is
+    persisted atomically.
+    """
+    now = utcnow()
+    for model in models:
+        model.deleted_at = now
+        model.updated_at = now
+        session.add(model)
 
 
 def restore_model(session: Session, model: Model) -> None:

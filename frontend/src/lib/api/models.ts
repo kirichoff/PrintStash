@@ -18,6 +18,7 @@ import {
   IngestResponse,
   ListModelsParams,
   ManualPrintJobCreate,
+  ModelBatchResult,
   ModelListItem,
   ModelPrinterFileRead,
   ModelPrintJobRead,
@@ -112,6 +113,36 @@ export function updateModel(
 
 export function deleteModel(id: number): Promise<void> {
   return sendAction(`/api/v1/models/${id}`, "DELETE");
+}
+
+export function batchMoveModels(
+  modelIds: number[],
+  collection: string,
+): Promise<ModelBatchResult> {
+  return sendJson<ModelBatchResult>("/api/v1/models/batch/move", "POST", {
+    model_ids: modelIds,
+    collection,
+  });
+}
+
+export function batchTagModels(
+  modelIds: number[],
+  add: string[],
+  remove: string[],
+): Promise<ModelBatchResult> {
+  return sendJson<ModelBatchResult>("/api/v1/models/batch/tags", "POST", {
+    model_ids: modelIds,
+    add,
+    remove,
+  });
+}
+
+export function batchDeleteModels(
+  modelIds: number[],
+): Promise<ModelBatchResult> {
+  return sendJson<ModelBatchResult>("/api/v1/models/batch/delete", "POST", {
+    model_ids: modelIds,
+  });
 }
 
 export function listTrash(): Promise<TrashedModelRead[]> {

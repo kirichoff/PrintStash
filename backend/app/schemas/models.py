@@ -169,6 +169,40 @@ class TrashPurgeRead(BaseModel):
     purged_count: int = 0
 
 
+class ModelBatchFailure(BaseModel):
+    model_id: int
+    reason: str
+
+
+class ModelBatchResult(BaseModel):
+    succeeded_ids: List[int] = []
+    failed: List[ModelBatchFailure] = []
+    succeeded_count: int = 0
+    failed_count: int = 0
+
+
+class ModelBatchMove(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_ids: List[int] = Field(min_length=1, max_length=500)
+    # Same semantics as ModelUpdate.collection: "" (or missing) means root.
+    collection: str = Field(default="", max_length=1024)
+
+
+class ModelBatchTags(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_ids: List[int] = Field(min_length=1, max_length=500)
+    add: List[str] = Field(default_factory=list, max_length=100)
+    remove: List[str] = Field(default_factory=list, max_length=100)
+
+
+class ModelBatchDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_ids: List[int] = Field(min_length=1, max_length=500)
+
+
 class StorageUsageRead(BaseModel):
     backend: str
     prefix: Optional[str] = None

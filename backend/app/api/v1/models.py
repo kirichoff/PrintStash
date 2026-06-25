@@ -41,6 +41,7 @@ from app.db.models import (
     PrintJobState,
     Collection,
     CollectionRole,
+    Tag,
     User,
 )
 from app.db.scopes import live
@@ -49,6 +50,11 @@ from app.schemas.models import (
     FileRevisionUpdate,
     ImportedPrintJobRead,
     ManualPrintJobCreate,
+    ModelBatchDelete,
+    ModelBatchFailure,
+    ModelBatchMove,
+    ModelBatchResult,
+    ModelBatchTags,
     ModelPrinterFileRead,
     ModelPrintJobRead,
     ModelListItem,
@@ -69,6 +75,7 @@ from app.services.trash import (
     hard_delete_model,
     restore_model as trash_restore_model,
     soft_delete_model,
+    soft_delete_models,
 )
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -646,6 +653,185 @@ async def import_print_jobs_from_printer(
             )
 
     return results
+
+
+def _dedupe_ids(ids: List[int]) -> List[int]:
+    seen: set[int] = set()
+    out: List[int] = []
+    for i in ids:
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
+@router.post(
+    "/batch/move",
+    response_model=ModelBatchResult,
+    dependencies=[Depends(require_auth)],
+    summary="Move several models to a collection",
+    description=(
+        "Moves the given models into one destination collection. The destination "
+        "is resolved once: an empty path means root (superuser only) and a missing "
+        "path is created (superuser only). Models the caller cannot edit are skipped "
+        "and reported in `failed`; everything else is committed atomically."
+    ),
+)
+def batch_move_models(
+    payload: ModelBatchMove,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> ModelBatchResult:
+    # Resolve the shared destination once. Failures here are whole-request
+    # errors, not per-item, because the destination is the same for everyone.
+    dest_id: Optional[int] = None
+    if payload.collection.strip() == "":
+        if not current_user.is_superuser:
+            raise HTTPException(status_code=403, detail="root_collection_admin_required")
+        dest_id = None
+    else:
+        collection_path = _collection_path_for(payload.collection)
+        cat = session.exec(
+            select(Collection).where(
+                Collection.path == collection_path, live(Collection)
+            )
+        ).first()
+        if cat is None:
+            if not current_user.is_superuser:
+                raise HTTPException(
+                    status_code=403, detail="collection_permission_denied"
+                )
+            cat = taxonomy.resolve_or_create_collection(session, payload.collection)
+        if cat is not None:
+            rbac.require_collection_role(
+                session, current_user, cat.id, CollectionRole.EDIT
+            )
+            dest_id = cat.id
+
+    succeeded: List[int] = []
+    failed: List[ModelBatchFailure] = []
+    for model_id in _dedupe_ids(payload.model_ids):
+        try:
+            m = _require_model_role(session, current_user, model_id, CollectionRole.EDIT)
+        except HTTPException as exc:
+            failed.append(ModelBatchFailure(model_id=model_id, reason=str(exc.detail)))
+            continue
+        m.collection_id = dest_id
+        m.updated_at = utcnow()
+        session.add(m)
+        succeeded.append(model_id)
+
+    session.commit()
+    return ModelBatchResult(
+        succeeded_ids=succeeded,
+        failed=failed,
+        succeeded_count=len(succeeded),
+        failed_count=len(failed),
+    )
+
+
+@router.post(
+    "/batch/tags",
+    response_model=ModelBatchResult,
+    dependencies=[Depends(require_auth)],
+    summary="Add and/or remove tags on several models",
+    description=(
+        "Additive tag editing across a selection: tags in `add` are created if "
+        "missing and appended (idempotent); tags in `remove` are detached if "
+        "present. Each model keeps its other tags. Models the caller cannot edit "
+        "are skipped and reported in `failed`."
+    ),
+)
+def batch_tag_models(
+    payload: ModelBatchTags,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> ModelBatchResult:
+    add_tags = taxonomy.resolve_or_create_tags(session, payload.add) if payload.add else []
+    # Removal only targets tags that already exist; never create on remove.
+    remove_tag_ids: List[int] = []
+    for raw in payload.remove:
+        slug = taxonomy.slugify(raw.strip())
+        if not slug:
+            continue
+        tag = session.exec(select(Tag).where(Tag.slug == slug)).first()
+        if tag is not None and tag.id is not None:
+            remove_tag_ids.append(tag.id)
+
+    succeeded: List[int] = []
+    failed: List[ModelBatchFailure] = []
+    for model_id in _dedupe_ids(payload.model_ids):
+        try:
+            m = _require_model_role(session, current_user, model_id, CollectionRole.EDIT)
+        except HTTPException as exc:
+            failed.append(ModelBatchFailure(model_id=model_id, reason=str(exc.detail)))
+            continue
+        if add_tags:
+            existing = set(
+                session.exec(
+                    select(ModelTagLink.tag_id).where(
+                        ModelTagLink.model_id == model_id
+                    )
+                ).all()
+            )
+            for t in add_tags:
+                if t.id not in existing:
+                    session.add(ModelTagLink(model_id=model_id, tag_id=t.id))
+        if remove_tag_ids:
+            session.exec(
+                delete(ModelTagLink).where(  # type: ignore[call-overload]
+                    ModelTagLink.model_id == model_id,
+                    ModelTagLink.tag_id.in_(remove_tag_ids),  # type: ignore[attr-defined]
+                )
+            )
+        m.updated_at = utcnow()
+        session.add(m)
+        succeeded.append(model_id)
+
+    session.commit()
+    return ModelBatchResult(
+        succeeded_ids=succeeded,
+        failed=failed,
+        succeeded_count=len(succeeded),
+        failed_count=len(failed),
+    )
+
+
+@router.post(
+    "/batch/delete",
+    response_model=ModelBatchResult,
+    dependencies=[Depends(require_auth)],
+    summary="Soft-delete several models",
+    description=(
+        "Moves the given models to the trash. Models the caller cannot edit are "
+        "skipped and reported in `failed`; the rest are deleted atomically."
+    ),
+)
+def batch_delete_models(
+    payload: ModelBatchDelete,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> ModelBatchResult:
+    to_delete: List[Model] = []
+    succeeded: List[int] = []
+    failed: List[ModelBatchFailure] = []
+    for model_id in _dedupe_ids(payload.model_ids):
+        try:
+            m = _require_model_role(session, current_user, model_id, CollectionRole.EDIT)
+        except HTTPException as exc:
+            failed.append(ModelBatchFailure(model_id=model_id, reason=str(exc.detail)))
+            continue
+        to_delete.append(m)
+        succeeded.append(model_id)
+
+    soft_delete_models(session, to_delete)
+    session.commit()
+    return ModelBatchResult(
+        succeeded_ids=succeeded,
+        failed=failed,
+        succeeded_count=len(succeeded),
+        failed_count=len(failed),
+    )
 
 
 @router.patch(

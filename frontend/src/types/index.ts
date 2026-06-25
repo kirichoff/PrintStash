@@ -11,6 +11,8 @@ export type {
   ModelListItem,
   TrashedModelRead,
   TrashPurgeRead,
+  ModelBatchFailure,
+  ModelBatchResult,
   StorageUsageRead,
   VaultStatsRead,
   CollectionStatRead,
