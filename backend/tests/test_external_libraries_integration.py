@@ -735,9 +735,10 @@ def _supported_files(root: Path) -> list[Path]:
 def test_scan_real_world_folder(tmp_path: Path, db_session: Session) -> None:
     """Scan the engine against real STL/3MF/OBJ/g-code files (repo ``testdata/``).
 
-    Every supported file must index in place without a parse error, point at a
-    real non-empty on-disk path, and an immediate rescan must be a clean no-op.
-    Unsupported files (e.g. ``.bgcode``) are silently ignored, never errored.
+    Every supported file (including PrusaSlicer binary ``.bgcode``) must index in
+    place without a parse error, point at a real non-empty on-disk path, and an
+    immediate rescan must be a clean no-op. Unsupported files are silently
+    ignored, never errored.
     """
     _configure_storage(tmp_path)
     _enable_feature(db_session)

@@ -355,6 +355,15 @@ export function GcodeViewer({ url, printerBedMm = null }: GcodeViewerProps) {
         return r.text();
       })
       .then((text) => {
+        // PrusaSlicer binary G-code (.bgcode) starts with the "GCDE" magic and
+        // carries no plain-text toolpath — its moves are heatshrink-compressed.
+        // Its metadata + thumbnail are indexed on the server, but there's
+        // nothing here to rasterise, so show a notice instead of an empty plot.
+        if (text.startsWith("GCDE")) {
+          throw new Error(
+            "Binary G-code (.bgcode) can't be previewed in the browser — download the file to open it in a slicer.",
+          );
+        }
         const parsed = parseGcode(text);
         setData(parsed);
         setCurrentLayer(parsed.totalLayers - 1);

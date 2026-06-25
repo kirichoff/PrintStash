@@ -55,6 +55,7 @@ _MODEL_EXTS = (
     ".gcode",
     ".g",
     ".gco",
+    ".bgcode",
 )
 
 _PRINTABLES_HOSTS = {"printables.com", "www.printables.com"}

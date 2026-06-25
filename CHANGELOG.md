@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.3
+
+### Added
+
+- **PrusaSlicer binary G-code (`.bgcode`) is now a first-class file type.** It
+  was previously skipped on upload, URL/zip import, and shared-volume scans
+  ("returns empty metadata gracefully", tracked as a 0.7.0 follow-up). The
+  parser now reads bgcode's container blocks directly: slicer/printer/print
+  metadata (slicer + version, printer model, nozzle/bed temps, layer height,
+  infill, filament length/weight/cost, estimated time, material, …) and the
+  largest embedded PNG/JPG thumbnail are extracted just like a text `.gcode`.
+  Only the metadata and thumbnail blocks are read — they're stored uncompressed
+  or zlib-deflated, so this needs **no new dependency**; the heatshrink-
+  compressed G-code body is skipped, keeping the read cheap on large files.
+
+### Changed
+
+- **Binary G-code is metadata-only where it can't be more.** A `.bgcode` file's
+  toolpath is heatshrink-compressed, and Moonraker/Klipper and Bambu LAN print
+  plain-text G-code only — so for `.bgcode` files the in-browser toolpath
+  preview shows a notice instead of an empty plot, "Open in slicer" is hidden,
+  and send-to-printer is excluded (and rejected by the API with
+  `binary_gcode_not_printable` as a backstop). Metadata and thumbnail still
+  display, and the file downloads normally.
+
+### Internal
+
+- New stdlib-only `app.services.bgcode` reader (container walk, deflate, INI
+  metadata, thumbnail blocks) with safety caps for truncated/hostile files.
+  Covered by synthetic-container unit tests plus a guarded real-fixture test,
+  and the `.bgcode`-skipped assertions in the import and shared-volume suites
+  were updated to expect ingestion.
+
 ## 0.7.2
 
 ### Changed

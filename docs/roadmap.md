@@ -25,7 +25,7 @@ Developed features in the current app:
 - Public, expiring, read-only share links to a single model (view-only by default; opt-in original-file download)
 - Print statistics dashboard (cost, filament, prints, print time; time series + top collections/filaments) with a configurable display currency
 - Measured prints: real filament + duration and per-print cost captured from Moonraker, with auto known-good revision promotion
-- G-code parser coverage for OrcaSlicer, PrusaSlicer, Bambu Studio, Cura, and Klipper/Orca samples
+- G-code parser coverage for OrcaSlicer, PrusaSlicer, Bambu Studio, Cura, and Klipper/Orca samples, including PrusaSlicer binary G-code (`.bgcode`) metadata and thumbnails
 - Content-hash deduplication, logical model grouping, version history, thumbnails, cached STL conversion for 3MF/OBJ preview, and in-browser mesh/G-code previews
 - Categories, tags, search, model editing, printer-presence filters, model-to-printer file badges, collection counts, collection moves, and drag-and-drop library organization
 - G-code revision upload, per-revision labels, outcome status, notes, recommended marker, and side-by-side metadata comparison
@@ -75,6 +75,11 @@ Shipped together in 0.7.0 rather than across several patches:
 
 [#24]: https://github.com/xiao-villamor/PrintStash/issues/24
 [#27]: https://github.com/xiao-villamor/PrintStash/issues/27
+
+Closed in later 0.7.x patches: the 0.7.0 binary-`.bgcode` follow-up — PrusaSlicer
+binary G-code is now a supported file type, parsed for metadata and its embedded
+thumbnail (preview/send stay disabled for it, as the toolpath is heatshrink-
+compressed and printers want plain-text G-code) — delivered in 0.7.3.
 
 ## 0.8 — Spoolman Integration
 

@@ -538,6 +538,11 @@ async def send_to_printer(
     f = get_or_404(session, File, payload.file_id, "file_not_found")
     if f.file_type != FileType.GCODE:
         raise HTTPException(status_code=400, detail="file_not_gcode")
+    # Binary G-code (PrusaSlicer .bgcode) is indexed for its metadata, but the
+    # providers we drive (Moonraker/Klipper, Bambu LAN) print plain-text G-code
+    # only — never hand them a .bgcode blob.
+    if Path(f.original_filename).suffix.lower() == ".bgcode":
+        raise HTTPException(status_code=400, detail="binary_gcode_not_printable")
     _require_file_role(session, current_user, f, CollectionRole.EDIT)
     backend = get_backend()
     blob_exists = await run_in_threadpool(backend.exists, f.path)
