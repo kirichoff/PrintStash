@@ -6,6 +6,7 @@ import {
 
 import {
   getPrintStatistics,
+  getSpoolmanStatus,
   getVaultConfig,
   getVaultStats,
   listCollections,
@@ -13,6 +14,7 @@ import {
   listModels,
   listPrinterProfiles,
   listPrinters,
+  listSpools,
   listTags,
   type StatsPeriod,
 } from "@/lib/api";
@@ -25,6 +27,8 @@ import type {
   PrinterProfileRead,
   PrinterRead,
   PrintStatisticsRead,
+  SpoolmanStatus,
+  SpoolRead,
   TagRead,
   VaultConfigRead,
   VaultStatsRead,
@@ -106,6 +110,23 @@ export function useVaultConfig() {
   return useQuery<VaultConfigRead>({
     queryKey: queryKeys.vaultConfig,
     queryFn: () => getVaultConfig(),
+  });
+}
+
+export function useSpoolmanStatus(options?: { enabled?: boolean }) {
+  return useQuery<SpoolmanStatus>({
+    queryKey: queryKeys.spoolmanStatus,
+    queryFn: () => getSpoolmanStatus(),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+/** Spoolman inventory. Only fetched when the integration is enabled. */
+export function useSpools(options?: { enabled?: boolean }) {
+  return useQuery<SpoolRead[]>({
+    queryKey: queryKeys.spools,
+    queryFn: () => listSpools(),
+    enabled: options?.enabled ?? true,
   });
 }
 

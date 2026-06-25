@@ -5,7 +5,8 @@ import { Link } from "@/lib/navigation";
 import { Loader2, Printer as PrinterIcon, Send, WifiOff } from "lucide-react";
 
 import { sendToPrinter } from "@/lib/api";
-import { usePrinters } from "@/lib/queries";
+import { usePrinters, useSpoolmanStatus, useSpools } from "@/lib/queries";
+import { formatGrams } from "@/lib/format";
 import { createTask, updateTask } from "@/lib/task-center";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
@@ -37,6 +38,10 @@ export function SendToButtons({
     if (showSend && preselectFileId) setSelectedFile(preselectFileId);
   }, [showSend, preselectFileId]);
   const [startPrint, setStartPrint] = useState(false);
+  // Spoolman inventory — only surfaced when the integration is enabled.
+  const spoolmanEnabled = useSpoolmanStatus().data?.enabled ?? false;
+  const spools = useSpools({ enabled: spoolmanEnabled }).data ?? [];
+  const [selectedSpoolId, setSelectedSpoolId] = useState<number | "">("");
   const printersQuery = usePrinters();
   // Stable ref so the default-select effect / memos below don't rerun each render.
   const printers = useMemo(() => printersQuery.data ?? [], [printersQuery.data]);
@@ -103,9 +108,18 @@ export function SendToButtons({
       let completed = 0;
       const results = await Promise.allSettled(
         selectedPrinters.map(async (printer) => {
+          const spool =
+            selectedSpoolId !== ""
+              ? spools.find((s) => s.id === selectedSpoolId)
+              : undefined;
           const job = await sendToPrinter(printer.id, {
             file_id: selectedFile,
             start_print: startPrint,
+            spool_id: selectedSpoolId === "" ? null : (selectedSpoolId as number),
+            spool_name: spool
+              ? spool.filament_name || spool.name || `Spool ${spool.id}`
+              : null,
+            spool_filament_id: spool ? spool.filament_id : null,
           });
           completed += 1;
           updateTask(taskId, {
@@ -248,6 +262,24 @@ export function SendToButtons({
             <input type="checkbox" checked={startPrint} onChange={(e) => setStartPrint(e.target.checked)} className="rounded" />
             Start print immediately
           </label>
+          {spoolmanEnabled && spools.length > 0 && (
+            <select
+              value={selectedSpoolId}
+              onChange={(e) => setSelectedSpoolId(e.target.value ? Number(e.target.value) : "")}
+              className="w-full bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded px-3 py-2 font-mono text-xs text-[var(--on-surface)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+            >
+              <option value="">No spool</option>
+              {spools.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {(s.filament_name || s.name || `Spool ${s.id}`) +
+                    (s.vendor_name ? ` · ${s.vendor_name}` : "") +
+                    (s.remaining_weight != null
+                      ? ` (${formatGrams(s.remaining_weight)} left)`
+                      : "")}
+                </option>
+              ))}
+            </select>
+          )}
           {selectedUploads.length > 0 && (
             <div className="rounded border border-emerald-500/30 bg-emerald-500/10 p-2 text-[11px] text-emerald-600 font-mono break-words">
               Already on{" "}

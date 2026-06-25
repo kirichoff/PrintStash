@@ -28,6 +28,32 @@ def test_filament_profile_crud(
     assert listed.json()[0]["cost_per_kg"] == 20
 
 
+def test_spoolman_linked_profile_is_read_only(
+    client: TestClient, db_session: Session, auth_headers: dict[str, str]
+) -> None:
+    # A preset mirroring a Spoolman filament must reject local edits/deletes —
+    # Spoolman is the source of truth.
+    profile = FilamentProfile(
+        name="Spoolman PLA", material_type="PLA", spoolman_filament_id=42
+    )
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+
+    patched = client.patch(
+        f"/api/v1/filament-profiles/{profile.id}",
+        headers=auth_headers,
+        json={"cost_per_kg": 99},
+    )
+    assert patched.status_code == 409
+    assert patched.json()["detail"] == "filament_profile_linked"
+
+    deleted = client.delete(
+        f"/api/v1/filament-profiles/{profile.id}", headers=auth_headers
+    )
+    assert deleted.status_code == 409
+
+
 def test_model_metadata_estimates_cost_from_local_filament_profile(
     client: TestClient,
     db_session: Session,

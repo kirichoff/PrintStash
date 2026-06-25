@@ -36,6 +36,7 @@ import { ExternalLibrariesPanel } from "@/components/external-libraries-panel";
 import { StorageConfigCard } from "@/components/storage-config-card";
 import { MakerWorldConnectCard } from "@/components/makerworld-connect-card";
 import { NotificationsPanel } from "@/components/notifications-panel";
+import { SpoolmanConnectCard } from "@/components/spoolman-connect-card";
 import { BrandMark } from "@/components/brand-mark";
 import {
   createApiKey,
@@ -104,6 +105,7 @@ type SettingsSection =
   | "imports"
   | "libraries"
   | "notifications"
+  | "spoolman"
   | "design"
   | "trash"
   | "about";
@@ -119,6 +121,7 @@ const SETTINGS_SECTIONS: {
   { id: "imports", label: "Imports", icon: Download },
   { id: "libraries", label: "Shared volumes", icon: FolderSync },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "spoolman", label: "Spoolman", icon: Boxes },
   { id: "design", label: "Design", icon: Palette },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "about", label: "About", icon: Info },
@@ -1337,6 +1340,12 @@ export function SettingsPanel() {
       {activeSection === "notifications" && (
         <div className="space-y-6">
           <NotificationsPanel canEdit={!!user?.is_superuser} />
+        </div>
+      )}
+
+      {activeSection === "spoolman" && (
+        <div className="space-y-6">
+          <SpoolmanConnectCard canEdit={!!user?.is_superuser} />
         </div>
       )}
 

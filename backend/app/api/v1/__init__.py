@@ -18,6 +18,7 @@ from app.api.v1 import (
     printers,
     setup,
     share,
+    spoolman,
     taxonomy,
 )
 
@@ -37,5 +38,6 @@ api_router.include_router(backup.router)
 api_router.include_router(config.router)
 api_router.include_router(external_libraries.router)
 api_router.include_router(notifications.router)
+api_router.include_router(spoolman.router)
 api_router.include_router(share.router)
 api_router.include_router(share.admin_router)

@@ -21,6 +21,19 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.8.0",
+    date: "Jun 2026",
+    changes: [
+      "Spoolman integration: connect a self-hosted Spoolman instance under Settings → Spoolman to track filament inventory and per-print consumption — off by default, with an optional API key and a Test connection button",
+      "Pick which spool a print uses when sending a job to a printer or logging a print manually; the spool is shown on the print record",
+      "Filament presets sync from Spoolman: a 'Sync from Spoolman' button on the Profiles page imports your Spoolman filaments as read-only presets (cost, material, density, diameter) so you maintain filament data in one place — local-only presets stay editable",
+      "Prints that used a synced spool get exact cost and more accurate weight, using the spool's real price and density/diameter instead of estimates",
+      "When a Moonraker-measured print completes, PrintStash decrements the selected Spoolman spool by the real grams used — no double-entry of your inventory",
+      "Double-count safety: if Moonraker's own Spoolman integration is already tracking the active spool, PrintStash warns you and keeps its write-back off so a print is never counted twice",
+      "Spoolman connection status is reported in the health endpoint and degrades gracefully — a Spoolman outage never blocks or fails a print",
+    ],
+  },
+  {
     version: "0.7.3",
     date: "Jun 2026",
     changes: [

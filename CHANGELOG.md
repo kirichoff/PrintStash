@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+- **Spoolman integration (optional, OFF by default).** Connect a self-hosted
+  [Spoolman](https://github.com/Donkie/Spoolman) instance under
+  Settings → Spoolman with a base URL and optional API key, behind a master
+  switch. A Test connection action and a live status badge confirm reachability,
+  and the connection is reported in `/health` (informational — a Spoolman outage
+  never marks the service degraded or blocks a print).
+- **Spool inventory display.** The Spoolman card lists spools with their
+  remaining weight, pulled live from Spoolman (the source of truth).
+- **Filament preset sync (Spoolman → PrintStash, one-way).** A "Sync from
+  Spoolman" action on the Profiles page imports Spoolman filaments as
+  `FilamentProfile` presets keyed by `spoolman_filament_id` (deriving `$/kg` from
+  `price / weight`, plus material, brand, density, and diameter). Synced presets
+  are **read-only** in PrintStash (edit them in Spoolman); the first sync adopts
+  matching local presets by name+material instead of duplicating, and filaments
+  removed in Spoolman are unlinked (reverted to editable local), never deleted.
+  Sync also runs automatically when the integration is enabled. This keeps
+  filament data in one source of truth instead of drifting across two apps.
+- **Exact per-print cost & weight from the selected spool.** When a print used a
+  synced spool, its cost comes from that filament's real Spoolman price and its
+  grams use the spool's real density/diameter (`mm_to_grams` override) instead of
+  the static per-material table — replacing fuzzy metadata matching for those
+  prints.
+- **Per-print spool selection.** Choose which spool a print consumes when
+  sending a job to a printer (`send-to-printer`) or logging a print manually.
+  The spool is persisted on the print record (`PrintJob.spool_id`/`spool_name`)
+  and shown in the model's print history.
+- **Consumption write-back.** On a Moonraker-measured print completion,
+  PrintStash decrements the selected Spoolman spool by the measured
+  `filament_used_g` (server-side via Spoolman's `/spool/{id}/use`), reusing the
+  existing `print_results` + `mm_to_grams` pipeline. Once per job, after the job
+  is committed, so it never blocks the print path. Bambu reports no live
+  consumption, so its prints are skipped.
+- **Double-count safety.** PrintStash detects when Moonraker's own Spoolman
+  integration is already decrementing the active spool and warns in the UI,
+  keeping its own write-back off so a print is never counted twice. The
+  write-back toggle can be overridden manually.
+
+### Internal
+
+- New `app.services.spoolman` (`SpoolmanClient` over the shared httpx pool, plus
+  a blocking `use_spool_weight_sync` for the worker-thread finish tick),
+  `app.api.v1.spoolman` router (superuser, secret-masked config), a
+  `record_spool_usage` helper in `print_results`, a `_spoolman_probe` health
+  component, and the `spoolman_*` switches on `SystemConfig` with an Alembic
+  migration. Covered by client/helper/API unit tests and a frontend API-contract
+  test; e2e mock routes added for the Spoolman endpoints.
+- `app.services.filament_sync` (Spoolman→preset reconcile), `spoolman_filament_id`
+  /`density_g_cm3`/`diameter_mm` on `FilamentProfile` and `spool_filament_id` on
+  `PrintJob` (second Alembic migration), a `density` override on `mm_to_grams`,
+  and `model_views.filament_cost_for_job` for spool-exact cost. Read-only
+  enforcement on linked presets in the filaments API.
+
 ## 0.7.3
 
 ### Added

@@ -110,3 +110,10 @@ export type {
   NotificationTestResult,
   NotificationDelivery,
 } from "./notifications";
+
+export type {
+  SpoolmanStatus,
+  SpoolmanUpdate,
+  SpoolmanTestResult,
+  SpoolRead,
+} from "./spoolman";

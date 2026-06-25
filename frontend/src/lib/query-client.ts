@@ -47,6 +47,8 @@ export const queryKeys = {
   vaultStats: ["vault-stats"] as const,
   vaultConfig: ["vault-config"] as const,
   printStats: (period: string) => ["print-stats", period] as const,
+  spoolmanStatus: ["spoolman", "status"] as const,
+  spools: ["spoolman", "spools"] as const,
 } as const;
 
 /**
@@ -85,5 +87,13 @@ export function invalidateQueriesForPath(path: string): void {
   }
   if (/\/admin\/users(\/|$|\?)/.test(path)) {
     bust(queryKeys.adminUsers);
+  }
+  if (/\/spoolman(\/|$|\?)/.test(path)) {
+    bust(queryKeys.spoolmanStatus);
+    bust(queryKeys.spools);
+    // A filament sync rewrites linked presets.
+    if (/\/spoolman\/sync-filaments/.test(path)) {
+      bust(queryKeys.filamentProfiles);
+    }
   }
 }

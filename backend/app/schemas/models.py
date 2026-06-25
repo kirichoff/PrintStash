@@ -114,6 +114,8 @@ class ModelPrintJobRead(BaseModel):
     filament_used_g: Optional[float] = None
     actual_duration_s: Optional[int] = None
     filament_cost: Optional[float] = None
+    spool_id: Optional[int] = None
+    spool_name: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     created_at: datetime
@@ -258,6 +260,9 @@ class ManualPrintJobCreate(BaseModel):
     printer_name: Optional[str] = Field(default=None, max_length=128)
     file_id: int
     state: str = Field(default="completed", max_length=32)
+    spool_id: Optional[int] = None
+    spool_name: Optional[str] = Field(default=None, max_length=256)
+    spool_filament_id: Optional[int] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     error: Optional[str] = Field(default=None, max_length=1024)
@@ -356,6 +361,11 @@ class FilamentProfileUpdate(BaseModel):
 class FilamentProfileRead(FilamentProfileBase):
     id: int
     usage_count: int = 0
+    # Present when this preset mirrors a Spoolman filament — the UI shows a
+    # badge and makes the synced fields read-only.
+    spoolman_filament_id: Optional[int] = None
+    density_g_cm3: Optional[float] = None
+    diameter_mm: Optional[float] = None
     created_at: datetime
     updated_at: datetime
 

@@ -9,12 +9,14 @@ import {
   deletePrinterProfile,
   listFilamentProfiles,
   listPrinterProfiles,
+  syncSpoolmanFilaments,
   updateFilamentProfile,
   updatePrinterProfile,
 } from "@/lib/api";
+import { useSpoolmanStatus } from "@/lib/queries";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
-import { Check, Layers, Loader2, Plus, Printer, Trash2, X, ChevronDown } from "lucide-react";
+import { Check, Layers, Loader2, Plus, Printer, RefreshCw, Trash2, X, ChevronDown } from "lucide-react";
 
 type FilamentEdit = {
   name: string;
@@ -138,6 +140,11 @@ export function FilamentProfilesCard() {
   // Per-row auto-save indicator, keyed "f{id}" / "p{id}".
   const [rowStatus, setRowStatus] = useState<Record<string, "saving" | "saved">>({});
 
+  // Spoolman sync: when enabled, presets can be imported/refreshed from Spoolman
+  // (the source of truth). Synced presets are read-only here.
+  const spoolmanEnabled = useSpoolmanStatus().data?.enabled ?? false;
+  const [syncing, setSyncing] = useState(false);
+
   // add form state — filament
   const [showAddFilament, setShowAddFilament] = useState(false);
   const [newName, setNewName] = useState("");
@@ -226,8 +233,23 @@ export function FilamentProfilesCard() {
     if (!e.currentTarget.contains(e.relatedTarget as Node | null)) save();
   }
 
+  async function handleSyncSpoolman() {
+    if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
+    setSyncing(true);
+    try {
+      const r = await syncSpoolmanFilaments();
+      toast.success(
+        `Synced from Spoolman — ${r.created} added, ${r.updated + r.adopted} updated`,
+      );
+      await refresh();
+    } catch (e: any) { setError(e.message); toast.error(e); }
+    finally { setSyncing(false); }
+  }
+
   async function autoSaveFilament(profile: FilamentProfileRead) {
     if (!auth.isAuthenticated) return;
+    // Synced presets mirror Spoolman and are read-only here.
+    if (profile.spoolman_filament_id != null) return;
     const edit = filamentEdits[profile.id] ?? filamentEdit(profile);
     if (!filamentDirty(profile, edit) || !edit.name.trim()) return;
     const parsedCost = parseOptionalNumber(edit.cost);
@@ -337,18 +359,36 @@ export function FilamentProfilesCard() {
               <p className="text-xs text-muted-foreground">Material types, brands, and cost per kg</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
-              setShowAddFilament((v) => !v);
-            }}
-            disabled={!auth.isAuthenticated}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-40"
-          >
-            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showAddFilament ? "rotate-180" : ""}`} />
-            Add preset
-          </button>
+          <div className="flex items-center gap-2">
+            {spoolmanEnabled && (
+              <button
+                type="button"
+                onClick={handleSyncSpoolman}
+                disabled={!auth.isAuthenticated || syncing}
+                title="Import and refresh presets from Spoolman"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-40"
+              >
+                {syncing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Sync from Spoolman
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
+                setShowAddFilament((v) => !v);
+              }}
+              disabled={!auth.isAuthenticated}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-40"
+            >
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showAddFilament ? "rotate-180" : ""}`} />
+              Add preset
+            </button>
+          </div>
         </div>
 
         {/* add form */}
@@ -413,6 +453,8 @@ export function FilamentProfilesCard() {
               <div className="divide-y divide-border">
                 {filaments.map((profile) => {
                   const edit = filamentEdits[profile.id] ?? filamentEdit(profile);
+                  const linked = profile.spoolman_filament_id != null;
+                  const locked = !auth.isAuthenticated || linked;
                   return (
                     <div
                       key={profile.id}
@@ -428,11 +470,19 @@ export function FilamentProfilesCard() {
                           <input
                             value={edit.name}
                             onChange={(e) => updateFilamentEdit(profile.id, { name: e.target.value })}
-                            disabled={!auth.isAuthenticated}
+                            disabled={locked}
                             aria-label={`Filament preset name ${profile.id}`}
                             placeholder="Preset name"
                             className={inputClass}
                           />
+                          {linked && (
+                            <span
+                              title="Synced from Spoolman — edit it in Spoolman"
+                              className="flex-shrink-0 rounded-full border border-emerald-500/40 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400"
+                            >
+                              Spoolman
+                            </span>
+                          )}
                         </div>
                         {profile.usage_count > 0 && (
                           <p className="mt-1 truncate pl-5 text-[10px] text-muted-foreground">
@@ -443,7 +493,7 @@ export function FilamentProfilesCard() {
                       <input
                         value={edit.materialType}
                         onChange={(e) => updateFilamentEdit(profile.id, { materialType: e.target.value })}
-                        disabled={!auth.isAuthenticated}
+                        disabled={locked}
                         aria-label={`Filament type ${profile.id}`}
                         placeholder="PLA, PETG…"
                         className={inputClass}
@@ -451,7 +501,7 @@ export function FilamentProfilesCard() {
                       <input
                         value={edit.materialBrand}
                         onChange={(e) => updateFilamentEdit(profile.id, { materialBrand: e.target.value })}
-                        disabled={!auth.isAuthenticated}
+                        disabled={locked}
                         aria-label={`Filament brand ${profile.id}`}
                         placeholder="Brand"
                         className={inputClass}
@@ -459,7 +509,7 @@ export function FilamentProfilesCard() {
                       <input
                         value={edit.cost}
                         onChange={(e) => updateFilamentEdit(profile.id, { cost: e.target.value })}
-                        disabled={!auth.isAuthenticated}
+                        disabled={locked}
                         inputMode="decimal"
                         aria-label={`Filament cost per kg ${profile.id}`}
                         placeholder="0.00"
@@ -468,21 +518,23 @@ export function FilamentProfilesCard() {
                       <input
                         value={edit.notes}
                         onChange={(e) => updateFilamentEdit(profile.id, { notes: e.target.value })}
-                        disabled={!auth.isAuthenticated}
+                        disabled={locked}
                         aria-label={`Filament notes ${profile.id}`}
                         placeholder="Notes"
                         className={inputClass}
                       />
                       <div className="flex h-8 w-[4.5rem] items-center justify-end gap-1">
                         <RowStatus state={rowStatus[`f${profile.id}`]} />
-                        <button
-                          onClick={() => handleDeleteFilament(profile.id)}
-                          disabled={!auth.isAuthenticated}
-                          title="Delete"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-muted-foreground/50 opacity-0 transition-all hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100 disabled:opacity-40 disabled:hover:border-transparent dark:hover:bg-red-950/40"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {!linked && (
+                          <button
+                            onClick={() => handleDeleteFilament(profile.id)}
+                            disabled={!auth.isAuthenticated}
+                            title="Delete"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-muted-foreground/50 opacity-0 transition-all hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100 disabled:opacity-40 disabled:hover:border-transparent dark:hover:bg-red-950/40"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );

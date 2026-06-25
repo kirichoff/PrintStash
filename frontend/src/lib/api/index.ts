@@ -16,5 +16,6 @@ export * from "@/lib/api/notifications";
 export * from "@/lib/api/printer-profiles";
 export * from "@/lib/api/printers";
 export * from "@/lib/api/share";
+export * from "@/lib/api/spoolman";
 export * from "@/lib/api/statistics";
 export * from "@/lib/api/taxonomy";

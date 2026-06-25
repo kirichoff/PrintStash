@@ -440,9 +440,11 @@ def get_model_print_jobs(
             error=job.error,
             filament_used_g=job.filament_used_g,
             actual_duration_s=job.actual_duration_s,
-            filament_cost=model_views.filament_cost_for_grams(
-                profiles, md, job.filament_used_g
+            filament_cost=model_views.filament_cost_for_job(
+                profiles, md, job.filament_used_g, job.spool_filament_id
             ),
+            spool_id=job.spool_id,
+            spool_name=job.spool_name,
             started_at=job.started_at,
             finished_at=job.finished_at,
             created_at=job.created_at,
@@ -493,6 +495,9 @@ def create_manual_print_job(
         remote_filename=file_row.original_filename,
         state=state,
         source="manual",
+        spool_id=payload.spool_id,
+        spool_name=payload.spool_name,
+        spool_filament_id=payload.spool_filament_id,
         started_at=payload.started_at,
         finished_at=payload.finished_at,
         error=payload.error,
@@ -515,6 +520,8 @@ def create_manual_print_job(
         state=job.state,
         material_type=None,
         error=job.error,
+        spool_id=job.spool_id,
+        spool_name=job.spool_name,
         started_at=job.started_at,
         finished_at=job.finished_at,
         created_at=job.created_at,
