@@ -113,6 +113,26 @@ def test_list_items_search_is_case_insensitive(
     assert m.id not in miss
 
 
+def test_list_items_excludes_external_sentinel(
+    db_session: Session, superuser: User
+) -> None:
+    """The seeded ``__external__`` sentinel model must never surface in the grid
+    (regression: it leaked into the library browse after a container restart)."""
+    from app.db.models import SENTINEL_MODEL_HASH
+
+    _make_models(db_session, count=3, ts=datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+    items = mv.list_items(db_session, superuser, limit=100)
+    assert all(it.slug != "__external__" for it in items)
+    # And the sentinel row really does exist in the DB, so this is a filter, not
+    # an absence.
+    from sqlmodel import select
+
+    assert db_session.exec(
+        select(Model).where(Model.hash == SENTINEL_MODEL_HASH)
+    ).first() is not None
+
+
 def test_list_trashed_pagination_is_complete_and_unique(
     db_session: Session, superuser: User
 ) -> None:

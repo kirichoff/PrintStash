@@ -355,7 +355,11 @@ def list_items(
     offset: int = 0,
 ) -> List[ModelListItem]:
     """Filtered, paginated library browse with batched per-model facets."""
-    stmt = select(Model).where(live(Model))
+    # Exclude the external-job sentinel model — it's internal bookkeeping for
+    # print jobs that don't map to a real vault model and must never surface in
+    # the library grid (vault_stats/export already exclude it, which is why the
+    # header count and the grid would otherwise disagree).
+    stmt = select(Model).where(live(Model), Model.hash != SENTINEL_MODEL_HASH)
     stmt = _apply_model_access(stmt, session, user)
 
     present_model_ids = (
