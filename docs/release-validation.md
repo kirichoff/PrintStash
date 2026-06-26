@@ -1,6 +1,7 @@
 # Release Validation
 
-Run these checks before tagging a release.
+Run these checks before tagging a release. For the full hands-on browser sweep
+of every UI workflow, see [`manual-testing.md`](./manual-testing.md).
 
 ## Clean Install
 
