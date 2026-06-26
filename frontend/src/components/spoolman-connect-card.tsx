@@ -79,6 +79,21 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
     [],
   );
 
+  const toggleWriteForce = useCallback(
+    async (next: boolean) => {
+      setBusy(true);
+      setError("");
+      try {
+        await updateSpoolman({ write_force: next });
+      } catch (e) {
+        setError(userMessage(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
+
   const runTest = useCallback(async () => {
     setBusy(true);
     setError("");
@@ -216,14 +231,30 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
                   />
                 </label>
                 {status?.native_hook_detected && (
-                  <div className="flex items-start gap-2 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded p-2">
-                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                    <span>
-                      Moonraker&apos;s native Spoolman integration is already
-                      decrementing the active spool. Leaving write-back on would
-                      count each print twice — keep it off unless you have
-                      disabled Moonraker&apos;s hook.
-                    </span>
+                  <div className="space-y-2 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded p-2">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                      <span>
+                        Moonraker&apos;s native Spoolman integration is already
+                        decrementing the active spool, so PrintStash
+                        automatically skips its own write-back to avoid
+                        double-counting. Only override this if you have disabled
+                        Moonraker&apos;s hook and want PrintStash to count
+                        consumption.
+                      </span>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer pl-5">
+                      <input
+                        type="checkbox"
+                        checked={!!status?.write_force}
+                        disabled={busy}
+                        onChange={(e) => toggleWriteForce(e.target.checked)}
+                        className="h-3.5 w-3.5 flex-shrink-0"
+                      />
+                      <span>
+                        Write back anyway (I disabled Moonraker&apos;s hook)
+                      </span>
+                    </label>
                   </div>
                 )}
               </div>

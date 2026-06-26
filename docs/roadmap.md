@@ -105,9 +105,10 @@ Shipped in 0.8.0:
   `filament_used_g` (reuses the existing `print_results` + `mm_to_grams`
   pipeline). Moonraker-measured prints only — Bambu does not report live
   consumption
-- Double-count safety: detect when Moonraker's native Spoolman hook is already
-  decrementing the active spool, warn in the UI, and default our write-back OFF
-  so a print is never counted twice
+- Double-count safety: at write time, skip our own decrement when Spoolman
+  reports an active spool that Moonraker's native hook is already counting (with
+  a manual "write back anyway" override), plus a UI warning — so a print is
+  never counted twice
 
 ## 0.9 — Provider Maturity (Bambu + reliability)
 

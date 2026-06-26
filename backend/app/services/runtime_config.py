@@ -260,8 +260,10 @@ def set_spoolman_enabled(session: Session, enabled: bool) -> SystemConfig:
 
 
 def spoolman_write_enabled(session: Session) -> bool:
-    """Whether measured consumption is written back to Spoolman. On by default,
-    but the API/UI default it OFF when Moonraker's native hook is detected."""
+    """Whether measured consumption is written back to Spoolman. On by default;
+    the write path additionally skips the decrement at runtime when Moonraker's
+    native hook is already counting the active spool (unless write-force is set —
+    see ``spoolman_write_force``)."""
     config = session.get(SystemConfig, 1)
     return True if config is None else bool(config.spoolman_write_enabled)
 
@@ -269,6 +271,24 @@ def spoolman_write_enabled(session: Session) -> bool:
 def set_spoolman_write_enabled(session: Session, enabled: bool) -> SystemConfig:
     config = get_or_create(session)
     config.spoolman_write_enabled = enabled
+    config.updated_at = utcnow()
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    return config
+
+
+def spoolman_write_force(session: Session) -> bool:
+    """Whether to write consumption back even when Spoolman reports an active
+    spool (Moonraker's native hook). Off by default so the double-count guard
+    holds for users who never open the Spoolman settings card."""
+    config = session.get(SystemConfig, 1)
+    return False if config is None else bool(config.spoolman_write_force)
+
+
+def set_spoolman_write_force(session: Session, force: bool) -> SystemConfig:
+    config = get_or_create(session)
+    config.spoolman_write_force = force
     config.updated_at = utcnow()
     session.add(config)
     session.commit()

@@ -38,12 +38,16 @@ class SpoolmanStatus(BaseModel):
     base_url: Optional[str] = None
     has_api_key: bool = False
     write_enabled: bool = True
+    # Override the native-hook double-count guard (write back even when Spoolman
+    # reports an active spool). Off by default.
+    write_force: bool = False
     # Filled in by a live probe when enabled + configured.
     connected: bool = False
     version: Optional[str] = None
     error: Optional[str] = None
     # True when Moonraker's native Spoolman hook is already decrementing the
-    # active spool; the UI warns that enabling write-back would double-count.
+    # active spool; the write path skips its own decrement (unless write_force)
+    # and the UI warns about it.
     native_hook_detected: bool = False
 
 
@@ -54,6 +58,7 @@ class SpoolmanUpdate(BaseModel):
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     write_enabled: Optional[bool] = None
+    write_force: Optional[bool] = None
 
 
 class SpoolRead(BaseModel):
@@ -127,6 +132,7 @@ async def get_status(session: Session = Depends(get_session)) -> SpoolmanStatus:
         base_url=config.get("base_url"),
         has_api_key=bool(config.get("api_key")),
         write_enabled=runtime_config.spoolman_write_enabled(session),
+        write_force=runtime_config.spoolman_write_force(session),
     )
     # Only hit the network when there's something to probe.
     if enabled and config.get("base_url"):
@@ -157,6 +163,8 @@ async def update_status(
         )
     if body.write_enabled is not None:
         runtime_config.set_spoolman_write_enabled(session, body.write_enabled)
+    if body.write_force is not None:
+        runtime_config.set_spoolman_write_force(session, body.write_force)
     if body.enabled is not None:
         was_enabled = runtime_config.spoolman_enabled(session)
         runtime_config.set_spoolman_enabled(session, body.enabled)

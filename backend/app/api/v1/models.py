@@ -665,6 +665,47 @@ def _dedupe_ids(ids: List[int]) -> List[int]:
     return out
 
 
+def _partition_editable_models(
+    session: Session, user: User, ids: List[int]
+) -> tuple[List[Model], List[ModelBatchFailure]]:
+    """Single-pass RBAC for batch ops: split ``ids`` into editable models and
+    per-id failures, preserving input order.
+
+    Replaces a per-model ``_require_model_role`` loop, which re-ran the same
+    "all of this user's grants" query once per model (an N+1 that scaled with
+    the selection). Here the models are fetched in one query and the editable
+    collection set is computed once. Failure reasons match the single-model
+    endpoint so the client sees the same ``reason`` strings.
+    """
+    rows = session.exec(select(Model).where(Model.id.in_(ids))).all()  # type: ignore[union-attr]
+    by_id = {m.id: m for m in rows}
+    # Superuser short-circuits inside accessible_collection_ids (returns every
+    # collection), so a single call covers both roles.
+    editable_ids = rbac.accessible_collection_ids(session, user, CollectionRole.EDIT)
+    editable: List[Model] = []
+    failed: List[ModelBatchFailure] = []
+    for mid in ids:
+        m = by_id.get(mid)
+        if m is None or m.deleted_at is not None:
+            failed.append(ModelBatchFailure(model_id=mid, reason="model_not_found"))
+        elif m.collection_id is None:
+            if user.is_superuser:
+                editable.append(m)
+            else:
+                failed.append(
+                    ModelBatchFailure(
+                        model_id=mid, reason="root_collection_admin_required"
+                    )
+                )
+        elif m.collection_id in editable_ids:
+            editable.append(m)
+        else:
+            failed.append(
+                ModelBatchFailure(model_id=mid, reason="collection_permission_denied")
+            )
+    return editable, failed
+
+
 @router.post(
     "/batch/move",
     response_model=ModelBatchResult,
@@ -682,44 +723,53 @@ def batch_move_models(
     current_user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ) -> ModelBatchResult:
-    # Resolve the shared destination once. Failures here are whole-request
-    # errors, not per-item, because the destination is the same for everyone.
-    dest_id: Optional[int] = None
-    if payload.collection.strip() == "":
-        if not current_user.is_superuser:
-            raise HTTPException(status_code=403, detail="root_collection_admin_required")
-        dest_id = None
-    else:
+    # Validate the shared destination up front — these are whole-request errors,
+    # not per-item, because the destination is the same for everyone. Creating a
+    # *missing* collection is deferred until we know at least one model will move
+    # (below), so a fully-failed batch never leaves an orphan empty collection.
+    dest_is_root = payload.collection.strip() == ""
+    if dest_is_root and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="root_collection_admin_required")
+
+    existing_dest: Optional[Collection] = None
+    if not dest_is_root:
         collection_path = _collection_path_for(payload.collection)
-        cat = session.exec(
+        existing_dest = session.exec(
             select(Collection).where(
                 Collection.path == collection_path, live(Collection)
             )
         ).first()
-        if cat is None:
-            if not current_user.is_superuser:
-                raise HTTPException(
-                    status_code=403, detail="collection_permission_denied"
-                )
-            cat = taxonomy.resolve_or_create_collection(session, payload.collection)
-        if cat is not None:
+        if existing_dest is None and not current_user.is_superuser:
+            raise HTTPException(status_code=403, detail="collection_permission_denied")
+        if existing_dest is not None:
             rbac.require_collection_role(
-                session, current_user, cat.id, CollectionRole.EDIT
+                session, current_user, existing_dest.id, CollectionRole.EDIT
             )
-            dest_id = cat.id
+
+    editable, failed = _partition_editable_models(
+        session, current_user, _dedupe_ids(payload.model_ids)
+    )
+    if not editable:
+        # Nothing will move — return before resolving/creating the destination.
+        return ModelBatchResult(
+            succeeded_ids=[], failed=failed, succeeded_count=0, failed_count=len(failed)
+        )
+
+    if dest_is_root:
+        dest_id: Optional[int] = None
+    elif existing_dest is not None:
+        dest_id = existing_dest.id
+    else:
+        cat = taxonomy.resolve_or_create_collection(session, payload.collection)
+        rbac.require_collection_role(session, current_user, cat.id, CollectionRole.EDIT)
+        dest_id = cat.id
 
     succeeded: List[int] = []
-    failed: List[ModelBatchFailure] = []
-    for model_id in _dedupe_ids(payload.model_ids):
-        try:
-            m = _require_model_role(session, current_user, model_id, CollectionRole.EDIT)
-        except HTTPException as exc:
-            failed.append(ModelBatchFailure(model_id=model_id, reason=str(exc.detail)))
-            continue
+    for m in editable:
         m.collection_id = dest_id
         m.updated_at = utcnow()
         session.add(m)
-        succeeded.append(model_id)
+        succeeded.append(m.id)  # type: ignore[arg-type]
 
     session.commit()
     return ModelBatchResult(
@@ -747,6 +797,16 @@ def batch_tag_models(
     current_user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ) -> ModelBatchResult:
+    editable, failed = _partition_editable_models(
+        session, current_user, _dedupe_ids(payload.model_ids)
+    )
+    if not editable:
+        # No editable models — return before creating any tags, so a fully-failed
+        # batch never spawns tags as a side effect.
+        return ModelBatchResult(
+            succeeded_ids=[], failed=failed, succeeded_count=0, failed_count=len(failed)
+        )
+
     add_tags = taxonomy.resolve_or_create_tags(session, payload.add) if payload.add else []
     # Removal only targets tags that already exist; never create on remove.
     remove_tag_ids: List[int] = []
@@ -759,13 +819,8 @@ def batch_tag_models(
             remove_tag_ids.append(tag.id)
 
     succeeded: List[int] = []
-    failed: List[ModelBatchFailure] = []
-    for model_id in _dedupe_ids(payload.model_ids):
-        try:
-            m = _require_model_role(session, current_user, model_id, CollectionRole.EDIT)
-        except HTTPException as exc:
-            failed.append(ModelBatchFailure(model_id=model_id, reason=str(exc.detail)))
-            continue
+    for m in editable:
+        model_id = m.id
         if add_tags:
             existing = set(
                 session.exec(
@@ -812,24 +867,15 @@ def batch_delete_models(
     current_user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ) -> ModelBatchResult:
-    to_delete: List[Model] = []
-    succeeded: List[int] = []
-    failed: List[ModelBatchFailure] = []
-    for model_id in _dedupe_ids(payload.model_ids):
-        try:
-            m = _require_model_role(session, current_user, model_id, CollectionRole.EDIT)
-        except HTTPException as exc:
-            failed.append(ModelBatchFailure(model_id=model_id, reason=str(exc.detail)))
-            continue
-        to_delete.append(m)
-        succeeded.append(model_id)
-
-    soft_delete_models(session, to_delete)
+    editable, failed = _partition_editable_models(
+        session, current_user, _dedupe_ids(payload.model_ids)
+    )
+    soft_delete_models(session, editable)
     session.commit()
     return ModelBatchResult(
-        succeeded_ids=succeeded,
+        succeeded_ids=[m.id for m in editable],  # type: ignore[misc]
         failed=failed,
-        succeeded_count=len(succeeded),
+        succeeded_count=len(editable),
         failed_count=len(failed),
     )
 

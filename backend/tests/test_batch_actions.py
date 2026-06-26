@@ -308,6 +308,61 @@ def test_batch_delete_partial_on_mixed_permission(
     assert db_session.get(Model, forbidden.id).deleted_at is None
 
 
+# --- no side effects when every item fails --------------------------------
+
+
+def test_batch_move_all_failed_does_not_create_collection(
+    client: TestClient, db_session: Session
+) -> None:
+    """A move where every id fails must not leave an orphan destination."""
+    from app.db.models import Collection
+    from app.services import taxonomy as tax
+
+    admin = _user(db_session, "orphan-mover", superuser=True)
+    # Only a missing model id — nothing will move.
+    res = client.post(
+        "/api/v1/models/batch/move",
+        headers=_headers(admin),
+        json={"model_ids": [999999], "collection": "Brand New Box"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["succeeded_count"] == 0
+    assert body["failed"][0]["reason"] == "model_not_found"
+
+    db_session.expire_all()
+    created = db_session.exec(
+        select(Collection).where(Collection.path == tax.slugify("Brand New Box"))
+    ).first()
+    assert created is None, "destination collection created despite zero moves"
+
+
+def test_batch_tags_all_failed_does_not_create_tag(
+    client: TestClient, db_session: Session
+) -> None:
+    """An add-tags batch where every model is non-editable must not create tags."""
+    user = _user(db_session, "orphan-tagger")
+    forbidden_col = taxonomy.resolve_or_create_collection(db_session, "Locked")
+    assert forbidden_col is not None
+    m = _model(db_session, "Untouchable", forbidden_col.id)
+
+    res = client.post(
+        "/api/v1/models/batch/tags",
+        headers=_headers(user),
+        json={"model_ids": [m.id], "add": ["should-not-exist"]},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["succeeded_count"] == 0
+    assert body["failed"][0]["reason"] == "collection_permission_denied"
+
+    db_session.expire_all()
+    tag = db_session.exec(
+        select(Tag).where(Tag.slug == "should-not-exist")
+    ).first()
+    assert tag is None, "tag created despite zero editable models"
+
+
 # --- validation -----------------------------------------------------------
 
 

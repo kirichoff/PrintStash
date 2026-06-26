@@ -36,10 +36,13 @@
   existing `print_results` + `mm_to_grams` pipeline. Once per job, after the job
   is committed, so it never blocks the print path. Bambu reports no live
   consumption, so its prints are skipped.
-- **Double-count safety.** PrintStash detects when Moonraker's own Spoolman
-  integration is already decrementing the active spool and warns in the UI,
-  keeping its own write-back off so a print is never counted twice. The
-  write-back toggle can be overridden manually.
+- **Double-count safety.** Before writing consumption back, PrintStash checks
+  Spoolman's active spool at completion time; if Moonraker's own Spoolman
+  integration is already decrementing it, PrintStash skips its own write so a
+  print is never counted twice — even if you never opened the settings card.
+  The UI also warns when this is detected. An operator who has disabled
+  Moonraker's hook can set a "write back anyway" override to make PrintStash
+  own the consumption.
 
 ### Changed
 
@@ -59,6 +62,17 @@
 
 - Dark-mode Catalog stat cards no longer show bright/stray dividers — the
   Collections/Tags summary now uses theme-aware hairline separators.
+- The internal `__external__` sentinel model (placeholder for external print
+  jobs) no longer leaks into the "All Models" grid — the library browse now
+  excludes it, matching the header count that already did.
+- Batch tag/move no longer creates a tag or destination collection as a side
+  effect when every selected model fails the permission check; taxonomy is only
+  created once at least one model qualifies. Batch permission checks were also
+  collapsed from a per-model grants query into a single pass.
+- Upload drag-and-drop is steadier: the drop highlight no longer flickers when
+  the cursor crosses items inside the dropzone, the copy cursor shows while
+  dragging, and a folder that fails to read now surfaces an error instead of
+  silently doing nothing.
 
 ### Internal
 
@@ -69,6 +83,11 @@
   component, and the `spoolman_*` switches on `SystemConfig` with an Alembic
   migration. Covered by client/helper/API unit tests and a frontend API-contract
   test; e2e mock routes added for the Spoolman endpoints.
+- Consumption write-back gained a write-time double-count guard: a blocking
+  `active_spool_sync` probe in `app.services.spoolman` and a
+  `spoolman_write_force` override on `SystemConfig` (third Alembic migration).
+  `record_spool_usage` skips the decrement when Spoolman reports an active spool
+  unless the override is set. Covered by unit tests.
 - `app.services.filament_sync` (Spoolman→preset reconcile), `spoolman_filament_id`
   /`density_g_cm3`/`diameter_mm` on `FilamentProfile` and `spool_filament_id` on
   `PrintJob` (second Alembic migration), a `density` override on `mm_to_grams`,

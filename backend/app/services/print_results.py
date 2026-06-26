@@ -74,12 +74,23 @@ def record_spool_usage(session: Session, job: PrintJob) -> bool:
     Decrement happens server-side in Spoolman. A Spoolman outage is logged and
     swallowed — the print is already recorded and must never be blocked. The
     caller invokes this once per job (on the finishing tick), so the spool is
-    never decremented twice for the same print.
+    never decremented twice for the *same* print.
+
+    Double-count guard: before writing, this checks Spoolman's active spool. A
+    non-null value means Moonraker's native hook is already decrementing it, so
+    PrintStash skips its own write — unless ``spoolman_write_force`` is set (the
+    operator has disabled Moonraker's decrement and wants PrintStash to own it).
+    This runs at write time, so it protects users who never opened the settings
+    card and the warning there.
     """
     # Imported here to avoid importing the service layer at module load (keeps
     # print_results dependency-light and dodges any import cycle).
     from app.services import runtime_config
-    from app.services.spoolman import SpoolmanError, use_spool_weight_sync
+    from app.services.spoolman import (
+        SpoolmanError,
+        active_spool_sync,
+        use_spool_weight_sync,
+    )
 
     if job.spool_id is None or not job.filament_used_g:
         return False
@@ -91,6 +102,17 @@ def record_spool_usage(session: Session, job: PrintJob) -> bool:
     base_url = config.get("base_url")
     if not base_url:
         return False
+    # Skip if Moonraker's native Spoolman hook is already counting the active
+    # spool, to avoid double-counting. ``active_spool_sync`` never raises; a
+    # None (unset or unreachable) means "no native hook" and the write proceeds.
+    if not runtime_config.spoolman_write_force(session):
+        if active_spool_sync(base_url, config.get("api_key")) is not None:
+            logger.info(
+                "skipping Spoolman write-back for job %s: native hook is "
+                "decrementing the active spool (enable write-force to override)",
+                job.id,
+            )
+            return False
     try:
         use_spool_weight_sync(
             base_url, config.get("api_key"), job.spool_id, float(job.filament_used_g)

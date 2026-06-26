@@ -184,6 +184,42 @@ def use_spool_weight_sync(
         )
 
 
+def active_spool_sync(
+    base_url: str,
+    api_key: Optional[str],
+    *,
+    timeout: float = DEFAULT_TIMEOUT_S,
+) -> Optional[int]:
+    """Blocking variant of ``SpoolmanClient.active_spool`` for the finish-tick.
+
+    Returns the active spool id Moonraker's native hook tracks, or ``None`` when
+    unset/unreadable. Used by the consumption write-back to skip a decrement that
+    Moonraker is already performing. Never raises — an unreadable setting is
+    treated as "no native hook" so a Spoolman hiccup can't block the print path;
+    the caller decides what a ``None`` means.
+    """
+    headers: Dict[str, str] = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+        headers["X-Api-Key"] = api_key
+    url = f"{base_url.rstrip('/')}/api/v1/setting/active_spool"
+    try:
+        resp = httpx.get(url, headers=headers, timeout=timeout)
+        if resp.status_code < 200 or resp.status_code >= 300:
+            return None
+        data = resp.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    # Spoolman setting endpoints return {"value": "<json-encoded>"}.
+    raw = data.get("value") if isinstance(data, dict) else None
+    if raw in (None, "", "null"):
+        return None
+    try:
+        return int(str(raw).strip().strip('"'))
+    except (TypeError, ValueError):
+        return None
+
+
 def get_spoolman_client(session: Session) -> SpoolmanClient:
     """Build a client from persisted config, or raise ``not_configured``.
 

@@ -3,6 +3,8 @@ export interface SpoolmanStatus {
   base_url: string | null;
   has_api_key: boolean;
   write_enabled: boolean;
+  /** Write back even when Spoolman reports an active spool (native-hook override). */
+  write_force: boolean;
   connected: boolean;
   version: string | null;
   error: string | null;
@@ -15,6 +17,7 @@ export interface SpoolmanUpdate {
   base_url?: string | null;
   api_key?: string | null;
   write_enabled?: boolean;
+  write_force?: boolean;
 }
 
 export interface SpoolmanTestResult {

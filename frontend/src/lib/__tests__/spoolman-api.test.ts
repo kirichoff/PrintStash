@@ -32,6 +32,7 @@ const status = {
   base_url: "http://spoolman.local:7912",
   has_api_key: false,
   write_enabled: true,
+  write_force: false,
   connected: true,
   version: "0.18.0",
   error: null,

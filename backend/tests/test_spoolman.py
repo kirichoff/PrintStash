@@ -114,11 +114,40 @@ class TestRecordSpoolUsage:
     def test_decrements_when_configured(self, db_session: Session):
         self._enable(db_session)
         job = _completed_job(spool_id=3, grams=10.0)
-        with patch("app.services.spoolman.use_spool_weight_sync") as mock_use:
+        with patch(
+            "app.services.spoolman.active_spool_sync", return_value=None
+        ), patch("app.services.spoolman.use_spool_weight_sync") as mock_use:
             assert print_results.record_spool_usage(db_session, job) is True
             mock_use.assert_called_once()
             args = mock_use.call_args.args
             assert args[2] == 3 and args[3] == 10.0
+
+    def test_skips_when_native_hook_active(self, db_session: Session):
+        # Moonraker's native hook is decrementing the active spool — PrintStash
+        # must not write its own decrement (would double-count).
+        self._enable(db_session)
+        job = _completed_job(spool_id=3, grams=10.0)
+        with patch(
+            "app.services.spoolman.active_spool_sync", return_value=7
+        ), patch("app.services.spoolman.use_spool_weight_sync") as mock_use:
+            assert print_results.record_spool_usage(db_session, job) is False
+            mock_use.assert_not_called()
+
+    def test_force_overrides_native_hook(self, db_session: Session):
+        # With write-force set, the operator has disabled Moonraker's decrement,
+        # so PrintStash writes back even when an active spool is reported.
+        self._enable(db_session)
+        runtime_config.set_spoolman_write_force(db_session, True)
+        job = _completed_job(spool_id=3, grams=10.0)
+        with patch(
+            "app.services.spoolman.active_spool_sync", return_value=7
+        ) as mock_active, patch(
+            "app.services.spoolman.use_spool_weight_sync"
+        ) as mock_use:
+            assert print_results.record_spool_usage(db_session, job) is True
+            mock_use.assert_called_once()
+            # Forced path short-circuits the probe entirely.
+            mock_active.assert_not_called()
 
     def test_noop_without_spool(self, db_session: Session):
         self._enable(db_session)
@@ -153,6 +182,8 @@ class TestRecordSpoolUsage:
         self._enable(db_session)
         job = _completed_job(spool_id=3, grams=10.0)
         with patch(
+            "app.services.spoolman.active_spool_sync", return_value=None
+        ), patch(
             "app.services.spoolman.use_spool_weight_sync",
             side_effect=SpoolmanError("down", code="transport"),
         ):

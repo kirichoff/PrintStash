@@ -504,9 +504,15 @@ class SystemConfig(SQLModel, table=True):
     # superuser-only API, masked on read.
     spoolman_api_key: Optional[str] = Field(default=None, max_length=512)
     # Whether PrintStash writes consumption back to Spoolman on measured-print
-    # completion. Defaulted OFF when Moonraker's native Spoolman hook is detected
-    # (it already decrements the active spool) to avoid double-counting.
+    # completion. On by default; the write path skips at runtime when Moonraker's
+    # native Spoolman hook is decrementing the active spool (see
+    # spoolman_write_force) so a print is never counted twice.
     spoolman_write_enabled: bool = Field(default=True)
+    # Override the native-hook double-count guard: when True, PrintStash writes
+    # consumption back even if Spoolman reports an active spool (use only after
+    # disabling Moonraker's own Spoolman decrement). Off by default so the guard
+    # protects users who never open the settings card.
+    spoolman_write_force: bool = Field(default=False)
 
     # MakerWorld session token (a Bambu account JWT) obtained via the in-app
     # login flow. MakerWorld auth-gates file downloads; this token is injected as
