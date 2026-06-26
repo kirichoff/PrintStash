@@ -242,9 +242,7 @@ def vault_stats(
     ),
 )
 def print_stats(
-    period: str = Query(
-        "30d", description="Preset window: 7d, 30d, 90d, 1y, or all"
-    ),
+    period: str = Query("30d", description="Preset window: 7d, 30d, 90d, 1y, or all"),
     session: Session = Depends(get_session),
 ) -> PrintStatisticsRead:
     return model_views.print_statistics(session, period)
@@ -807,7 +805,9 @@ def batch_tag_models(
             succeeded_ids=[], failed=failed, succeeded_count=0, failed_count=len(failed)
         )
 
-    add_tags = taxonomy.resolve_or_create_tags(session, payload.add) if payload.add else []
+    add_tags = (
+        taxonomy.resolve_or_create_tags(session, payload.add) if payload.add else []
+    )
     # Removal only targets tags that already exist; never create on remove.
     remove_tag_ids: List[int] = []
     for raw in payload.remove:
@@ -824,9 +824,7 @@ def batch_tag_models(
         if add_tags:
             existing = set(
                 session.exec(
-                    select(ModelTagLink.tag_id).where(
-                        ModelTagLink.model_id == model_id
-                    )
+                    select(ModelTagLink.tag_id).where(ModelTagLink.model_id == model_id)
                 ).all()
             )
             for t in add_tags:
@@ -1030,9 +1028,29 @@ def delete_file_revision(
     if file_row.file_type != FileType.GCODE:
         raise HTTPException(status_code=400, detail="revision_not_supported")
 
+    was_recommended = file_row.is_recommended
     file_row.deleted_at = utcnow()
     file_row.deleted_by = current_user.id
     file_row.is_recommended = False
+
+    # Invariant: a model with G-code always keeps exactly one recommended
+    # revision (CONTEXT.md). If we just removed the recommended one, promote the
+    # newest remaining live G-code revision so the model never ends up holding
+    # G-code with nothing recommended.
+    if was_recommended:
+        replacement = session.exec(
+            select(File)
+            .where(
+                File.model_id == model_id,
+                File.id != file_id,
+                File.file_type == FileType.GCODE,
+                live(File),
+            )
+            .order_by(File.version.desc())  # type: ignore[attr-defined]
+        ).first()
+        if replacement is not None:
+            replacement.is_recommended = True
+            session.add(replacement)
 
     # Drop a stale thumbnail pointer if it referenced this revision.
     if m.thumbnail_file_id == file_id:

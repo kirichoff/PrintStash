@@ -63,12 +63,7 @@ declare module "react" {
 
 type UploadMode = "files" | "bulk" | "url" | "zip";
 
-const GCODE_EXT = new Set([".gcode", ".g", ".gco"]);
 const GCODE_ACCEPT = ".gcode,.g,.gco";
-
-function isGcode(name: string): boolean {
-  return GCODE_EXT.has(extensionOf(name));
-}
 
 // Whether a filename matches a comma-separated `accept` extension list
 // (e.g. ".stl,.3mf,.obj"). Used to validate drag-and-drop drops, which —
@@ -226,18 +221,6 @@ export function UploadModal({
         "Some files skipped",
         `${skipped} file${skipped === 1 ? "" : "s"} ignored — only 3D models (${MESH_ACCEPT}) are accepted here.`,
       );
-    }
-  }
-
-  function sortIntoSlots(files: FileList | File[]) {
-    for (const f of Array.from(files)) {
-      if (isMeshFile(f.name)) {
-        setMeshFile(f);
-        autoName(f);
-      } else if (isGcode(f.name)) {
-        setGcodeFile(f);
-        autoName(f);
-      }
     }
   }
 

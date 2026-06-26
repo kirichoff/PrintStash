@@ -48,6 +48,24 @@ class TestResolveTags:
         names = {t.name for t in tags}
         assert names == {"shared", "new"}
 
+    def test_resolve_revives_a_trashed_tag(self, db_session) -> None:
+        """Re-tagging with a soft-deleted tag's name must revive that row, not
+        link the model to a dead tag list_tags() hides (mirrors collections)."""
+        from app.core.time import utcnow
+        from app.services.taxonomy import resolve_or_create_tags
+
+        (tag,) = resolve_or_create_tags(db_session, ["functional"])
+        tag.deleted_at = utcnow()
+        db_session.add(tag)
+        db_session.commit()
+
+        (revived,) = resolve_or_create_tags(db_session, ["Functional"])
+
+        assert revived.id == tag.id  # same row, by slug
+        assert revived.deleted_at is None  # brought back to life
+        db_session.refresh(tag)
+        assert tag.deleted_at is None
+
 
 class TestResolveCollections:
     def test_resolve_creates_hierarchy(self, db_session) -> None:

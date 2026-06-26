@@ -396,10 +396,21 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                             {s?.error || "Last scan failed"}
                           </p>
                         )}
-                        {lib.last_scan_status === "ok" && s && (
-                          <p className="text-[11px] text-muted-foreground mt-1">
-                            +{s.added} added · {s.updated} updated · {s.removed} removed
-                            {s.errors.length > 0 ? ` · ${s.errors.length} errors` : ""}
+                        {(lib.last_scan_status === "ok" ||
+                          lib.last_scan_status === "partial") &&
+                          s && (
+                            <p className="text-[11px] text-muted-foreground mt-1">
+                              +{s.added} added · {s.updated} updated · {s.removed}{" "}
+                              removed
+                              {s.errors.length > 0
+                                ? ` · ${s.errors.length} errors`
+                                : ""}
+                            </p>
+                          )}
+                        {lib.last_scan_status === "partial" && (
+                          <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--destructive,#dc2626)]">
+                            <AlertTriangle className="h-3 w-3" />
+                            Some files could not be indexed
                           </p>
                         )}
                       </div>
