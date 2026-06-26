@@ -311,3 +311,31 @@ def test_non_superuser_cannot_see_printer_presence(
     )
     assert print_jobs.status_code == 403
     assert print_jobs.json()["detail"] == "admin_required"
+
+
+def test_deleting_a_child_does_not_block_deleting_the_parent(
+    client: TestClient, db_session: Session
+) -> None:
+    """Regression: a soft-deleted child must not keep its parent un-deletable.
+
+    The non-recursive has-children guard previously counted trashed children, so
+    create-child -> delete-child -> delete-parent returned 409 forever.
+    """
+    admin = _user(db_session, "admin-del", superuser=True)
+    h = _headers(admin)
+
+    parent = client.post("/api/v1/collections", json={"name": "Parent"}, headers=h).json()
+    child = client.post(
+        "/api/v1/collections",
+        json={"name": "Child", "parent_id": parent["id"]},
+        headers=h,
+    ).json()
+
+    # A LIVE child still blocks a non-recursive parent delete.
+    assert (
+        client.delete(f"/api/v1/collections/{parent['id']}", headers=h).status_code == 409
+    )
+
+    # After the child is trashed, the parent deletes cleanly.
+    assert client.delete(f"/api/v1/collections/{child['id']}", headers=h).status_code == 204
+    assert client.delete(f"/api/v1/collections/{parent['id']}", headers=h).status_code == 204

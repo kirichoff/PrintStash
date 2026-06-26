@@ -48,3 +48,9 @@ async def test_share_link_grants_then_revokes_anonymous_access(api, superuser_he
     assert revoked.status_code == 200, revoked.text
     after = await api.get(f"/api/v1/share/{token}")
     assert after.status_code in (403, 404, 410), after.text
+
+    # Revoked links drop out of the owner's management list (the row is kept so
+    # the token above stays permanently dead).
+    listed = await api.get(f"/api/v1/models/{model_id}/shares", headers=superuser_headers)
+    assert listed.status_code == 200, listed.text
+    assert all(link["id"] != share_id for link in listed.json())

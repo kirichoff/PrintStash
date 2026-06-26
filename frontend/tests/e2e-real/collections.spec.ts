@@ -1,11 +1,6 @@
 import { test, expect } from "./helpers";
 
 // Real CRUD against the backend DB.
-//
-// NOTE: deleting a *parent* after deleting its child is intentionally not tested
-// — the backend counts soft-deleted children in its has-children guard
-// (taxonomy.py delete_collection), so the non-recursive UI delete 409s. That's a
-// real app bug, tracked separately; these tests cover the paths the UI supports.
 
 test("create and delete an empty collection (persists across reload)", async ({ page }) => {
   const name = `e2e-col-${Date.now()}`;
@@ -49,4 +44,9 @@ test("nest a subcollection and delete the child", async ({ page }) => {
 
   await page.getByRole("button", { name: `Delete ${child}` }).click();
   await expect(page.getByRole("button", { name: `Delete ${child}` })).toHaveCount(0);
+
+  // The parent deletes cleanly even though it once had a (now soft-deleted)
+  // child — regression guard for the has-children check ignoring trashed rows.
+  await page.getByRole("button", { name: `Delete ${parent}` }).click();
+  await expect(page.getByRole("button", { name: `Delete ${parent}` })).toHaveCount(0);
 });

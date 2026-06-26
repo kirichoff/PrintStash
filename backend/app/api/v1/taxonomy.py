@@ -318,7 +318,10 @@ def delete_collection(
             session.add(m)
     else:
         if session.exec(
-            select(Collection).where(Collection.parent_id == collection_id)
+            select(Collection).where(
+                Collection.parent_id == collection_id,
+                live(Collection),  # soft-deleted children must not block the parent
+            )
         ).first():
             raise HTTPException(status_code=409, detail="collection_has_children")
         if _collection_model_count(session, cat.path, current_user):

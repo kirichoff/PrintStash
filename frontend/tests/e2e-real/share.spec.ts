@@ -52,8 +52,8 @@ test("revoking a share link breaks the public page", async ({ page }) => {
   // Reopen the dialog and revoke the (only) active link.
   await openShareDialog(page, name);
   await page.getByRole("button", { name: "Revoke" }).click();
-  // The link stays listed but flips to "Revoked" — no Revoke action remains.
-  await expect(page.getByRole("button", { name: "Revoke" })).toHaveCount(0);
+  // Revoked links are removed from the list entirely.
+  await expect(page.getByText("No share links yet.")).toBeVisible();
 
   // The token now 404s — the public page shows the error state.
   await page.goto(url);
