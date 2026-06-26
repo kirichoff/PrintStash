@@ -24,4 +24,12 @@ Requires the backend dev venv (`backend/.venv`); falls back to `uv run`.
 
 collections (create / nest / delete) · tags · filament & printer presets
 (create / edit / delete) · model lifecycle (upload → edit → trash → restore →
-purge) · API keys · display currency · metadata export · printer add/remove.
+purge) · public share links (view-only vs downloadable, revoke → 404) · RBAC
+(create user, grant collection access, non-admin sees only granted collections)
+· API keys · display currency · metadata export · manual backup · design
+customization (metadata visibility) · printer add/remove.
+
+`util.ts` uploads a model through the real ingest flow; its G-code embeds the
+model name so the backend's content-hash dedupe doesn't collapse separate
+uploads. `helpers.ts` also exposes `authBundleFor`/`authedContext` to drive a
+second browser as a non-admin user.

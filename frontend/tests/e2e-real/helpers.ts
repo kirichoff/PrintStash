@@ -1,4 +1,4 @@
-import { test as base, expect, request as pwRequest } from "@playwright/test";
+import { test as base, expect, request as pwRequest, type Browser, type Page } from "@playwright/test";
 
 // Talks straight to the real backend to seed the first admin (once) and mint a
 // real JWT, then injects that token into the browser the same way the app does
@@ -57,5 +57,43 @@ export const test = base.extend({
   },
 });
 /* eslint-enable react-hooks/rules-of-hooks */
+
+// Log in as any user against the real backend and return what the app stores in
+// localStorage after login. Used to drive a second browser as a non-admin user.
+export async function authBundleFor(
+  username: string,
+  password: string,
+): Promise<{ token: string; user: string }> {
+  const ctx = await pwRequest.newContext();
+  try {
+    const login = await ctx.post(`${API}/api/v1/auth/login`, { data: { username, password } });
+    if (!login.ok()) throw new Error(`login failed for ${username}: ${login.status()}`);
+    const token = (await login.json()).access_token;
+    const me = await ctx.get(`${API}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return { token, user: JSON.stringify(await me.json()) };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+// A fresh, isolated browser context already authenticated as `bundle`.
+// Caller is responsible for closing the returned context.
+export async function authedContext(
+  browser: Browser,
+  bundle: { token: string; user: string },
+): Promise<{ context: Awaited<ReturnType<Browser["newContext"]>>; page: Page }> {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.addInitScript(
+    ([t, u]) => {
+      localStorage.setItem("printstash.token", t);
+      localStorage.setItem("printstash.user", u);
+    },
+    [bundle.token, bundle.user] as const,
+  );
+  return { context, page };
+}
 
 export { expect };

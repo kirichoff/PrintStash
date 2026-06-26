@@ -10,7 +10,8 @@ const apiBase = `http://127.0.0.1:${apiPort}`;
 
 export default defineConfig({
   testDir: "./tests/e2e-real",
-  timeout: 60_000,
+  // Generous: some specs upload a file and wait on real async ingestion.
+  timeout: 120_000,
   expect: { timeout: 15_000 },
   // Serial: every test shares one backend DB, so isolation comes from unique
   // names + self-cleanup, not parallel workers.

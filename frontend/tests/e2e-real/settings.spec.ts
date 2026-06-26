@@ -57,3 +57,18 @@ test("export library metadata as JSON", async ({ page }) => {
   ]);
   expect(download.suggestedFilename()).toMatch(/\.json$/);
 });
+
+test("create a manual backup", async ({ page }) => {
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Storage" }).click();
+
+  await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().endsWith("/api/v1/backups") && r.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Backup now" }).click(),
+  ]);
+
+  // The new backup shows up in the Restore-backup list with a Download action.
+  await expect(page.getByRole("button", { name: "Download" }).first()).toBeVisible();
+});
