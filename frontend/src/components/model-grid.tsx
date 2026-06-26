@@ -707,11 +707,7 @@ function CollectionFolderCard({ collection, onSelect }: { collection: Collection
         <Folder className="w-12 h-12 sm:w-16 sm:h-16 text-blue-600/30 dark:text-orange-500/25" />
       </div>
       <div className="p-3 border-t border-border">
-        <div className="flex items-center justify-between gap-2 mb-0.5">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Folder className="w-3.5 h-3.5 text-blue-600 dark:text-orange-500 shrink-0" />
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Folder</span>
-          </div>
+        <div className="flex items-center justify-end gap-2 mb-0.5">
           <span className="text-[10px] text-muted-foreground font-mono">{collection.model_count} models</span>
         </div>
         <p className="text-sm font-bold text-foreground truncate tracking-tight">{collection.name}</p>
