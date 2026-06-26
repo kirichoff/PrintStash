@@ -19,10 +19,7 @@ only after you have seen the result yourself in the browser.
 
 - [ ] `/setup` creates the first admin (storage backend, data dirs, backup
       retention, optional backup S3/R2 fields).
-- [ ] `/login` signs in with username/password; write actions work afterward.
 - [ ] Logged-out: write actions show a sign-in requirement, not a silent fail.
-- [ ] Log in via `/api/v1/auth/login` with username + API key; confirm it works
-      and stops working once the key is revoked.
 
 ## 1. Vault / Library
 
@@ -49,10 +46,6 @@ only after you have seen the result yourself in the browser.
 - [ ] 3MF/OBJ/STEP open via the cached STL preview path.
 - [ ] Edit model collection, description, and tags (add/remove/inline-create);
       save and cancel both behave.
-- [ ] Add a G-code revision; confirm the first one is auto-marked recommended.
-- [ ] Mark another revision recommended; the previous marker clears.
-- [ ] Set revision status (known_good / needs_test / failed / archived) and notes.
-- [ ] Revision compare: pick two revisions, metadata shows side by side.
 - [ ] Files tab lists source meshes separately from G-code.
 - [ ] History tab: log a manual print (free-text printer name works), import
       Moonraker history for a matching file without duplicating jobs.
@@ -111,11 +104,9 @@ only after you have seen the result yourself in the browser.
 ## 9. RBAC (multi-user)
 
 - [ ] Edit vs view roles: a view-only user cannot edit/delete; an edit user can.
-- [ ] Make/remove admin, disable/enable a user, and reset a password.
 
 ## 10. Cross-cutting
 
-- [ ] Theme switch (and theme-aware favicon).
+- [ ] Theme-aware favicon swaps with the theme.
 - [ ] Mobile width: filter drawer and nav usable.
 - [ ] No console errors during the above flows.
-- [ ] Health endpoint version matches the tag being released.
