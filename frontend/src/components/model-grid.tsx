@@ -51,7 +51,7 @@ import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
 import { Link } from "@/lib/navigation";
 import { timeAgo } from "@/lib/format";
-import { rememberLastCollection } from "@/lib/last-collection";
+import { rememberLastCollection, readLastView, rememberLastView } from "@/lib/last-collection";
 import { useAuthenticatedAssetUrl } from "@/lib/use-authenticated-asset-url";
 
 type SortKey = "date-desc" | "date-asc" | "name-asc" | "name-desc";
@@ -151,10 +151,11 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(null);
   const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
-  // Seed from the URL (`?v=docs`) so returning from a document lands on the
-  // Documents tab instead of resetting to Models.
+  // Seed from the URL (`?v=docs`), falling back to the remembered tab, so
+  // returning from a document (Back or the logo) lands on the Documents tab
+  // instead of resetting to Models.
   const [docView, setDocView] = useState<"models" | "docs">(
-    searchParams.get("v") === "docs" ? "docs" : "models",
+    searchParams.get("v") === "docs" ? "docs" : readLastView(),
   );
   const [uploadOpen, setUploadOpen] = useState(false);
   const facetsLoading = collectionsQuery.isLoading || tagsQuery.isLoading;
@@ -174,6 +175,12 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
     // here instead of resetting to the root once the `?c=` param is dropped.
     rememberLastCollection(selectedCollection);
   }, [selectedCollection]);
+
+  // Remember the active tab so the logo / Back return to it (e.g. opening a
+  // document from the Documents tab and coming back).
+  useEffect(() => {
+    rememberLastView(docView);
+  }, [docView]);
 
   function handleCollectionChange(path: string | null) {
     setSelectedIds(new Set());
