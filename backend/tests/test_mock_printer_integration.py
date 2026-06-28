@@ -68,6 +68,40 @@ def _seed(db_session: Session, base_url: str) -> tuple[int, int]:
     return printer.id, job.id
 
 
+async def _run_hub(printer_id: int, body) -> None:
+    """Run the real ``PrinterHub`` WS loop for one printer while ``body`` drives it.
+
+    ``body`` is an async callback that issues HTTP commands against the mock and
+    waits on job state; the hub task is always torn down afterward.
+    """
+    hub = PrinterHub()
+    stop = asyncio.Event()
+    task = asyncio.create_task(hub._run_printer(printer_id, stop))
+    try:
+        await body()
+    finally:
+        stop.set()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+async def _wait_job_state(
+    job_id: int, *states: PrintJobState, timeout: float = 20.0
+) -> PrintJobState:
+    """Poll the DB until the job reaches one of ``states`` (or fail loudly)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with get_session_factory().session() as s:
+            job = s.get(PrintJob, job_id)
+            if job is not None and job.state in states:
+                return job.state
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"job {job_id} never reached {states}")
+
+
 def test_send_print_completes_and_decrements_spoolman(db_session: Session) -> None:
     app, state = create_app(total_mm=1000.0, total_seconds=10.0, print_seconds=1.5)
     running = start_server(app)
@@ -82,22 +116,10 @@ def test_send_print_completes_and_decrements_spoolman(db_session: Session) -> No
         assert resp.status_code == 200
 
         async def _drive() -> None:
-            hub = PrinterHub()
-            stop = asyncio.Event()
-            task = asyncio.create_task(hub._run_printer(printer_id, stop))
-            deadline = time.time() + 20
-            while time.time() < deadline:
-                with get_session_factory().session() as s:
-                    job = s.get(PrintJob, job_id)
-                    if job is not None and job.state == PrintJobState.COMPLETED:
-                        break
-                await asyncio.sleep(0.2)
-            stop.set()
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await _run_hub(
+                printer_id,
+                lambda: _wait_job_state(job_id, PrintJobState.COMPLETED),
+            )
 
         asyncio.run(_drive())
 
@@ -108,5 +130,69 @@ def test_send_print_completes_and_decrements_spoolman(db_session: Session) -> No
             assert job.filament_used_g and job.filament_used_g > 0
 
         assert state.spools[1]["remaining_weight"] < start_weight
+    finally:
+        running.stop()
+
+
+def test_pause_then_resume_runs_to_completion(db_session: Session) -> None:
+    """Pause mid-print is reflected as PAUSED; resuming runs through to COMPLETED."""
+    app, _state = create_app(total_mm=1000.0, total_seconds=10.0, print_seconds=4.0)
+    running = start_server(app)
+    try:
+        printer_id, job_id = _seed(db_session, running.base_url)
+
+        async def _drive() -> None:
+            async with httpx.AsyncClient(base_url=running.base_url) as http:
+                await http.post("/printer/print/start", params={"filename": REMOTE})
+
+                async def body() -> None:
+                    # Pause immediately; the hub's WS stream should report PAUSED.
+                    await http.post("/printer/print/pause")
+                    await _wait_job_state(job_id, PrintJobState.PAUSED)
+                    # Resume and let the simulated print finish.
+                    await http.post("/printer/print/resume")
+                    await _wait_job_state(job_id, PrintJobState.COMPLETED)
+
+                await _run_hub(printer_id, body)
+
+        asyncio.run(_drive())
+
+        with get_session_factory().session() as s:
+            job = s.exec(select(PrintJob).where(PrintJob.id == job_id)).one()
+            assert job.state == PrintJobState.COMPLETED
+            assert job.finished_at is not None
+    finally:
+        running.stop()
+
+
+def test_cancel_marks_job_cancelled_and_skips_spoolman(db_session: Session) -> None:
+    """A cancelled print finishes as CANCELLED and writes no usage to Spoolman."""
+    app, state = create_app(total_mm=1000.0, total_seconds=10.0, print_seconds=5.0)
+    running = start_server(app)
+    try:
+        printer_id, job_id = _seed(db_session, running.base_url)
+        start_weight = state.spools[1]["remaining_weight"]
+
+        async def _drive() -> None:
+            async with httpx.AsyncClient(base_url=running.base_url) as http:
+                await http.post("/printer/print/start", params={"filename": REMOTE})
+
+                async def body() -> None:
+                    # Let it actually start printing, then cancel mid-run.
+                    await _wait_job_state(job_id, PrintJobState.PRINTING)
+                    await http.post("/printer/print/cancel")
+                    await _wait_job_state(job_id, PrintJobState.CANCELLED)
+
+                await _run_hub(printer_id, body)
+
+        asyncio.run(_drive())
+
+        with get_session_factory().session() as s:
+            job = s.exec(select(PrintJob).where(PrintJob.id == job_id)).one()
+            assert job.state == PrintJobState.CANCELLED
+            assert job.finished_at is not None
+
+        # Spoolman write-back only fires on COMPLETED — a cancel must not decrement.
+        assert state.spools[1]["remaining_weight"] == start_weight
     finally:
         running.stop()
