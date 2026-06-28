@@ -69,11 +69,11 @@ export function invalidateQueriesForPath(path: string): void {
     bust(queryKeys.models);
   }
   if (/\/(models|files|ingest|gcode)(\/|$|\?|-)/.test(path)) {
+    bust(queryKeys.collections); // ingest can auto-create collections via bulk upload
     bust(queryKeys.models);
     // Vault totals (count, size, material breakdown) are derived from models,
     // so any model/file write can change them.
     bust(queryKeys.vaultStats);
-    bust(queryKeys.collections);
   }
   if (/\/printers(\/|$|\?)/.test(path)) {
     bust(queryKeys.printers);
