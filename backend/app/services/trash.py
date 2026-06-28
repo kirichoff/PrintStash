@@ -19,7 +19,6 @@ from app.db.models import (
     File,
     Metadata,
     Model,
-    ModelTagLink,
     Printer,
     PrintJob,
     PrinterFile,
@@ -102,7 +101,11 @@ def hard_delete_model(session: Session, model: Model) -> None:
         session.exec(delete(Metadata).where(Metadata.file_id.in_(file_ids)))  # type: ignore[call-overload, union-attr]
         session.exec(delete(File).where(File.id.in_(file_ids)))  # type: ignore[call-overload, union-attr]
 
-    session.exec(delete(ModelTagLink).where(ModelTagLink.model_id == model.id))  # type: ignore[call-overload]
+    # Don't bulk-delete the tag links here: ``Model.tags`` is a link_model
+    # (many-to-many) relationship, so deleting the model already removes its
+    # ModelTagLink rows. Doing both makes the ORM's cascade try to delete rows
+    # this manual DELETE already removed -> StaleDataError on commit (purging any
+    # *tagged* model, including the expired-trash cron, would 500).
     session.delete(model)
 
 

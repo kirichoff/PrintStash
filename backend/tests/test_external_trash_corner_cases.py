@@ -156,6 +156,46 @@ def test_hard_delete_mixed_model_deletes_vault_blob_keeps_nas_bytes(
     assert Path(nas_path).read_bytes() == nas_bytes
 
 
+def test_hard_delete_tagged_model_succeeds_and_keeps_the_tag(
+    db_session: Session,
+) -> None:
+    """Regression: purging a *tagged* model must not raise ``StaleDataError``.
+
+    ``Model.tags`` is a ``link_model`` (many-to-many) relationship, so deleting
+    the model already removes its ``ModelTagLink`` rows. A manual bulk-delete of
+    those rows used to run *as well*, so the ORM's cascade then tried to delete
+    rows that were already gone -> ``StaleDataError`` on commit. That 500'd the
+    purge endpoint and the expired-trash cron for any model carrying a tag.
+    """
+    from app.db.models import ModelTagLink, Tag
+
+    uid = uuid.uuid4().hex
+    model = Model(name=f"Tagged {uid[:6]}", slug=f"tagged-{uid[:8]}", hash=(uid * 2)[:64])
+    tag = Tag(name=f"tag-{uid[:6]}", slug=f"tag-{uid[:6]}")
+    db_session.add(model)
+    db_session.add(tag)
+    db_session.commit()
+    db_session.refresh(model)
+    db_session.refresh(tag)
+    db_session.add(ModelTagLink(model_id=model.id, tag_id=tag.id))
+    db_session.commit()
+
+    trash.soft_delete_model(db_session, model)
+    trash.hard_delete_model(db_session, model)
+    db_session.commit()  # must not raise StaleDataError
+
+    db_session.expire_all()
+    assert db_session.get(Model, model.id) is None
+    # The shared tag survives; only the association row is gone.
+    assert db_session.get(Tag, tag.id) is not None
+    assert (
+        db_session.exec(
+            select(ModelTagLink).where(ModelTagLink.model_id == model.id)
+        ).first()
+        is None
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Duplicate content across two NAS files
 # --------------------------------------------------------------------------- #
