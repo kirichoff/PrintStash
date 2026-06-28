@@ -91,14 +91,12 @@ only after you have seen the result yourself in the browser.
 
 ## 8. Public Share Links
 
-- [ ] Create a link with a short expiry and confirm the public page 404s once it
-      has expired.
+- [ ] Genuine time-based expiry: a link past its `expires_at` shows the
+      invalid/expired public page after the clock actually elapses. (The
+      same inactive-link 404 path is automated via revocation; only the
+      elapsed-time component is manual, since the backend floors expiry at 1 day.)
 
-## 9. RBAC (multi-user)
-
-- [ ] Edit vs view roles: a view-only user cannot edit/delete; an edit user can.
-
-## 10. Cross-cutting
+## 9. Cross-cutting
 
 - [ ] Theme-aware favicon swaps with the theme.
 - [ ] Mobile width: filter drawer and nav usable.

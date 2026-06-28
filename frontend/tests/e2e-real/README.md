@@ -31,7 +31,7 @@ purge) · model detail (edit tags with save/cancel, log a manual print, download
 a revision) · G-code revisions (add, auto-recommend, re-recommend,
 status, compare) · public share links (view-only vs downloadable, revoke → 404) ·
 RBAC (create user, grant collection access, non-admin sees only granted
-collections, view vs edit role gates editing) · user management
+collections, view vs edit role gates editing + deleting) · user management
 (promote/disable/reset password) · API keys · settings overview (system status
 + vault stats) · display currency · auto-mark-known-good toggle · metadata
 export (JSON/CSV) · manual backup · notification channels (add webhook + delete) ·

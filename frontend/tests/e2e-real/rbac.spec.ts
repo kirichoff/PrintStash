@@ -93,8 +93,9 @@ test("a non-admin user sees only collections granted to them", async ({ page, br
   }
 });
 
-// A view-role user can open a model but not edit it; an edit-role user can.
-test("collection role gates whether a user can edit a model", async ({ page, browser }) => {
+// A view-role user can open a model but not edit or delete it; an edit-role
+// user can do both (Edit/Delete share the same canEditModel gate).
+test("collection role gates whether a user can edit or delete a model", async ({ page, browser }) => {
   const stamp = Date.now();
   const col = `rbac-edit-${stamp}`;
   const model = `rbac-model-${stamp}`;
@@ -117,18 +118,19 @@ test("collection role gates whether a user can edit a model", async ({ page, bro
   await grant(page, col, viewer, "View");
   await grant(page, col, editor, "Edit");
 
-  // Viewer: Edit is present but disabled.
+  // Viewer: both Edit and Delete are present but disabled.
   const viewBundle = await authBundleFor(viewer, USER_PW);
   const v = await authedContext(browser, viewBundle);
   try {
     await v.page.goto(modelUrl);
     await expect(v.page.getByRole("heading", { name: model })).toBeVisible();
     await expect(v.page.getByRole("button", { name: "Edit", exact: true })).toBeDisabled();
+    await expect(v.page.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
   } finally {
     await v.context.close();
   }
 
-  // Editor: can edit and save a rename.
+  // Editor: can edit + save a rename, and can delete the model.
   const editBundle = await authBundleFor(editor, USER_PW);
   const e = await authedContext(browser, editBundle);
   try {
@@ -138,6 +140,13 @@ test("collection role gates whether a user can edit a model", async ({ page, bro
     await e.page.getByPlaceholder("Model name").fill(renamed);
     await e.page.getByRole("button", { name: /^Save$/ }).click();
     await expect(e.page.getByRole("heading", { name: renamed })).toBeVisible();
+
+    // Delete is enabled for an edit-role user; deleting sends it to trash and
+    // navigates away from the (now-gone) detail page.
+    await e.page.getByRole("button", { name: "Delete", exact: true }).click();
+    await e.page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+    await expect(e.page).not.toHaveURL(/\/models\//);
+    await expect(e.page.getByRole("heading", { name: renamed })).toHaveCount(0);
   } finally {
     await e.context.close();
   }
