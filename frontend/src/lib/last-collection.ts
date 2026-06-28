@@ -50,10 +50,11 @@ export function readLastView(): "models" | "docs" {
 
 /** Home URL that restores the last collection + tab, e.g. `/?c=spoolers&v=docs`. */
 export function lastVaultHref(): string {
-  const params = new URLSearchParams();
+  // Build by hand (not URLSearchParams) so spaces encode as %20, matching how
+  // the rest of the app writes `?c=` — URLSearchParams would emit `+`.
+  const parts: string[] = [];
   const path = readLastCollection();
-  if (path) params.set("c", path);
-  if (readLastView() === "docs") params.set("v", "docs");
-  const qs = params.toString();
-  return qs ? `/?${qs}` : "/";
+  if (path) parts.push(`c=${encodeURIComponent(path)}`);
+  if (readLastView() === "docs") parts.push("v=docs");
+  return parts.length ? `/?${parts.join("&")}` : "/";
 }
