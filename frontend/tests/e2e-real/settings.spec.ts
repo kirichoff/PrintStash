@@ -90,6 +90,87 @@ test("About shows the running version", async ({ page }) => {
   await expect(page.getByText(`v${version}`).first()).toBeVisible();
 });
 
+test("overview shows server status and vault stats", async ({ page }) => {
+  await page.goto("/settings"); // Overview is the default section.
+  // System card: live health + storage backend from the real backend.
+  await expect(page.getByText("Database", { exact: true })).toBeVisible();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(page.getByText("Storage backend", { exact: true })).toBeVisible();
+  await expect(page.getByText("LOCAL", { exact: true })).toBeVisible();
+  // Stat cards render counts.
+  await expect(page.getByText("Models", { exact: true })).toBeVisible();
+  await expect(page.getByText("Collections", { exact: true })).toBeVisible();
+});
+
+test("auto-mark-known-good toggle persists across reload", async ({ page }) => {
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Design" }).click();
+
+  const sw = page.getByRole("switch");
+  await expect(sw).toBeVisible();
+  const before = await sw.getAttribute("aria-checked");
+
+  await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes("/api/v1/config") && r.request().method() === "PUT",
+    ),
+    sw.click(),
+  ]);
+  const after = await sw.getAttribute("aria-checked");
+  expect(after).not.toBe(before);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Design" }).click();
+  await expect(page.getByRole("switch")).toHaveAttribute("aria-checked", after!);
+
+  // Restore the original so the shared DB doesn't drift for later runs.
+  await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes("/api/v1/config") && r.request().method() === "PUT",
+    ),
+    page.getByRole("switch").click(),
+  ]);
+});
+
+test("About shows the latest-release changelog", async ({ page }) => {
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "About" }).click();
+  await expect(page.getByRole("heading", { name: "Latest changes" })).toBeVisible();
+  await expect(page.getByText("What changed in the current release")).toBeVisible();
+  // The release lists at least one change bullet.
+  await expect(page.locator("ul > li").first()).toBeVisible();
+});
+
+test("add and delete a webhook notification channel", async ({ page }) => {
+  const chName = `e2e-hook-${Date.now()}`;
+  await page.goto("/settings");
+  // Scope to main: the top bar also has an aria-label="Notifications" button.
+  await page.getByRole("main").getByRole("button", { name: "Notifications" }).click();
+
+  // Enable notifications if they aren't already (channel UI is gated on it).
+  // The toggle round-trips to the backend before flipping, so click + poll
+  // rather than check(), which expects an immediate state change.
+  const enable = page.getByRole("checkbox").first();
+  if (!(await enable.isChecked())) {
+    await enable.click();
+    await expect(enable).toBeChecked();
+  }
+
+  await page.getByRole("button", { name: "Add channel" }).click();
+  await page.getByPlaceholder("Living-room printer alerts").fill(chName);
+  await page.getByPlaceholder("https://example.com/hook").fill("https://example.com/e2e-hook");
+  await page.getByRole("button", { name: "Create channel" }).click();
+
+  // The channel persists and shows in the list; then delete it.
+  await expect(page.getByText(chName)).toBeVisible();
+  await page.getByTitle("Delete channel").click();
+  await expect(page.getByText(chName)).toHaveCount(0);
+
+  // Leave notifications disabled again so the shared DB doesn't drift.
+  await enable.click();
+  await expect(enable).not.toBeChecked();
+});
+
 test("purge-expired empties the trash", async ({ page }) => {
   const name = `e2e-purge-${Date.now()}`;
   await uploadGcodeModel(page, name);

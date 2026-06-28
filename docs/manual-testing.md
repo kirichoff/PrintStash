@@ -73,12 +73,11 @@ only after you have seen the result yourself in the browser.
 
 ## 6. Settings
 
-- [ ] Overview: vault stats, counts, storage usage, health, version; CSV export.
 - [ ] Storage: restore from a backup archive recovers the DB and files.
 - [ ] Shared volumes: add a volume, run a manual scan, confirm files index in
       place; upload a revision and confirm write-back adds (never overwrites).
-- [ ] Trash: purge-expired removes models past their retention.
-- [ ] About: version matches the release; changelog renders.
+- [ ] Notifications: send a Test to a channel and confirm real delivery (the
+      add/delete-channel flow itself is automated).
 
 ## 7. Spoolman (if enabled)
 
