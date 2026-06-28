@@ -1,4 +1,5 @@
 import { test, expect } from "./helpers";
+import { uploadModel } from "./util";
 
 // Real CRUD against the backend DB.
 
@@ -49,4 +50,38 @@ test("nest a subcollection and delete the child", async ({ page }) => {
   // child — regression guard for the has-children check ignoring trashed rows.
   await page.getByRole("button", { name: `Delete ${parent}` }).click();
   await expect(page.getByRole("button", { name: `Delete ${parent}` })).toHaveCount(0);
+});
+
+// The /organize page refuses to delete a non-empty collection; the sidebar
+// outliner on / does it recursively, moving the contained models to the trash.
+test("recursive-delete a non-empty collection from the sidebar", async ({ page }) => {
+  const stamp = Date.now();
+  const col = `e2e-recur-${stamp}`;
+  const model = `e2e-recur-model-${stamp}`;
+
+  await page.goto("/organize");
+  await page.getByPlaceholder("New collection...").fill(col);
+  await page.getByPlaceholder("New collection...").press("Enter");
+  await expect(page.getByRole("button", { name: `Delete ${col}` })).toBeVisible();
+  await uploadModel(page, model, { collection: col });
+
+  // Sidebar outliner: hover the collection row, hit its delete, confirm.
+  await page.goto("/");
+  const sidebar = page.locator("aside");
+  const label = sidebar.getByRole("button", { name: col, exact: true });
+  await expect(label).toBeVisible();
+  await label.hover();
+  await label.locator("xpath=following-sibling::button[@title='Delete collection']").click();
+  await sidebar.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(sidebar.getByRole("button", { name: col, exact: true })).toHaveCount(0);
+
+  // The contained model landed in the trash (recycle bin), not hard-deleted.
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Trash" }).click();
+  await expect(page.getByText(model)).toBeVisible();
+
+  // Clean up: purge it forever so the shared DB doesn't accumulate trash.
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("button", { name: "Delete forever" }).click();
+  await expect(page.getByText(model)).toHaveCount(0);
 });

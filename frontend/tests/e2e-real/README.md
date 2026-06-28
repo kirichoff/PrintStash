@@ -24,10 +24,11 @@ Requires the backend dev venv (`backend/.venv`); falls back to `uv run`.
 
 auth (UI login, wrong-password, username + API-key login then revoke) ·
 vault (search, tag filter, list/grid toggle, empty state) · collections
-(create / nest / delete) · tags · uploads (mesh-only source, into a collection) ·
-filament & printer presets (create / edit / delete) · model lifecycle
-(upload → edit → trash → restore → purge) · model detail (log a manual print,
-download a revision) · G-code revisions (add, auto-recommend, re-recommend,
+(create / nest / delete / recursive-delete non-empty from the sidebar) · tags ·
+uploads (mesh-only source, into a collection) · filament & printer presets
+(create / edit / delete) · model lifecycle (upload → edit → trash → restore →
+purge) · model detail (edit tags with save/cancel, log a manual print, download
+a revision) · G-code revisions (add, auto-recommend, re-recommend,
 status, compare) · public share links (view-only vs downloadable, revoke → 404) ·
 RBAC (create user, grant collection access, non-admin sees only granted
 collections, view vs edit role gates editing) · user management

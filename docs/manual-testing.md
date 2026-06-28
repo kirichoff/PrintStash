@@ -24,13 +24,9 @@ only after you have seen the result yourself in the browser.
 ## 1. Vault / Library
 
 - [ ] `/` loads in grid and list modes; thumbnails render.
-- [ ] Printer filter, printer-presence filter, and sort all change the result
-      set.
-- [ ] Drag a model into a collection, move a collection subtree, and
-      recursive-delete a non-empty collection.
-- [ ] Delete a tag that is assigned to models.
-- [ ] Upload mesh-only and mesh+G-code together, with a name override, a
-      collection assignment, an existing tag, and an inline new tag.
+- [ ] Printer filter and printer-presence filter change the result set.
+- [ ] Drag a model into a collection and move a collection subtree.
+- [ ] Upload mesh+G-code together, and pick an existing tag during upload.
 - [ ] Upload a `.zip`; pick a subset of files on extraction; confirm each 3D
       file becomes its own model under an auto-created collection.
 - [ ] URL import of a single file and of a model page (Printables/MakerWorld/
@@ -44,8 +40,7 @@ only after you have seen the result yourself in the browser.
       screenshot.
 - [ ] G-code toolpath mode: layer slider, travel toggle, bed overlay.
 - [ ] 3MF/OBJ/STEP open via the cached STL preview path.
-- [ ] Edit model collection, description, and tags (add/remove/inline-create);
-      save and cancel both behave.
+- [ ] Edit a model's collection and description; the change persists.
 - [ ] Files tab lists source meshes separately from G-code.
 - [ ] History tab: import Moonraker history for a matching file without
       duplicating jobs.
