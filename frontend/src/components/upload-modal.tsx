@@ -37,6 +37,7 @@ import {
   entriesFromDataTransfer,
   extensionOf,
   fileListToItems,
+  isGcodeFile,
   isMeshFile,
   mergeBulkItems,
   walkEntries,
@@ -148,6 +149,13 @@ export function UploadModal({
     () => collections.filter(canWriteCollection),
     [collections],
   );
+
+function sortIntoSlots(files: File[]) {
+  for (const f of files) {
+    if (isMeshFile(f.name)) setMeshFile(f);
+    else if (isGcodeFile(f.name)) setGcodeFile(f);
+  }
+}
 
   useEffect(() => {
     if (!open) return;

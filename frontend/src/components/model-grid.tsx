@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "@/lib/navigation";
 import { CollectionRead, ModelListItem, PrinterRead, TagRead } from "@/types";
@@ -28,7 +28,10 @@ import {
 } from "lucide-react";
 import { listModels, createCollection, updateModel, moveCollection, deleteCollection, batchMoveModels, batchTagModels, batchDeleteModels, } from "@/lib/api";
 import { isMeshFile, isGcodeFile, extensionOf, walkEntries, entriesFromDataTransfer, BulkItem } from "@/lib/bulk-upload";
+// import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, type ModelListFilters, } from "@/lib/queries";
 import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, type ModelListFilters, } from "@/lib/queries";
+import { queryKeys } from "@/lib/query-client";
+// import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, queryKeys, type ModelListFilters, } from "@/lib/queries";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
@@ -186,10 +189,10 @@ async function onMainDrop(e: React.DragEvent) {
   setDropCollection(collPath);
   setUploadOpen(true);
 }
-  const [loading, setLoading] = useState(!initial);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(initial ? initial.models.length === PAGE_SIZE : false);
+  // const [loading, setLoading] = useState(!initial);
+  // const [refreshing, setRefreshing] = useState(false);
+  // const [loadingMore, setLoadingMore] = useState(false);
+  // const [hasMore, setHasMore] = useState(initial ? initial.models.length === PAGE_SIZE : false);
   const facetsLoading = collectionsQuery.isLoading || tagsQuery.isLoading;
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
@@ -274,7 +277,7 @@ async function onMainDrop(e: React.DragEvent) {
     if (hasMore && !loadingMore) modelQuery.fetchNextPage();
   }
   function refresh() {
-    queryClient.invalidateQueries({ queryKey: queryKeys.models });
+    queryClient.invalidateQueries();  //({ queryKey: queryKeys.models });
   }
 
   // Multi-select for batch actions. The selected set is view-independent so it
