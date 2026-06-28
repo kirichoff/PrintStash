@@ -2,6 +2,12 @@
 
 ## 0.8.0
 
+### Fix
+
+- fix post merging
+
+## 0.8.0
+
 ### Added
 
 - **Spoolman integration (optional, OFF by default).** Connect a self-hosted
