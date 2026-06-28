@@ -19,6 +19,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { lastVaultHref } from "@/lib/last-collection";
 import { BrandMark } from "@/components/brand-mark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -68,26 +69,26 @@ function TopBarSearch() {
   if (pathname !== "/") return <span className="flex-1" />;
 
   return (
-    <div className="flex-1 max-w-2xl mx-8 hidden sm:block">
+    <div className="flex-1 max-w-2xl mx-3 sm:mx-8 block">
       <div className="relative">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <Search className="h-5 w-5 text-muted-foreground" />
         </div>
         <input
-          className="block w-full pl-10 pr-14 py-2 border border-border rounded-lg leading-5 bg-muted text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-background focus:ring-1 focus:ring-blue-500 dark:focus:ring-orange-500 focus:border-blue-500 dark:focus:border-orange-500 dark:border-orange-500/40 sm:text-sm transition-colors"
+          className="block w-full pl-10 pr-10 sm:pr-14 py-2 border border-border rounded-lg leading-5 bg-muted text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-background focus:ring-1 focus:ring-blue-500 dark:focus:ring-orange-500 focus:border-blue-500 dark:focus:border-orange-500 dark:border-orange-500/40 text-sm transition-colors"
           placeholder="Search PrintStash..."
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
-        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+        <div className="absolute inset-y-0 right-0 pr-3 hidden sm:flex items-center pointer-events-none">
           <span className="text-xs text-muted-foreground border border-border rounded px-1.5 py-0.5">/</span>
         </div>
         {value && (
           <button
             type="button"
             onClick={clearSearch}
-            className="absolute right-10 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-muted-foreground pointer-events-auto"
+            className="absolute right-2 sm:right-10 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-muted-foreground pointer-events-auto"
             aria-label="Clear search"
           >
             <XCircle className="h-4 w-4" />
@@ -107,6 +108,14 @@ export function TopBar() {
   const [profileOpen, setProfileOpen] = useState(false);
   const tasksRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+  // The logo returns to the model browser, restoring the last folder the user
+  // was in rather than always resetting to "All Models". Recomputed whenever the
+  // route changes (e.g. arriving on Settings) so it reflects the remembered
+  // collection at click time.
+  const [homeHref, setHomeHref] = useState("/");
+  useEffect(() => {
+    setHomeHref(lastVaultHref());
+  }, [pathname]);
 
   useEffect(() => {
     setTasks(listTasks());
@@ -132,7 +141,7 @@ export function TopBar() {
   return (
     <header className="h-16 bg-background border-b border-border flex items-center justify-between px-4 z-40 relative">
       {/* Logo */}
-      <Link href="/" className="flex items-center space-x-2 hover:opacity-80 transition-opacity">
+      <Link href={homeHref} className="flex items-center space-x-2 hover:opacity-80 transition-opacity">
         <div className="w-8 h-8 bg-blue-600 dark:bg-orange-600 rounded flex items-center justify-center flex-shrink-0">
           <BrandMark className="h-6 w-6 text-white" />
         </div>
@@ -178,8 +187,9 @@ export function TopBar() {
           )}
         </div>
         <div className="h-8 w-px bg-muted hidden sm:block" />
-        {/* Profile */}
-        <div ref={profileRef} className="relative">
+        {/* Profile — hidden on mobile, where the bottom nav's "More" sheet owns
+            the account actions (the avatar menu only duplicated nav links). */}
+        <div ref={profileRef} className="relative hidden sm:block">
           {!loading && !user ? (
             <Link
               href="/login"

@@ -9,7 +9,7 @@ value without code changes. See ADR-0002.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from sqlmodel import Session, select
 
@@ -19,6 +19,10 @@ from app.core.time import utcnow
 from app.db.models import SystemConfig, User
 
 logger = get_logger(__name__)
+
+# Sentinel for "argument not provided" so callers can leave a field untouched
+# while still being allowed to pass an explicit ``None`` to clear it.
+_UNSET: Any = object()
 
 
 def get_or_create(session: Session) -> SystemConfig:
@@ -239,6 +243,90 @@ def set_notifications_enabled(session: Session, enabled: bool) -> SystemConfig:
     return config
 
 
+def spoolman_enabled(session: Session) -> bool:
+    """Master opt-in switch for the Spoolman integration. Off by default."""
+    config = session.get(SystemConfig, 1)
+    return False if config is None else bool(config.spoolman_enabled)
+
+
+def set_spoolman_enabled(session: Session, enabled: bool) -> SystemConfig:
+    config = get_or_create(session)
+    config.spoolman_enabled = enabled
+    config.updated_at = utcnow()
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    return config
+
+
+def spoolman_write_enabled(session: Session) -> bool:
+    """Whether measured consumption is written back to Spoolman. On by default;
+    the write path additionally skips the decrement at runtime when Moonraker's
+    native hook is already counting the active spool (unless write-force is set —
+    see ``spoolman_write_force``)."""
+    config = session.get(SystemConfig, 1)
+    return True if config is None else bool(config.spoolman_write_enabled)
+
+
+def set_spoolman_write_enabled(session: Session, enabled: bool) -> SystemConfig:
+    config = get_or_create(session)
+    config.spoolman_write_enabled = enabled
+    config.updated_at = utcnow()
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    return config
+
+
+def spoolman_write_force(session: Session) -> bool:
+    """Whether to write consumption back even when Spoolman reports an active
+    spool (Moonraker's native hook). Off by default so the double-count guard
+    holds for users who never open the Spoolman settings card."""
+    config = session.get(SystemConfig, 1)
+    return False if config is None else bool(config.spoolman_write_force)
+
+
+def set_spoolman_write_force(session: Session, force: bool) -> SystemConfig:
+    config = get_or_create(session)
+    config.spoolman_write_force = force
+    config.updated_at = utcnow()
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    return config
+
+
+def spoolman_config(session: Session) -> dict:
+    """Internal connection config (includes the real API key for client use)."""
+    config = session.get(SystemConfig, 1)
+    if config is None:
+        return {"base_url": None, "api_key": None}
+    return {
+        "base_url": config.spoolman_base_url,
+        "api_key": config.spoolman_api_key,
+    }
+
+
+def set_spoolman_config(
+    session: Session,
+    *,
+    base_url: Any = _UNSET,
+    api_key: Any = _UNSET,
+) -> SystemConfig:
+    """Persist base URL and/or API key. ``_UNSET`` leaves a field untouched so a
+    blank/masked key from the UI never clobbers a stored secret."""
+    config = get_or_create(session)
+    if base_url is not _UNSET:
+        config.spoolman_base_url = (base_url or "").strip().rstrip("/") or None
+    if api_key is not _UNSET:
+        config.spoolman_api_key = api_key or None
+    config.updated_at = utcnow()
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    return config
+
+
 def currency(session: Session) -> str:
     """ISO 4217 code used to render cost figures. Defaults to USD."""
     config = session.get(SystemConfig, 1)
@@ -349,6 +437,7 @@ def get_effective_config(session: Session) -> dict:
         "auto_mark_known_good": auto_mark_known_good_enabled(session),
         "external_libraries_enabled": external_libraries_enabled(session),
         "notifications_enabled": notifications_enabled(session),
+        "spoolman_enabled": spoolman_enabled(session),
         "currency": currency(session),
     }
 

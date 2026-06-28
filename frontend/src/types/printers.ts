@@ -137,6 +137,8 @@ export interface PrintJobRead {
   progress: number;
   source: string;
   error: string | null;
+  spool_id: number | null;
+  spool_name: string | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
@@ -147,6 +149,9 @@ export interface SendToPrinter {
   file_id: number;
   start_print?: boolean;
   remote_filename?: string;
+  spool_id?: number | null;
+  spool_name?: string | null;
+  spool_filament_id?: number | null;
 }
 
 export interface StartPrinterFile {

@@ -45,6 +45,8 @@ SUFFIX_TO_FILE_TYPE: dict[str, FileType] = {
     ".gcode": FileType.GCODE,
     ".g": FileType.GCODE,
     ".gco": FileType.GCODE,
+    # PrusaSlicer binary G-code: metadata + thumbnail parse like a text G-code.
+    ".bgcode": FileType.GCODE,
 }
 
 
@@ -162,6 +164,16 @@ class FilamentProfile(SQLModel, table=True):
     material_brand: Optional[str] = Field(default=None, max_length=128, index=True)
     cost_per_kg: Optional[float] = None
     notes: Optional[str] = None
+
+    # When set, this preset is a read-only mirror of a Spoolman filament (the
+    # source of truth). Sync keeps cost/material/density/diameter aligned; the
+    # API rejects local edits/deletes of linked presets. Cleared (reverting the
+    # preset to a local-only, editable one) when its Spoolman filament is gone.
+    spoolman_filament_id: Optional[int] = Field(default=None, index=True)
+    # Physical filament properties Spoolman knows but local presets historically
+    # didn't — used for accurate mm→grams when a synced spool is selected.
+    density_g_cm3: Optional[float] = None
+    diameter_mm: Optional[float] = None
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
@@ -481,6 +493,27 @@ class SystemConfig(SQLModel, table=True):
     # cost). ``None`` falls back to the default "USD".
     currency: Optional[str] = Field(default=None, max_length=3)
 
+    # Opt-in master switch for the Spoolman filament-inventory integration. Off
+    # by default: while disabled the Spoolman API/UI are idle and no consumption
+    # is written. Spoolman stays the source of truth for spools and remaining
+    # weight; PrintStash reads it for display and writes measured usage back.
+    spoolman_enabled: bool = Field(default=False)
+    spoolman_base_url: Optional[str] = Field(default=None, max_length=512)
+    # Optional API key / bearer token (e.g. for a reverse proxy in front of
+    # Spoolman). Stored plaintext like the S3 secrets / makerworld_token above,
+    # superuser-only API, masked on read.
+    spoolman_api_key: Optional[str] = Field(default=None, max_length=512)
+    # Whether PrintStash writes consumption back to Spoolman on measured-print
+    # completion. On by default; the write path skips at runtime when Moonraker's
+    # native Spoolman hook is decrementing the active spool (see
+    # spoolman_write_force) so a print is never counted twice.
+    spoolman_write_enabled: bool = Field(default=True)
+    # Override the native-hook double-count guard: when True, PrintStash writes
+    # consumption back even if Spoolman reports an active spool (use only after
+    # disabling Moonraker's own Spoolman decrement). Off by default so the guard
+    # protects users who never open the settings card.
+    spoolman_write_force: bool = Field(default=False)
+
     # MakerWorld session token (a Bambu account JWT) obtained via the in-app
     # login flow. MakerWorld auth-gates file downloads; this token is injected as
     # the ``token=<jwt>`` cookie so imports authenticate. Stored like the S3
@@ -604,6 +637,18 @@ class PrintJob(SQLModel, table=True):
     filament_used_mm: Optional[float] = None
     filament_used_g: Optional[float] = None
     actual_duration_s: Optional[int] = None
+
+    # Spoolman spool this print consumed, selected when starting/logging the
+    # job. A soft reference (Spoolman owns the spool table) — not an FK. The
+    # cached label keeps history readable if the spool is later renamed/archived
+    # in Spoolman. On measured completion, this spool is decremented by
+    # filament_used_g (when Spoolman write-back is enabled).
+    spool_id: Optional[int] = Field(default=None, index=True)
+    spool_name: Optional[str] = Field(default=None, max_length=256)
+    # The Spoolman filament (type) the selected spool belongs to. Lets a print
+    # resolve its synced FilamentProfile for exact cost and density/diameter,
+    # without a live Spoolman call at the finishing tick.
+    spool_filament_id: Optional[int] = Field(default=None, index=True)
 
     deleted_at: Optional[datetime] = Field(default=None, index=True)
     deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")

@@ -173,7 +173,17 @@ export function RevisionsTab({
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
-                    <SlicerOpenButton fileId={f.id} fileType={f.file_type} size="sm" />
+                    <SlicerOpenButton
+                      fileId={f.id}
+                      // Binary G-code shares the "gcode" file_type but no slicer
+                      // opens a .bgcode URL, so key off the extension to hide it.
+                      fileType={
+                        f.original_filename.toLowerCase().endsWith(".bgcode")
+                          ? "bgcode"
+                          : f.file_type
+                      }
+                      size="sm"
+                    />
                     <button
                       type="button"
                       onClick={() =>

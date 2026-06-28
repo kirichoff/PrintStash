@@ -16,7 +16,7 @@ import {
   getModelPrintJobs,
   importPrintJobsFromPrinter,
 } from "@/lib/api";
-import { usePrinters } from "@/lib/queries";
+import { usePrinters, useSpoolmanStatus, useSpools } from "@/lib/queries";
 import { formatCost, formatDuration, formatGrams, timeAgo } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import { FileRead, ModelPrintJobRead } from "@/types";
@@ -46,11 +46,16 @@ export function PrintHistorySection({
   const [adhocPrinter, setAdhocPrinter] = useState(false);
   const [adhocPrinterName, setAdhocPrinterName] = useState("");
   const [selectedFileId, setSelectedFileId] = useState<number | "">(gcodeFiles[0]?.id ?? "");
+  const [selectedSpoolId, setSelectedSpoolId] = useState<number | "">("");
   const [jobState, setJobState] = useState("completed");
   const [startedAt, setStartedAt] = useState("");
   const [finishedAt, setFinishedAt] = useState("");
   const [jobError, setJobError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Spoolman inventory — only surfaced when the integration is enabled.
+  const spoolmanEnabled = useSpoolmanStatus().data?.enabled ?? false;
+  const spools = useSpools({ enabled: spoolmanEnabled }).data ?? [];
 
   // Auto mode state
   const [importing, setImporting] = useState(false);
@@ -64,6 +69,7 @@ export function PrintHistorySection({
     setAdhocPrinter(false);
     setAdhocPrinterName("");
     setSelectedFileId(gcodeFiles[0]?.id ?? "");
+    setSelectedSpoolId("");
     setJobState("completed");
     setStartedAt("");
     setFinishedAt("");
@@ -81,11 +87,20 @@ export function PrintHistorySection({
     if (!manualPrinterReady || !selectedFileId) return;
     setSubmitting(true);
     try {
+      const spool =
+        selectedSpoolId !== ""
+          ? spools.find((s) => s.id === selectedSpoolId)
+          : undefined;
       const job = await createManualPrintJob(modelId, {
         printer_id: adhocPrinter ? null : (selectedPrinterId as number),
         printer_name: adhocPrinter ? adhocPrinterName.trim() : null,
         file_id: selectedFileId as number,
         state: jobState,
+        spool_id: selectedSpoolId === "" ? null : (selectedSpoolId as number),
+        spool_name: spool
+          ? spool.filament_name || spool.name || `Spool ${spool.id}`
+          : null,
+        spool_filament_id: spool ? spool.filament_id : null,
         started_at: startedAt || null,
         finished_at: finishedAt || null,
         error: jobError || null,
@@ -220,6 +235,27 @@ export function PrintHistorySection({
                   <option value="cancelled">Cancelled</option>
                 </select>
               </div>
+              {spoolmanEnabled && spools.length > 0 && (
+                <div>
+                  <label className="block font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)] mb-1">Spool (opt.)</label>
+                  <select
+                    value={selectedSpoolId}
+                    onChange={(e) => setSelectedSpoolId(e.target.value ? Number(e.target.value) : "")}
+                    className="w-full h-8 bg-[var(--surface)] text-[var(--on-surface)] font-mono text-xs border border-[var(--outline-variant)] rounded px-2 focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                  >
+                    <option value="">No spool</option>
+                    {spools.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {(s.filament_name || s.name || `Spool ${s.id}`) +
+                          (s.vendor_name ? ` · ${s.vendor_name}` : "") +
+                          (s.remaining_weight != null
+                            ? ` (${formatGrams(s.remaining_weight)} left)`
+                            : "")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)] mb-1">Started (opt.)</label>
@@ -367,6 +403,11 @@ export function PrintHistorySection({
                     {job.filament_cost != null
                       ? ` · ${formatCost(job.filament_cost)}`
                       : ""}
+                  </p>
+                )}
+                {job.spool_name && (
+                  <p className="font-mono text-[11px] text-[var(--on-surface-variant)]">
+                    spool · {job.spool_name}
                   </p>
                 )}
                 {job.error && (

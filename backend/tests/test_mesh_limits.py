@@ -15,9 +15,24 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from app.core.config import _overlay
 from app.services import mesh_processing
+
+
+@pytest.fixture(autouse=True)
+def _static_cap_only():
+    """Most tests here exercise the *static* triangle/byte caps, whose outcome
+    must not depend on the CI host's RAM. Disable the RAM-aware cap by default;
+    the dedicated RAM-cap tests re-enable it explicitly."""
+    prev = _overlay.get("mesh_memory_budget_fraction", "__unset__")
+    _overlay["mesh_memory_budget_fraction"] = 0
+    yield
+    if prev == "__unset__":
+        _overlay.pop("mesh_memory_budget_fraction", None)
+    else:
+        _overlay["mesh_memory_budget_fraction"] = prev
 
 
 def _write_binary_stl(path: Path, n_triangles: int) -> None:
@@ -126,6 +141,203 @@ def test_under_cap_mesh_renders_normally(tmp_path: Path, monkeypatch) -> None:
 
     assert geometry["triangle_count"] == 500
     assert thumb == b"PNGDATA"
+
+
+# ---------------------------------------------------------------------------
+# RAM-aware cap: the effective triangle ceiling scales down with available
+# memory so a small host skips meshes a large host renders (issue #29).
+# ---------------------------------------------------------------------------
+
+
+def test_detect_memory_limit_is_positive_on_linux() -> None:
+    limit = mesh_processing._detect_memory_limit_bytes()
+    # On Linux CI this reads /proc/meminfo or a cgroup; elsewhere it may be None.
+    assert limit is None or limit > 0
+
+
+def test_ram_cap_disabled_when_fraction_zero(monkeypatch) -> None:
+    monkeypatch.setitem(_overlay, "mesh_memory_budget_fraction", 0)
+    assert mesh_processing._ram_triangle_cap(".stl") is None
+
+
+def test_ram_cap_scales_with_memory_and_format(monkeypatch) -> None:
+    # Pin a 4 GB ceiling so the result is host-independent.
+    monkeypatch.setattr(mesh_processing, "_MEMORY_LIMIT_BYTES", 4 * 1024**3)
+    monkeypatch.setitem(_overlay, "mesh_memory_budget_fraction", 0.5)
+    stl_cap = mesh_processing._ram_triangle_cap(".stl")
+    mf_cap = mesh_processing._ram_triangle_cap(".3mf")
+    # 2 GB budget / per-triangle cost.
+    assert stl_cap == int(2 * 1024**3 / mesh_processing._DEFAULT_PEAK_BYTES_PER_TRIANGLE)
+    assert mf_cap == int(2 * 1024**3 / mesh_processing._PEAK_BYTES_PER_TRIANGLE[".3mf"])
+    # 3MF is the heavier format, so its cap is the lower of the two.
+    assert mf_cap < stl_cap
+
+
+def test_ram_cap_skips_mesh_a_big_host_would_render(tmp_path: Path, monkeypatch) -> None:
+    # Static ceiling is generous (5M), but a 2 GB host can't afford this mesh.
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 5_000_000)
+    monkeypatch.setitem(_overlay, "mesh_max_load_mb", 0)
+    monkeypatch.setitem(_overlay, "mesh_memory_budget_fraction", 0.5)
+    monkeypatch.setattr(mesh_processing, "_MEMORY_LIMIT_BYTES", 2 * 1024**3)
+    p = tmp_path / "mid.stl"
+    # ~700k triangles: under the 5M static cap, but over the ~480k RAM cap @ 2 GB.
+    _write_binary_stl(p, 700_000)
+    assert mesh_processing._ram_triangle_cap(".stl") < 700_000
+
+    def _boom(_path):  # pragma: no cover
+        raise AssertionError("RAM-capped mesh must not load")
+
+    monkeypatch.setattr(mesh_processing, "_load_mesh", _boom)
+    assert mesh_processing.extract_geometry(p)["triangle_count"] is None
+
+
+def test_static_cap_still_applies_on_a_huge_ram_host(tmp_path: Path, monkeypatch) -> None:
+    # A 256 GB host: the RAM cap is enormous, so the static ceiling is what binds.
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 1000)
+    monkeypatch.setitem(_overlay, "mesh_memory_budget_fraction", 0.5)
+    monkeypatch.setattr(mesh_processing, "_MEMORY_LIMIT_BYTES", 256 * 1024**3)
+    p = tmp_path / "huge.stl"
+    _write_binary_stl(p, 50_000)
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("over static cap must not load")),
+    )
+    assert mesh_processing.extract_geometry(p)["triangle_count"] is None
+
+
+# ---------------------------------------------------------------------------
+# Per-file memory reclamation: a loaded mesh's arrays are freed and returned to
+# the OS between files so a long scan's RSS doesn't only ever climb (issue #29).
+# ---------------------------------------------------------------------------
+
+
+def test_loaded_mesh_triggers_memory_reclaim(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 1_000_000)
+    monkeypatch.setitem(_overlay, "mesh_max_load_mb", 0)
+    p = tmp_path / "ok.stl"
+    _write_binary_stl(p, 500)
+
+    calls = {"n": 0}
+    monkeypatch.setattr(mesh_processing, "_load_mesh", lambda _p: _fake_mesh(500))
+    monkeypatch.setattr(
+        mesh_processing.mesh_render, "render_mesh_thumbnail", lambda *a, **k: b"PNG"
+    )
+    monkeypatch.setattr(
+        mesh_processing, "_reclaim_memory", lambda: calls.__setitem__("n", calls["n"] + 1)
+    )
+
+    mesh_processing.analyze_mesh(p)
+    assert calls["n"] == 1  # freed exactly once, after the mesh was used
+
+
+def test_skipped_mesh_does_not_reclaim(tmp_path: Path, monkeypatch) -> None:
+    # No mesh was loaded (over cap), so there's nothing to free — and we don't pay
+    # gc.collect()/malloc_trim for a file we never touched.
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 100)
+    p = tmp_path / "huge.stl"
+    _write_binary_stl(p, 50_000)
+
+    calls = {"n": 0}
+    monkeypatch.setattr(
+        mesh_processing, "_reclaim_memory", lambda: calls.__setitem__("n", calls["n"] + 1)
+    )
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("must not load")),
+    )
+
+    mesh_processing.analyze_mesh(p)
+    assert calls["n"] == 0
+
+
+def test_reclaim_memory_is_safe_to_call() -> None:
+    # Must never raise, regardless of libc/platform — it's best-effort cleanup.
+    mesh_processing._reclaim_memory()
+
+
+# ---------------------------------------------------------------------------
+# Raw byte-size guard: the format-blind backstop for files the triangle
+# estimate can't size up (issue #29 — a ~900 MB 3MF that OOM-killed the scan).
+# ---------------------------------------------------------------------------
+
+
+def test_oversize_file_is_never_loaded(tmp_path: Path, monkeypatch) -> None:
+    # Triangle cap is generous so it can't be what trips the guard; the file is
+    # only ~2 MB of facets (well under it). The 1 MB *size* cap must still skip
+    # the load — this is the path that protects against an estimator that comes
+    # up empty on a huge file.
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 100_000_000)
+    monkeypatch.setitem(_overlay, "mesh_max_load_mb", 1)
+    p = tmp_path / "big.stl"
+    _write_binary_stl(p, 42_000)  # ~2 MB on disk
+    assert p.stat().st_size > 1024 * 1024
+
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("oversize file must not load")),
+    )
+
+    geometry, thumb = mesh_processing.analyze_mesh(p)
+    assert geometry["triangle_count"] is None
+    assert thumb is None
+
+
+def test_oversize_3mf_still_gets_embedded_preview(tmp_path: Path, monkeypatch) -> None:
+    # A 3MF over the byte cap is never decompressed into trimesh, but the cheap
+    # embedded slicer preview (read straight from the zip) still stands in.
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 100_000_000)
+    monkeypatch.setitem(_overlay, "mesh_max_load_mb", 1)
+    png = mesh_processing._PNG_MAGIC + b"preview"
+    p = tmp_path / "big.3mf"
+    with zipfile.ZipFile(p, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("3D/3dmodel.model", b"<triangle/>" * 200_000)  # ~2 MB stored
+        zf.writestr("Metadata/thumbnail.png", png)
+    assert p.stat().st_size > 1024 * 1024
+
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("oversize 3MF must not load")),
+    )
+
+    geometry, thumb = mesh_processing.analyze_mesh(p)
+    assert geometry["triangle_count"] is None
+    assert thumb == png
+
+
+def test_size_guard_disabled_when_zero(tmp_path: Path, monkeypatch) -> None:
+    # mesh_max_load_mb = 0 turns the byte cap off; a big-but-sparse-triangle file
+    # then loads normally (only the triangle cap still applies).
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 100_000_000)
+    monkeypatch.setitem(_overlay, "mesh_max_load_mb", 0)
+    p = tmp_path / "big.stl"
+    _write_binary_stl(p, 42_000)
+
+    monkeypatch.setattr(mesh_processing, "_load_mesh", lambda _p: _fake_mesh(42_000))
+    monkeypatch.setattr(
+        mesh_processing.mesh_render, "render_mesh_thumbnail", lambda *a, **k: b"PNG"
+    )
+
+    geometry, thumb = mesh_processing.analyze_mesh(p)
+    assert geometry["triangle_count"] == 42_000
+    assert thumb == b"PNG"
+
+
+def test_3mf_without_model_part_falls_back_to_total_uncompressed_size(
+    tmp_path: Path,
+) -> None:
+    # No ".model" entry: the estimator must not return None (which would let the
+    # archive load blind). It falls back to the total uncompressed payload as a
+    # conservative upper bound (issue #29).
+    p = tmp_path / "weird.3mf"
+    payload = b"x" * 700_000
+    with zipfile.ZipFile(p, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("3D/mesh.bin", payload)
+    est = mesh_processing._estimate_triangle_count(p)
+    assert est == len(payload) // 70
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +543,128 @@ def test_obj_without_faces_returns_none(tmp_path: Path) -> None:
     p = tmp_path / "points.obj"
     p.write_bytes(b"v 0 0 0\nv 1 0 0\nvn 0 0 1\n")
     assert mesh_processing._estimate_triangle_count(p) is None
+
+
+# ---------------------------------------------------------------------------
+# Concurrency-aware RAM budget: the per-job triangle cap divides by
+# VAULT_MAX_RENDER_JOBS, and a semaphore caps how many renders run at once so a
+# bulk upload's background tasks can't collectively OOM the box (issue #29).
+# ---------------------------------------------------------------------------
+
+
+def test_render_jobs_limit_floors_at_one(monkeypatch) -> None:
+    monkeypatch.setitem(_overlay, "max_render_jobs", 0)
+    assert mesh_processing._render_jobs_limit() == 1
+    monkeypatch.setitem(_overlay, "max_render_jobs", -5)
+    assert mesh_processing._render_jobs_limit() == 1
+
+
+def test_ram_cap_divides_budget_by_max_render_jobs(monkeypatch) -> None:
+    # Same RAM, same fraction — doubling the concurrent-job count halves the
+    # per-job triangle cap.
+    monkeypatch.setattr(mesh_processing, "_MEMORY_LIMIT_BYTES", 4 * 1024**3)
+    monkeypatch.setitem(_overlay, "mesh_memory_budget_fraction", 0.5)
+
+    monkeypatch.setitem(_overlay, "max_render_jobs", 1)
+    one = mesh_processing._ram_triangle_cap(".stl")
+    monkeypatch.setitem(_overlay, "max_render_jobs", 2)
+    two = mesh_processing._ram_triangle_cap(".stl")
+
+    assert one == int(2 * 1024**3 / mesh_processing._DEFAULT_PEAK_BYTES_PER_TRIANGLE)
+    assert two == one // 2
+
+
+def test_render_semaphore_caps_concurrent_renders(tmp_path: Path, monkeypatch) -> None:
+    import threading
+    import time
+
+    monkeypatch.setitem(_overlay, "max_render_jobs", 2)
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 1_000_000)
+    monkeypatch.setitem(_overlay, "mesh_max_load_mb", 0)
+    # Drop any cached semaphore built at a different limit by an earlier test.
+    monkeypatch.setattr(mesh_processing, "_RENDER_SEMAPHORE", None)
+
+    p = tmp_path / "ok.stl"
+    _write_binary_stl(p, 500)
+    monkeypatch.setattr(mesh_processing, "_load_mesh", lambda _p: _fake_mesh(500))
+
+    state = {"current": 0, "peak": 0}
+    lock = threading.Lock()
+
+    def _slow_render(*_a, **_k):
+        with lock:
+            state["current"] += 1
+            state["peak"] = max(state["peak"], state["current"])
+        time.sleep(0.05)  # hold the slot so overlap is observable
+        with lock:
+            state["current"] -= 1
+        return b"PNG"
+
+    monkeypatch.setattr(
+        mesh_processing.mesh_render, "render_mesh_thumbnail", _slow_render
+    )
+
+    threads = [
+        threading.Thread(target=lambda: mesh_processing.analyze_mesh(p))
+        for _ in range(8)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert state["peak"] >= 1  # work really ran
+    assert state["peak"] <= 2  # never more than VAULT_MAX_RENDER_JOBS at once
+
+
+# ---------------------------------------------------------------------------
+# Large-3MF embedded-preview preference: a 3MF over the adaptive cap uses its
+# embedded slicer preview without ever decompressing/parsing the mesh — gated by
+# VAULT_USE_EMBEDDED_3MF_PREVIEW_FOR_LARGE_FILES (issue #29).
+# ---------------------------------------------------------------------------
+
+
+def _over_cap_3mf_with_preview(tmp_path: Path) -> tuple[Path, bytes]:
+    png = mesh_processing._PNG_MAGIC + b"slicer-plate"
+    p = tmp_path / "big.3mf"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("3D/3dmodel.model", b"<triangle/>" * 100_000)  # ~157k tris
+        zf.writestr("Metadata/thumbnail.png", png)
+    return p, png
+
+
+def test_large_3mf_uses_embedded_preview_when_flag_on(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 1000)  # 3MF is over cap
+    monkeypatch.setitem(_overlay, "use_embedded_3mf_preview_for_large_files", True)
+    p, png = _over_cap_3mf_with_preview(tmp_path)
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("large 3MF must not load")),
+    )
+
+    geometry, thumb = mesh_processing.analyze_mesh(p)
+    assert geometry["triangle_count"] is None  # never loaded
+    assert thumb == png  # embedded preview used instead
+
+
+def test_large_3mf_skips_embedded_preview_when_flag_off(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", 1000)
+    monkeypatch.setitem(_overlay, "use_embedded_3mf_preview_for_large_files", False)
+    p, _png = _over_cap_3mf_with_preview(tmp_path)
+    monkeypatch.setattr(
+        mesh_processing,
+        "_load_mesh",
+        lambda _p: (_ for _ in ()).throw(AssertionError("large 3MF must not load")),
+    )
+
+    geometry, thumb = mesh_processing.analyze_mesh(p)
+    assert geometry["triangle_count"] is None
+    assert thumb is None  # flag off → no embedded fallback for the over-cap file
 
 
 def test_over_cap_obj_skips_load(tmp_path: Path, monkeypatch) -> None:

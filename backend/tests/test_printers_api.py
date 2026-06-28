@@ -319,6 +319,44 @@ class TestBambuPrinter:
         assert resp.status_code == 409
         assert resp.json()["detail"] == "operation_not_supported_for_provider"
 
+    def test_send_rejects_binary_bgcode(
+        self, client: TestClient, db_session: Session, auth_headers
+    ):
+        # A .bgcode file is indexed (file_type "gcode") for its metadata, but
+        # Moonraker/Klipper can't print binary G-code — the send must 400.
+        from app.db.models import File, Model
+
+        m = Model(name="Model", slug="model-bgcode", hash="b" * 64)
+        db_session.add(m)
+        db_session.commit()
+        db_session.refresh(m)
+
+        f = File(
+            model_id=m.id,
+            path="/data/model.bgcode",
+            original_filename="model.bgcode",
+            file_type="gcode",
+            version=1,
+            size_bytes=100,
+            sha256="z" * 64,
+        )
+        db_session.add(f)
+        db_session.commit()
+        db_session.refresh(f)
+
+        p = Printer(name="Ender 3", moonraker_url="http://10.0.0.1:7125")
+        db_session.add(p)
+        db_session.commit()
+        db_session.refresh(p)
+
+        resp = client.post(
+            f"/api/v1/printers/{p.id}/send",
+            json={"file_id": f.id, "start_print": False},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "binary_gcode_not_printable"
+
     def test_bambu_pause_calls_provider(
         self, client: TestClient, db_session: Session, auth_headers
     ):

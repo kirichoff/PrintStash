@@ -98,10 +98,16 @@ def create_share(
 
 
 def list_shares(session: Session, model_id: int) -> list[ShareLink]:
+    # Revoked links are hidden from the management list. The row is kept (not
+    # hard-deleted) so the token stays permanently invalid — the public lookup
+    # still finds it, sees it's revoked, and returns the uniform 404.
     return list(
         session.exec(
             select(ShareLink)
-            .where(ShareLink.model_id == model_id)
+            .where(
+                ShareLink.model_id == model_id,
+                ShareLink.revoked_at.is_(None),  # type: ignore[union-attr]
+            )
             .order_by(ShareLink.created_at.desc())  # type: ignore[attr-defined]
         ).all()
     )

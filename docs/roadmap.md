@@ -8,7 +8,7 @@ Roadmap feedback belongs in
 [the public roadmap discussion](https://github.com/xiao-villamor/PrintStash/discussions/1).
 Issues are better for confirmed bugs or scoped implementation work.
 
-## Current Release: 0.6.x — Self-Hosted Library
+## Current Release: 0.8.x — Self-Hosted Library
 
 Production hardening is in place. The app is useful for local-first 3D print
 library workflows, installable through Docker Compose (the default compose pulls
@@ -25,7 +25,7 @@ Developed features in the current app:
 - Public, expiring, read-only share links to a single model (view-only by default; opt-in original-file download)
 - Print statistics dashboard (cost, filament, prints, print time; time series + top collections/filaments) with a configurable display currency
 - Measured prints: real filament + duration and per-print cost captured from Moonraker, with auto known-good revision promotion
-- G-code parser coverage for OrcaSlicer, PrusaSlicer, Bambu Studio, Cura, and Klipper/Orca samples
+- G-code parser coverage for OrcaSlicer, PrusaSlicer, Bambu Studio, Cura, and Klipper/Orca samples, including PrusaSlicer binary G-code (`.bgcode`) metadata and thumbnails
 - Content-hash deduplication, logical model grouping, version history, thumbnails, cached STL conversion for 3MF/OBJ preview, and in-browser mesh/G-code previews
 - Categories, tags, search, model editing, printer-presence filters, model-to-printer file badges, collection counts, collection moves, and drag-and-drop library organization
 - G-code revision upload, per-revision labels, outcome status, notes, recommended marker, and side-by-side metadata comparison
@@ -38,25 +38,13 @@ Developed features in the current app:
 - Vault stats, storage usage reporting, configurable card metrics, trash retention controls, restore/purge actions, and thumbnail rebuild jobs
 - Prometheus `/metrics` endpoint (request latency, ingestion counts, live printer status) and operational health output for database, storage, backup, background jobs, external-library scans, and printer provider readiness
 - Moonraker/Klipper provider with live status, upload/send, optional start, pause/resume/cancel, printer file inventory sync, remote-file start, and job history
+- Optional Spoolman integration (OFF by default): spool inventory display, per-print spool selection, consumption write-back on measured-print completion, and Moonraker-native-hook double-count detection
 - Bambu LAN beta provider with local status plus pause/resume/cancel controls; upload/send, remote file inventory, and remote-file start remain unsupported
-- Responsive Vite/React UI with a light/dark theme toggle (system-preference aware), mobile bottom navigation, slide-out nav/filter drawers, and a floating action button across the library, model detail, upload, taxonomy, profiles, settings, setup, and printer workflows
+- Responsive Vite/React UI with a light/dark theme toggle (system-preference aware) and a refreshed mobile layout: a five-slot bottom navigation with an overflow "More" sheet, on-canvas mobile search, slide-out filter drawers, and a floating action button across the library, model detail, upload, taxonomy, profiles, settings, setup, and printer workflows
 
 The releases below are intentionally small: each is meant to be a single,
 shippable step rather than a multi-month epic. Versions are indicative, not
 promises, and the order can shift with real-world feedback.
-
-## 0.6.x — Release Validation and Feedback (in progress)
-
-Goal: keep the self-hosted release easy to install, easy to upgrade, and safe
-enough for real home use.
-
-- Publish and validate tagged release notes and Docker image guidance
-- Collect real-world feedback from Docker/NAS/homelab installs
-- Exercise backup/restore, upgrade, and provider diagnostics on fresh installs
-- Add parser fixtures from more slicers and printer profiles as users share samples
-- Improve first-run setup and error messages where new users get stuck
-- Scheduled release backup/restore smoke checks
-- Upgrade notes for SQLite and optional Postgres installs
 
 ## 0.7 — Notifications, Event Hooks, and Parser Robustness (delivered in 0.7.0)
 
@@ -76,7 +64,12 @@ Shipped together in 0.7.0 rather than across several patches:
 [#24]: https://github.com/xiao-villamor/PrintStash/issues/24
 [#27]: https://github.com/xiao-villamor/PrintStash/issues/27
 
-## 0.8 — Spoolman Integration
+Closed in later 0.7.x patches: the 0.7.0 binary-`.bgcode` follow-up — PrusaSlicer
+binary G-code is now a supported file type, parsed for metadata and its embedded
+thumbnail (preview/send stay disabled for it, as the toolpath is heatshrink-
+compressed and printers want plain-text G-code) — delivered in 0.7.3.
+
+## 0.8 — Spoolman Integration (delivered in 0.8.0)
 
 Goal: track filament inventory and per-print consumption by integrating with
 [Spoolman](https://github.com/Donkie/Spoolman) rather than reimplementing it.
@@ -95,21 +88,27 @@ Spoolman already does well. Integration stays optional and OFF by default,
 behind a master switch, with no hard dependency — consistent with the
 local-first principles below.
 
-- Spoolman client + connection config (base URL, optional auth), behind a master
-  switch and OFF by default; reachability surfaced in `/health` and provider
-  readiness, with graceful degradation that never blocks a print
-- Read side: pull vendors, filaments, and spools; show inventory and remaining
-  weight in PrintStash, and reconcile with local `FilamentProfile` cost data
-- Spool selection when starting a vault job or logging a print, persisted on the
-  print record
+Shipped in 0.8.0:
+
+- Spoolman client + connection config (base URL, optional API key), behind a
+  master switch and OFF by default; reachability surfaced in `/health` with
+  graceful degradation that never blocks a print
+- Read side: pull spools and show inventory + remaining weight in the Settings →
+  Spoolman card
+- Filament preset sync (one-way Spoolman → PrintStash): import Spoolman filaments
+  as read-only `FilamentProfile` presets (cost/material/density/diameter), keyed
+  by `spoolman_filament_id`, so filament data lives in one source of truth
+- Spool selection when starting a vault job (send-to-printer) or logging a print
+  manually, persisted on the print record and shown in print history; a synced
+  spool drives exact per-print cost and density-accurate grams
 - Write side: on measured-print completion, decrement the selected spool by
   `filament_used_g` (reuses the existing `print_results` + `mm_to_grams`
   pipeline). Moonraker-measured prints only — Bambu does not report live
   consumption
-- Double-count safety: detect when Moonraker's native Spoolman hook is already
-  decrementing the active spool, and warn / offer to disable our write so a
-  print is never counted twice
-- Per-spool usage history and low-stock visibility sourced from Spoolman
+- Double-count safety: at write time, skip our own decrement when Spoolman
+  reports an active spool that Moonraker's native hook is already counting (with
+  a manual "write back anyway" override), plus a UI warning — so a print is
+  never counted twice
 
 ## 0.9 — Provider Maturity (Bambu + reliability)
 
@@ -152,7 +151,7 @@ queue manager.
 Goal: fit cleanly into existing homelab infrastructure.
 
 - OIDC / SSO login (Authentik, Authelia, and similar)
-- Installable PWA / improved mobile experience
+- Installable PWA with offline support (the mobile layout itself was refreshed in 0.8.x)
 - Localization (i18n) scaffolding
 
 ## Later — Optional Cloud-Ready Adapters

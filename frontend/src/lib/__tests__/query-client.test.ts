@@ -50,9 +50,9 @@ describe("invalidateQueriesForPath", () => {
     expectBusted(spy, [queryKeys.tags, queryKeys.models]);
   });
 
-  it("busts models AND vault stats on a model write (stats derive from models)", () => {
+  it("busts models, vault stats AND collections on a model write (stats + counts derive from models)", () => {
     invalidateQueriesForPath("/api/v1/models/12");
-    expectBusted(spy, [queryKeys.models, queryKeys.vaultStats]);
+    expectBusted(spy, [queryKeys.models, queryKeys.vaultStats, queryKeys.collections]);
   });
 
   it("treats files/ingest/gcode paths as model writes", () => {
@@ -63,7 +63,7 @@ describe("invalidateQueriesForPath", () => {
     ]) {
       spy.mockClear();
       invalidateQueriesForPath(path);
-      expectBusted(spy, [queryKeys.models, queryKeys.vaultStats]);
+      expectBusted(spy, [queryKeys.models, queryKeys.vaultStats, queryKeys.collections]);
     }
   });
 

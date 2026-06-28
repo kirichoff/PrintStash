@@ -1,5 +1,161 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+- **Spoolman integration (optional, OFF by default).** Connect a self-hosted
+  [Spoolman](https://github.com/Donkie/Spoolman) instance under
+  Settings → Spoolman with a base URL and optional API key, behind a master
+  switch. A Test connection action and a live status badge confirm reachability,
+  and the connection is reported in `/health` (informational — a Spoolman outage
+  never marks the service degraded or blocks a print).
+- **Spool inventory display.** The Spoolman card lists spools with their
+  remaining weight, pulled live from Spoolman (the source of truth).
+- **Filament preset sync (Spoolman → PrintStash, one-way).** A "Sync from
+  Spoolman" action on the Profiles page imports Spoolman filaments as
+  `FilamentProfile` presets keyed by `spoolman_filament_id` (deriving `$/kg` from
+  `price / weight`, plus material, brand, density, and diameter). Synced presets
+  are **read-only** in PrintStash (edit them in Spoolman); the first sync adopts
+  matching local presets by name+material instead of duplicating, and filaments
+  removed in Spoolman are unlinked (reverted to editable local), never deleted.
+  Sync also runs automatically when the integration is enabled. This keeps
+  filament data in one source of truth instead of drifting across two apps.
+- **Exact per-print cost & weight from the selected spool.** When a print used a
+  synced spool, its cost comes from that filament's real Spoolman price and its
+  grams use the spool's real density/diameter (`mm_to_grams` override) instead of
+  the static per-material table — replacing fuzzy metadata matching for those
+  prints.
+- **Per-print spool selection.** Choose which spool a print consumes when
+  sending a job to a printer (`send-to-printer`) or logging a print manually.
+  The spool is persisted on the print record (`PrintJob.spool_id`/`spool_name`)
+  and shown in the model's print history.
+- **Consumption write-back.** On a Moonraker-measured print completion,
+  PrintStash decrements the selected Spoolman spool by the measured
+  `filament_used_g` (server-side via Spoolman's `/spool/{id}/use`), reusing the
+  existing `print_results` + `mm_to_grams` pipeline. Once per job, after the job
+  is committed, so it never blocks the print path. Bambu reports no live
+  consumption, so its prints are skipped.
+- **Double-count safety.** Before writing consumption back, PrintStash checks
+  Spoolman's active spool at completion time; if Moonraker's own Spoolman
+  integration is already decrementing it, PrintStash skips its own write so a
+  print is never counted twice — even if you never opened the settings card.
+  The UI also warns when this is detected. An operator who has disabled
+  Moonraker's hook can set a "write back anyway" override to make PrintStash
+  own the consumption.
+
+### Changed
+
+- **Mobile UI refresh.** Rebuilt the bottom navigation as a five-slot
+  Material-style bar (four destination tabs plus an always-present "More"
+  sheet) instead of cramming up to seven items across the width — readable
+  labels, a clear active indicator, and the account actions (username +
+  Log out) moved into the More sheet.
+- **Search on mobile.** The top-bar search is now available on small screens;
+  the redundant user-avatar menu is hidden there since navigation and account
+  actions live in the bottom nav.
+- **Library header on mobile.** The "All Models" header stacks its title and
+  actions on narrow screens (so the heading no longer wraps), with tighter
+  padding and smaller folder cards.
+
+### Fixed
+
+- Dark-mode Catalog stat cards no longer show bright/stray dividers — the
+  Collections/Tags summary now uses theme-aware hairline separators.
+- The internal `__external__` sentinel model (placeholder for external print
+  jobs) no longer leaks into the "All Models" grid — the library browse now
+  excludes it, matching the header count that already did.
+- Batch tag/move no longer creates a tag or destination collection as a side
+  effect when every selected model fails the permission check; taxonomy is only
+  created once at least one model qualifies. Batch permission checks were also
+  collapsed from a per-model grants query into a single pass.
+- Upload drag-and-drop is steadier: the drop highlight no longer flickers when
+  the cursor crosses items inside the dropzone, the copy cursor shows while
+  dragging, and a folder that fails to read now surfaces an error instead of
+  silently doing nothing.
+
+### Internal
+
+- New `app.services.spoolman` (`SpoolmanClient` over the shared httpx pool, plus
+  a blocking `use_spool_weight_sync` for the worker-thread finish tick),
+  `app.api.v1.spoolman` router (superuser, secret-masked config), a
+  `record_spool_usage` helper in `print_results`, a `_spoolman_probe` health
+  component, and the `spoolman_*` switches on `SystemConfig` with an Alembic
+  migration. Covered by client/helper/API unit tests and a frontend API-contract
+  test; e2e mock routes added for the Spoolman endpoints.
+- Consumption write-back gained a write-time double-count guard: a blocking
+  `active_spool_sync` probe in `app.services.spoolman` and a
+  `spoolman_write_force` override on `SystemConfig` (third Alembic migration).
+  `record_spool_usage` skips the decrement when Spoolman reports an active spool
+  unless the override is set. Covered by unit tests.
+- `app.services.filament_sync` (Spoolman→preset reconcile), `spoolman_filament_id`
+  /`density_g_cm3`/`diameter_mm` on `FilamentProfile` and `spool_filament_id` on
+  `PrintJob` (second Alembic migration), a `density` override on `mm_to_grams`,
+  and `model_views.filament_cost_for_job` for spool-exact cost. Read-only
+  enforcement on linked presets in the filaments API.
+
+## 0.7.3
+
+### Added
+
+- **PrusaSlicer binary G-code (`.bgcode`) is now a first-class file type.** It
+  was previously skipped on upload, URL/zip import, and shared-volume scans
+  ("returns empty metadata gracefully", tracked as a 0.7.0 follow-up). The
+  parser now reads bgcode's container blocks directly: slicer/printer/print
+  metadata (slicer + version, printer model, nozzle/bed temps, layer height,
+  infill, filament length/weight/cost, estimated time, material, …) and the
+  largest embedded PNG/JPG thumbnail are extracted just like a text `.gcode`.
+  Only the metadata and thumbnail blocks are read — they're stored uncompressed
+  or zlib-deflated, so this needs **no new dependency**; the heatshrink-
+  compressed G-code body is skipped, keeping the read cheap on large files.
+
+### Changed
+
+- **Binary G-code is metadata-only where it can't be more.** A `.bgcode` file's
+  toolpath is heatshrink-compressed, and Moonraker/Klipper and Bambu LAN print
+  plain-text G-code only — so for `.bgcode` files the in-browser toolpath
+  preview shows a notice instead of an empty plot, "Open in slicer" is hidden,
+  and send-to-printer is excluded (and rejected by the API with
+  `binary_gcode_not_printable` as a backstop). Metadata and thumbnail still
+  display, and the file downloads normally.
+
+### Internal
+
+- New stdlib-only `app.services.bgcode` reader (container walk, deflate, INI
+  metadata, thumbnail blocks) with safety caps for truncated/hostile files.
+  Covered by synthetic-container unit tests plus a guarded real-fixture test,
+  and the `.bgcode`-skipped assertions in the import and shared-volume suites
+  were updated to expect ingestion.
+
+## 0.7.2
+
+### Changed
+
+- **Database migrations now run automatically on startup.** The API image's
+  entrypoint runs `alembic upgrade head` before the server launches, so migrations
+  happen however the container is started (Compose, Portainer, Unraid, bare
+  `docker run`) — editing or removing the Compose `command:` can no longer skip
+  them (issue #29). A failed migration aborts startup *before* the app serves a
+  request. The previous explicit `docker compose run … alembic upgrade head` step
+  is now optional.
+
+### Fixed
+
+- **Fresh installs and upgrades come up cleanly on SQLite *and* PostgreSQL.** The
+  migration runner now bootstraps a brand-new database directly from the models
+  (then stamps it at head) instead of replaying the historical migration chain,
+  whose SQLite-authored baseline failed outright on a fresh Postgres. Existing
+  databases still upgrade normally. (#29)
+- **A database started once without migrations is adopted safely.** If the schema
+  was built by the app's own `create_all()` and never recorded a migration version
+  (e.g. after the Compose migration step was removed), the runner now detects it,
+  stamps it at head, and continues — no "table already exists" crash on the next
+  upgrade, and no data is touched. A one-time manual repair is also documented. (#29)
+- **Deleting a model keeps you in its folder.** It previously returned to the root
+  "All Models" view; it now returns to the collection the model lived in. (#30)
+- **The PrintStash logo returns you to the collection you were browsing** instead
+  of always resetting to "All Models" — the last-viewed folder is remembered. (#30)
+
 ## 0.7.1b1 - Upload methods improvement & Docker Compose light 
 
 ### Added
@@ -9,6 +165,57 @@
 
 ### Changed
 - **Drag is now available in every tab** o the upload wizard 
+
+## 0.7.1
+
+### Fixed
+
+- **Further hardening against OOM during library scans.** The mesh-density caps
+  added in 0.7.0 (#24) are the primary fix for scan OOMs; this adds a second,
+  format-blind backstop for the cases the triangle estimate can't size up — e.g.
+  a 3MF with no parseable mesh parts, where the estimate came up empty and the
+  file was loaded anyway. A byte-size ceiling (`VAULT_MESH_MAX_LOAD_MB`, default
+  200 MB) is now checked before any load, and the 3MF estimator falls back to the
+  total uncompressed payload when it finds no mesh parts. Such files are indexed
+  and skipped (3MF keeps its embedded preview) instead of risking a crash. If you
+  hit a scan OOM on an older image, upgrading to 0.7.0+ is the actual fix. (#29)
+- **RAM-aware mesh cap.** The thumbnail/geometry cap now scales with the memory
+  the process actually has. PrintStash reads the cgroup limit (or host RAM) and
+  derives a per-format triangle ceiling from `VAULT_MESH_MEMORY_BUDGET_FRACTION`
+  (default 0.5), combined with the static cap — so a 4 GB container automatically
+  skips meshes a 32 GB host renders, without per-host tuning. Measured cost is
+  format-specific (3MF's XML loader is ~4.5× heavier per triangle than STL), and
+  the cap accounts for that. (#29)
+- **~50 % less thumbnail-render memory + no leak.** The software renderer now
+  works in float32 instead of float64, roughly halving the peak RSS of the arrays
+  that scale with triangle count (a 2.2 M-triangle model's render dropped from
+  ~3.0 GB to ~1.6 GB) with no visible change to thumbnails. And every mesh's
+  buffers are explicitly freed with the heap returned to the OS (`malloc_trim`)
+  after each file, so a long scan's memory recedes between files instead of only
+  climbing. (#29)
+- **Face-chunked thumbnail rendering — peak memory is now O(chunk), not O(mesh).**
+  The software rasteriser built every per-face array (screen-space triangles,
+  smoothed corner normals, per-vertex colours, …) for the *whole* mesh at once,
+  so peak RAM scaled with total triangle count. It now processes faces in chunks
+  of `VAULT_MESH_RENDER_FACE_CHUNK_SIZE` (default 200k), building and freeing each
+  chunk's arrays before the next, so a million-triangle mesh no longer materialises
+  several large arrays simultaneously. Thumbnails are visually identical. (#29)
+- **Concurrency-aware render budget.** Bulk/folder uploads (#26) run in a
+  background-task threadpool and could fire many simultaneous renders that
+  collectively OOM the box. A new `VAULT_MAX_RENDER_JOBS` (default 1) caps how
+  many mesh load+render jobs run at once via a semaphore, and the RAM-aware
+  triangle cap now divides its budget by the same value so each concurrent job
+  stays within its share. `VAULT_MESH_MEMORY_BUDGET_FRACTION` stays 0.5 by
+  default, with 0.30–0.35 now documented as safer for production hosts. (#29)
+- **Large 3MF files skip the costly XML parse.** A 3MF whose estimate exceeds the
+  adaptive cap now uses its embedded slicer preview directly instead of handing
+  the archive to the loader, whose XML parse is the dominant memory cost.
+  Controlled by `VAULT_USE_EMBEDDED_3MF_PREVIEW_FOR_LARGE_FILES` (default on). (#29)
+- **"All Models" now shows the real library total.** The count on the root
+  "All Models" view only reflected models sitting loose at the root, so a library
+  whose models all live in (folder-mirrored) collections showed `0`. It now shows
+  the access-scoped library total. (#30)
+>>>>>>> origin/0.8.0
 
 ## 0.7.0 - Notifications & event hooks
 

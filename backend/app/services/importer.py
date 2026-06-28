@@ -38,7 +38,7 @@ from app.services.jobs import registry
 
 logger = get_logger(__name__)
 
-_GCODE_SUFFIXES = {".gcode", ".g", ".gco"}
+_GCODE_SUFFIXES = {".gcode", ".g", ".gco", ".bgcode"}
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 # Importable 3D suffixes are exactly the ones the vault knows how to ingest.
 _IMPORTABLE_SUFFIXES = set(SUFFIX_TO_FILE_TYPE.keys())

@@ -25,9 +25,12 @@ re-implements it.
 **Revision**:
 A G-code Artifact with test-outcome bookkeeping (label, status, notes,
 recommended marker). Revision numbers are derived from version order, never
-stored. A Model with G-code always has exactly one recommended revision:
-the first upload claims the marker (enforced in artifact persistence),
-and marking another clears it from the rest.
+stored. A Model with at least one live G-code revision has exactly one
+recommended revision; a Model with no live G-code — none uploaded, or every
+revision deleted — has none, and the recommended marker is null. The first
+upload claims the marker (enforced in artifact persistence), marking another
+clears it from the rest, and deleting the recommended revision promotes the
+newest surviving revision (or leaves none when it was the last).
 
 **Model views**:
 The read-model module (`services/model_views`) — single owner of every

@@ -114,6 +114,8 @@ class ModelPrintJobRead(BaseModel):
     filament_used_g: Optional[float] = None
     actual_duration_s: Optional[int] = None
     filament_cost: Optional[float] = None
+    spool_id: Optional[int] = None
+    spool_name: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     created_at: datetime
@@ -165,6 +167,40 @@ class TrashedModelRead(BaseModel):
 class TrashPurgeRead(BaseModel):
     purged_model_ids: List[int] = []
     purged_count: int = 0
+
+
+class ModelBatchFailure(BaseModel):
+    model_id: int
+    reason: str
+
+
+class ModelBatchResult(BaseModel):
+    succeeded_ids: List[int] = []
+    failed: List[ModelBatchFailure] = []
+    succeeded_count: int = 0
+    failed_count: int = 0
+
+
+class ModelBatchMove(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_ids: List[int] = Field(min_length=1, max_length=500)
+    # Same semantics as ModelUpdate.collection: "" (or missing) means root.
+    collection: str = Field(default="", max_length=1024)
+
+
+class ModelBatchTags(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_ids: List[int] = Field(min_length=1, max_length=500)
+    add: List[str] = Field(default_factory=list, max_length=100)
+    remove: List[str] = Field(default_factory=list, max_length=100)
+
+
+class ModelBatchDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_ids: List[int] = Field(min_length=1, max_length=500)
 
 
 class StorageUsageRead(BaseModel):
@@ -258,6 +294,9 @@ class ManualPrintJobCreate(BaseModel):
     printer_name: Optional[str] = Field(default=None, max_length=128)
     file_id: int
     state: str = Field(default="completed", max_length=32)
+    spool_id: Optional[int] = None
+    spool_name: Optional[str] = Field(default=None, max_length=256)
+    spool_filament_id: Optional[int] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     error: Optional[str] = Field(default=None, max_length=1024)
@@ -356,6 +395,11 @@ class FilamentProfileUpdate(BaseModel):
 class FilamentProfileRead(FilamentProfileBase):
     id: int
     usage_count: int = 0
+    # Present when this preset mirrors a Spoolman filament — the UI shows a
+    # badge and makes the synced fields read-only.
+    spoolman_filament_id: Optional[int] = None
+    density_g_cm3: Optional[float] = None
+    diameter_mm: Optional[float] = None
     created_at: datetime
     updated_at: datetime
 

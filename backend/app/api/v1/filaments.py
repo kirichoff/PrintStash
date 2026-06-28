@@ -94,6 +94,9 @@ def update_filament_profile(
     profile = get_or_404(
         session, FilamentProfile, profile_id, "filament_profile_not_found"
     )
+    if profile.spoolman_filament_id is not None:
+        # Synced presets mirror Spoolman (the source of truth) — edit them there.
+        raise HTTPException(status_code=409, detail="filament_profile_linked")
 
     if payload.name is not None:
         name = payload.name.strip()
@@ -140,6 +143,9 @@ def delete_filament_profile(
     profile = get_or_404(
         session, FilamentProfile, profile_id, "filament_profile_not_found"
     )
+    if profile.spoolman_filament_id is not None:
+        # A delete would just reappear on the next sync — remove it in Spoolman.
+        raise HTTPException(status_code=409, detail="filament_profile_linked")
     session.delete(profile)
     session.commit()
     return Response(status_code=204)

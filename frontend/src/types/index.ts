@@ -11,6 +11,8 @@ export type {
   ModelListItem,
   TrashedModelRead,
   TrashPurgeRead,
+  ModelBatchFailure,
+  ModelBatchResult,
   StorageUsageRead,
   VaultStatsRead,
   CollectionStatRead,
@@ -110,3 +112,10 @@ export type {
   NotificationTestResult,
   NotificationDelivery,
 } from "./notifications";
+
+export type {
+  SpoolmanStatus,
+  SpoolmanUpdate,
+  SpoolmanTestResult,
+  SpoolRead,
+} from "./spoolman";

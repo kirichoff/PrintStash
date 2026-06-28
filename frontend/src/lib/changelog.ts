@@ -21,6 +21,47 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.8.0",
+    date: "Jun 2026",
+    changes: [
+      "Spoolman integration: connect a self-hosted Spoolman instance under Settings → Spoolman to track filament inventory and per-print consumption — off by default, with an optional API key and a Test connection button",
+      "Pick which spool a print uses when sending a job to a printer or logging a print manually; the spool is shown on the print record",
+      "Filament presets sync from Spoolman: a 'Sync from Spoolman' button on the Profiles page imports your Spoolman filaments as read-only presets (cost, material, density, diameter) so you maintain filament data in one place — local-only presets stay editable",
+      "Prints that used a synced spool get exact cost and more accurate weight, using the spool's real price and density/diameter instead of estimates",
+      "When a Moonraker-measured print completes, PrintStash decrements the selected Spoolman spool by the real grams used — no double-entry of your inventory",
+      "Double-count safety: if Moonraker's own Spoolman integration is already tracking the active spool, PrintStash warns you and keeps its write-back off so a print is never counted twice",
+      "Spoolman connection status is reported in the health endpoint and degrades gracefully — a Spoolman outage never blocks or fails a print",
+    ],
+  },
+  {
+    version: "0.7.3",
+    date: "Jun 2026",
+    changes: [
+      "PrusaSlicer binary G-code (.bgcode) is now a supported file type: upload, import, and shared-volume scans read its slicer metadata and embedded thumbnail just like a text .gcode",
+      "Binary G-code can't be printed by Moonraker/Klipper or Bambu and has no in-browser toolpath, so send-to-printer and the G-code preview are disabled for .bgcode files (metadata and thumbnail still show)",
+    ],
+  },
+  {
+    version: "0.7.2",
+    date: "Jun 2026",
+    changes: [
+      "Database migrations now run automatically when the app starts — there's no separate migration step, and editing or removing the Compose command can no longer skip them",
+      "Fresh installs and existing databases both come up cleanly on SQLite and PostgreSQL; a database that was once started without migrations is detected and adopted safely, without changing any data",
+      "Deleting a model now returns you to the folder you were browsing instead of jumping back to All Models",
+      "The PrintStash logo now takes you back to the collection you were in, rather than always to All Models",
+    ],
+  },
+  {
+    version: "0.7.1",
+    date: "Jun 2026",
+    changes: [
+      "Upload many files at once, or a whole folder — the folder structure is kept as nested collections instead of being flattened",
+      "Big libraries no longer run the app out of memory during a scan: files too large for your machine's RAM are skipped safely (still indexed, and 3MF keeps its embedded preview), memory is freed between files, and large models are processed in smaller pieces",
+      "New settings to tune memory use on small or busy servers (max concurrent renders, memory budget, render chunk size) — see the configuration docs",
+      "The “All Models” view now counts your whole library, not just models sitting at the top level",
+    ],
+  },
+  {
     version: "0.7.0",
     date: "Jun 2026",
     changes: [

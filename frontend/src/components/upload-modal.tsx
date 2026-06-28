@@ -63,12 +63,7 @@ declare module "react" {
 
 export type UploadMode = "files" | "bulk" | "url" | "zip";
 
-const GCODE_EXT = new Set([".gcode", ".g", ".gco"]);
 const GCODE_ACCEPT = ".gcode,.g,.gco";
-
-function isGcode(name: string): boolean {
-  return GCODE_EXT.has(extensionOf(name));
-}
 
 // Whether a filename matches a comma-separated `accept` extension list
 // (e.g. ".stl,.3mf,.obj"). Used to validate drag-and-drop drops, which —
@@ -248,18 +243,6 @@ export function UploadModal({
         "Some files skipped",
         `${skipped} file${skipped === 1 ? "" : "s"} ignored — only 3D models (${MESH_ACCEPT}) are accepted here.`,
       );
-    }
-  }
-
-  function sortIntoSlots(files: FileList | File[]) {
-    for (const f of Array.from(files)) {
-      if (isMeshFile(f.name)) {
-        setMeshFile(f);
-        autoName(f);
-      } else if (isGcode(f.name)) {
-        setGcodeFile(f);
-        autoName(f);
-      }
     }
   }
 
@@ -1297,6 +1280,9 @@ function FileSlot({
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const [dragActive, setDragActive] = useState(false);
+  // Count drag enter/leave so crossing a child element doesn't flicker the
+  // highlight off — only a real leave (depth back to 0) clears it.
+  const dragDepth = useRef(0);
   return (
     <div>
       <span className="block font-mono text-[10px] text-[var(--on-surface-variant)] tracking-wider uppercase mb-1.5">
@@ -1306,13 +1292,25 @@ function FileSlot({
         onClick={() => {
           if (!file) inputRef.current?.click();
         }}
-        onDragOver={(e) => {
+        onDragEnter={(e) => {
           e.preventDefault();
+          dragDepth.current += 1;
           setDragActive(true);
         }}
-        onDragLeave={() => setDragActive(false)}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDragLeave={() => {
+          dragDepth.current -= 1;
+          if (dragDepth.current <= 0) {
+            dragDepth.current = 0;
+            setDragActive(false);
+          }
+        }}
         onDrop={(e) => {
           e.preventDefault();
+          dragDepth.current = 0;
           setDragActive(false);
           const dropped = e.dataTransfer.files?.[0];
           if (!dropped) return;
@@ -1388,6 +1386,10 @@ export function BulkFiles({
   onClear: () => void;
 }) {
   const [dragActive, setDragActive] = useState(false);
+  // See FileSlot: count enter/leave depth so dragging over child elements
+  // (icon, hint text, the "select a folder" button) doesn't flicker the
+  // highlight off.
+  const dragDepth = useRef(0);
   const totalBytes = items.reduce((sum, it) => sum + it.file.size, 0);
   const folderCount = new Set(
     items.map((it) => it.relPath).filter(Boolean),
@@ -1395,13 +1397,22 @@ export function BulkFiles({
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
+    dragDepth.current = 0;
     setDragActive(false);
     const dt = e.dataTransfer;
     // Entries must be pulled out synchronously — the DataTransfer is emptied
     // once this handler returns; the async folder walk happens afterwards.
     const entries = entriesFromDataTransfer(dt.items);
     if (entries.length > 0) {
-      void walkEntries(entries).then(onAddItems);
+      walkEntries(entries)
+        .then(onAddItems)
+        .catch((err) =>
+          toast.error(
+            err instanceof Error
+              ? err
+              : new Error("Couldn't read the dropped folder"),
+          ),
+        );
     } else if (dt.files?.length) {
       // Browsers without the entries API still give a flat FileList.
       onAddItems(fileListToItems(dt.files));
@@ -1412,11 +1423,22 @@ export function BulkFiles({
     <div>
       <div
         onClick={() => fileInputRef.current?.click()}
-        onDragOver={(e) => {
+        onDragEnter={(e) => {
           e.preventDefault();
+          dragDepth.current += 1;
           setDragActive(true);
         }}
-        onDragLeave={() => setDragActive(false)}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDragLeave={() => {
+          dragDepth.current -= 1;
+          if (dragDepth.current <= 0) {
+            dragDepth.current = 0;
+            setDragActive(false);
+          }
+        }}
         onDrop={handleDrop}
         className={`flex flex-col items-center justify-center gap-1.5 rounded border border-dashed px-3 py-6 text-center transition-colors cursor-pointer ${
           dragActive

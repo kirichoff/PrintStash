@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "@/lib/navigation";
 import { CollectionRead, ModelListItem, PrinterRead, TagRead } from "@/types";
 import { ModelCard } from "@/components/model-card";
+import { BatchToolbar } from "@/components/batch-toolbar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { FilterSidebar } from "@/components/filter-sidebar";
 import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
 // import { UploadModal } from "@/components/upload-modal";
@@ -21,15 +24,17 @@ import {
   Folder,
   ChevronRight,
   Plus,
+  CheckSquare,
 } from "lucide-react";
-import { listModels, createCollection, updateModel, moveCollection, deleteCollection } from "@/lib/api";
+import { listModels, createCollection, updateModel, moveCollection, deleteCollection, batchMoveModels, batchTagModels, batchDeleteModels, } from "@/lib/api";
 import { isMeshFile, isGcodeFile, extensionOf, walkEntries, entriesFromDataTransfer, BulkItem } from "@/lib/bulk-upload";
-import { useCollections, usePrinters, useTags } from "@/lib/queries";
+import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, type ModelListFilters, } from "@/lib/queries";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
 import { Link } from "@/lib/navigation";
 import { timeAgo } from "@/lib/format";
+import { rememberLastCollection } from "@/lib/last-collection";
 import { useAuthenticatedAssetUrl } from "@/lib/use-authenticated-asset-url";
 
 type SortKey = "date-desc" | "date-asc" | "name-asc" | "name-desc";
@@ -110,23 +115,21 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
   const { user } = useAuth();
-  const [models, setModels] = useState<ModelListItem[]>(initial?.models ?? []);
-  // Unfiltered model list for the outliner tree. The grid's `models` shrink to
-  // the active collection/tag filter; feeding those to the sidebar made other
-  // folders' leaves vanish (tree branches appeared to collapse on selection).
-  const [outlinerModels, setOutlinerModels] = useState<ModelListItem[]>(initial?.models ?? []);
   // Shared taxonomy facets from the TanStack Query cache: one cache entry shared
   // with the detail/upload views, revalidated on focus, and refetched after any
   // collection/tag mutation (the api layer invalidates the query cache).
   const collectionsQuery = useCollections();
   const tagsQuery = useTags();
+  // Library-wide totals (access-scoped, excludes trashed + sentinel models).
+  // Used to label the "All Models" root, where the grid only fetches the models
+  // sitting directly at the root (see #30).
+  const vaultStatsQuery = useVaultStats();
   const collections = collectionsQuery.data ?? [];
   const tags = tagsQuery.data ?? [];
   // Printers (superuser-only filter) share the same cache as the printers page
   // and send-to dialog; gated so non-admins don't fetch a list they can't use.
   const printers =
     usePrinters({ enabled: !!user?.is_superuser }).data ?? initial?.printers ?? [];
-  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(null);
   const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
@@ -188,35 +191,25 @@ async function onMainDrop(e: React.DragEvent) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(initial ? initial.models.length === PAGE_SIZE : false);
   const facetsLoading = collectionsQuery.isLoading || tagsQuery.isLoading;
-  const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
-  const hasLoadedModels = useRef(!!initial);
-  // The server already rendered the first page with the current search query;
-  // skip the redundant client fetch on hydration.
-  const skipFirstFetch = useRef(!!initial);
   const { open: filterDrawerOpen, openDrawer, closeDrawer } = useMobileFilterDrawer();
 
   // Collection selection lives in the URL (`?c=<path>`) so it resets when the
   // user navigates away (e.g. to Settings) and clicks "Vault" again — that link
-  // points at "/" with no param. Without this, Next's router cache kept the
-  // component mounted and the old folder stuck around.
-  const collectionParam = searchParams.get("c");
+  // points at "/" with no param. Deriving it straight from the param (instead of
+  // mirroring into state) means a folder switch just re-keys the model query;
+  // `keepPreviousData` holds the old cards on screen until the new page lands, so
+  // there's no manual clearing or loading flash.
+  const selectedCollection = searchParams.get("c") || null;
   useEffect(() => {
-    const next = collectionParam || null;
-    if (next !== selectedCollection) {
-      // Clear stale models immediately so old cards don't flash for the 200 ms
-      // debounce window before the new collection loads.
-      setModels([]);
-      setLoading(true);
-      hasLoadedModels.current = false;
-      setSelectedCollection(next);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collectionParam]);
+    // Remember the folder we're in so the logo / post-delete nav can return
+    // here instead of resetting to the root once the `?c=` param is dropped.
+    rememberLastCollection(selectedCollection);
+  }, [selectedCollection]);
 
   function handleCollectionChange(path: string | null) {
+    setSelectedIds(new Set());
     const params = new URLSearchParams(searchParams.toString());
     if (path) params.set("c", path);
     else params.delete("c");
@@ -235,12 +228,135 @@ async function onMainDrop(e: React.DragEvent) {
   }, [searchParams, router]);
 
   const query = searchParams.get("q") ?? "";
+  const searchQuery = query.trim() || undefined;
+  const canViewPrinters = !!user?.is_superuser;
+  const queryClient = useQueryClient();
+
+  // Filters shared by the grid + outliner queries; only the search query and
+  // pagination differ between them.
+  const baseFilters: ModelListFilters = {
+    tag: selectedTags.length ? selectedTags : undefined,
+    printer_id: canViewPrinters ? selectedPrinterId ?? undefined : undefined,
+    printer_presence:
+      canViewPrinters && selectedPrinterId === null
+        ? selectedPrinterPresence ?? undefined
+        : undefined,
+  };
+  // The paginated grid. `keepPreviousData` (in the hook) holds the current page
+  // on screen while a new search/folder loads, and results are cached per filter
+  // set so backspacing a query or re-entering a folder is instant.
+  const modelQuery = useModelList(
+    {
+      ...baseFilters,
+      collection: selectedCollection ?? undefined,
+      // A search spans the whole library; a folder view lists only its direct
+      // children so subfolders' models don't leak into the parent (#30).
+      direct: !searchQuery,
+      q: searchQuery,
+    },
+    PAGE_SIZE,
+  );
+  const outlinerQuery = useOutlinerModels(baseFilters, 500);
+
+  const models = useMemo(
+    () => modelQuery.data?.pages.flat() ?? [],
+    [modelQuery.data],
+  );
+  const outlinerModels = outlinerQuery.data ?? [];
+  // First load shows skeletons; a filter change keeps the previous page visible
+  // and just flags `refreshing` for the subtle "Updating…" hint.
+  const loading = modelQuery.isLoading;
+  const refreshing = modelQuery.isFetching && !modelQuery.isFetchingNextPage && !loading;
+  const loadingMore = modelQuery.isFetchingNextPage;
+  const hasMore = modelQuery.hasNextPage ?? false;
+  const error = modelQuery.error ? (modelQuery.error as Error).message : null;
+  function loadMore() {
+    if (hasMore && !loadingMore) modelQuery.fetchNextPage();
+  }
+  function refresh() {
+    queryClient.invalidateQueries({ queryKey: queryKeys.models });
+  }
+
+  // Multi-select for batch actions. The selected set is view-independent so it
+  // survives load-more and search; backend per-model RBAC makes cross-collection
+  // selections safe. We clear it when navigating folders (see below) so a hidden
+  // off-screen selection doesn't linger.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+
+  const toggleSelect = useCallback((id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setSelectMode(false);
+  }, []);
 
   const sortedModels = useMemo(() => sortModels(models, "date-desc"), [models]);
-  const visibleCollections = useMemo(
-    () => childCollections(collections, selectedCollection),
-    [collections, selectedCollection],
-  );
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(sortedModels.map((m) => m.id)));
+  }
+
+  function summarizeBatch(verb: string, result: { succeeded_count: number; failed_count: number }) {
+    if (result.succeeded_count > 0) toast.success(`${verb} ${result.succeeded_count}`);
+    if (result.failed_count > 0) {
+      toast.warning(`${result.failed_count} skipped (no permission)`);
+    }
+    refresh();
+    clearSelection();
+  }
+
+  async function runBatch<T extends { succeeded_count: number; failed_count: number }>(
+    verb: string,
+    fn: () => Promise<T>,
+  ) {
+    if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
+    setBatchBusy(true);
+    try {
+      summarizeBatch(verb, await fn());
+    } catch (e: any) {
+      toast.error(e);
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
+  const selectedIdList = useMemo(() => Array.from(selectedIds), [selectedIds]);
+  // "All Models" is a folder explorer: at the root the grid shows collection
+  // cards plus only the models sitting directly at the root, so models.length is
+  // the uncollected handful — 0 for a fully-foldered NAS library. When we're at
+  // the root with no filter narrowing the view, label it with the real library
+  // total instead of that root-only count (#30).
+  const hasActiveFilters =
+    selectedTags.length > 0 ||
+    selectedPrinterId !== null ||
+    selectedPrinterPresence !== null ||
+    !!query.trim();
+  const totalLibraryCount = vaultStatsQuery.data?.model_count ?? null;
+  const showLibraryTotal =
+    !selectedCollection && !hasActiveFilters && totalLibraryCount !== null;
+  const displayCount = showLibraryTotal ? totalLibraryCount : models.length;
+  // While searching, the grid is a global result list, not a folder view: show
+  // only collections whose name matches the query (anywhere in the tree), to
+  // mirror the matching models. Without a query we fall back to the normal
+  // folder explorer (immediate children of the selected collection).
+  const visibleCollections = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (needle) {
+      return collections
+        .filter((c) => c.name.toLowerCase().includes(needle))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return childCollections(collections, selectedCollection);
+  }, [collections, selectedCollection, query]);
   const breadcrumbs = useMemo(
     () => collectionBreadcrumbs(collections, selectedCollection),
     [collections, selectedCollection],
@@ -263,93 +379,8 @@ async function onMainDrop(e: React.DragEvent) {
     user?.is_superuser || canWriteCollection(selectedCollectionRow)
       ? selectedCollection
       : null;
-  const canViewPrinters = !!user?.is_superuser;
-  // Collections + tags are fetched by useCollections()/useTags() above.
-
-  // The outliner tree mirrors the active tag/printer filters so the collections
-  // sidebar narrows to matching models instead of always listing everything.
-  useEffect(() => {
-    let alive = true;
-    listModels({
-      limit: 500,
-      tag: selectedTags.length ? selectedTags : undefined,
-      printer_id: canViewPrinters ? selectedPrinterId ?? undefined : undefined,
-      printer_presence:
-        canViewPrinters && selectedPrinterId === null
-          ? selectedPrinterPresence ?? undefined
-          : undefined,
-    })
-      .then((data) => { if (alive) setOutlinerModels(data); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [reloadKey, selectedTags, selectedPrinterId, selectedPrinterPresence, canViewPrinters]);
-
-  useEffect(() => {
-    if (skipFirstFetch.current) {
-      skipFirstFetch.current = false;
-      return;
-    }
-    let alive = true;
-    const handle = setTimeout(async () => {
-      if (hasLoadedModels.current) setRefreshing(true);
-      else setLoading(true);
-      try {
-        const searchQuery = query.trim() || undefined;
-        const data = await listModels({
-          limit: PAGE_SIZE,
-          offset: 0,
-          collection: selectedCollection ?? undefined,
-          direct: !searchQuery,
-          tag: selectedTags.length ? selectedTags : undefined,
-          q: searchQuery,
-          printer_id: canViewPrinters ? selectedPrinterId ?? undefined : undefined,
-          printer_presence:
-            canViewPrinters && selectedPrinterId === null
-              ? selectedPrinterPresence ?? undefined
-              : undefined,
-        });
-        if (!alive) return;
-        setModels(data);
-        setHasMore(data.length === PAGE_SIZE);
-        setError(null);
-        hasLoadedModels.current = true;
-      } catch (e: any) {
-        if (alive) setError(e.message);
-      } finally {
-        if (alive) { setLoading(false); setRefreshing(false); }
-      }
-    }, 200);
-    return () => { alive = false; clearTimeout(handle); };
-  }, [selectedCollection, selectedTags, selectedPrinterId, selectedPrinterPresence, query, reloadKey, canViewPrinters]);
-
-  async function loadMore() {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    try {
-      const searchQuery = query.trim() || undefined;
-      const data = await listModels({
-        limit: PAGE_SIZE,
-        offset: models.length,
-        collection: selectedCollection ?? undefined,
-        direct: !searchQuery,
-        tag: selectedTags.length ? selectedTags : undefined,
-        q: searchQuery,
-        printer_id: canViewPrinters ? selectedPrinterId ?? undefined : undefined,
-        printer_presence:
-          canViewPrinters && selectedPrinterId === null
-            ? selectedPrinterPresence ?? undefined
-            : undefined,
-      });
-      setModels((prev) => [...prev, ...data]);
-      setHasMore(data.length === PAGE_SIZE);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoadingMore(false);
-    }
-  }
-
-  function refresh() { setReloadKey((k) => k + 1); }
+  // Collections + tags are fetched by useCollections()/useTags() above; the
+  // model grid + outliner come from useModelList()/useOutlinerModels() above.
 
   async function handleCreateCollection() {
     const name = newCollectionName.trim();
@@ -368,7 +399,6 @@ async function onMainDrop(e: React.DragEvent) {
       setIsCreatingCollection(false);
       toast.success(`Collection "${name}" created`);
     } catch (e: any) {
-      setError(e.message);
       toast.error(e);
     }
   }
@@ -467,7 +497,7 @@ async function onMainDrop(e: React.DragEvent) {
             </div>
           )}
         {/* Breadcrumb */}
-        <nav className="px-6 py-3 bg-background border-b border-border flex items-center space-x-2 text-sm tracking-tight">
+        <nav className="px-4 sm:px-6 py-3 bg-background border-b border-border flex items-center space-x-2 text-sm tracking-tight">
           {selectedCollection && breadcrumbs.length > 0 ? (
             <>
               <button
@@ -499,18 +529,18 @@ async function onMainDrop(e: React.DragEvent) {
         </nav>
 
         {/* Content Top Bar */}
-        <div className="px-6 py-8 bg-background border-b border-border">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col space-y-1">
-              <h2 className="text-2xl font-bold text-foreground tracking-tight">
+        <div className="px-4 sm:px-6 py-5 sm:py-8 bg-background border-b border-border">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-col space-y-1">
+              <h2 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight truncate">
                 {selectedName ?? "All Models"}
               </h2>
               <p className="text-sm text-muted-foreground">
-                {loading ? "Loading..." : `${models.length} model${models.length !== 1 ? "s" : ""} total${selectedName ? ` in this collection` : ""}`}
+                {loading ? "Loading..." : `${displayCount} model${displayCount !== 1 ? "s" : ""} total${selectedName ? ` in this collection` : ""}`}
                 {refreshing && <span className="ml-2 font-mono text-xs text-muted-foreground">Updating...</span>}
               </p>
             </div>
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={openDrawer}
@@ -536,6 +566,22 @@ async function onMainDrop(e: React.DragEvent) {
                   Upload
                 </button>
               </div>
+              {auth.isAuthenticated && (
+                <button
+                  onClick={() => {
+                    if (selectMode) clearSelection();
+                    else setSelectMode(true);
+                  }}
+                  className={`hidden md:flex items-center px-3 py-2 text-xs font-medium rounded border transition-all ${
+                    selectMode
+                      ? "text-white bg-blue-600 dark:bg-orange-600 border-transparent hover:bg-blue-700 dark:hover:bg-orange-700"
+                      : "text-foreground bg-background border-border hover:bg-muted"
+                  }`}
+                >
+                  <CheckSquare className="w-4 h-4 mr-1.5" />
+                  {selectMode ? "Done" : "Select"}
+                </button>
+              )}
               <div className="h-6 w-px bg-muted mx-1 hidden md:block" />
               <div className="flex items-center bg-muted p-1 rounded">
                 <button
@@ -589,6 +635,30 @@ async function onMainDrop(e: React.DragEvent) {
           </div>
         )}
 
+        {selectMode && (
+          <div className="px-4 sm:px-6 py-2 bg-muted border-b border-border flex items-center gap-3 text-xs">
+            <span className="font-mono text-muted-foreground">
+              {selectedIds.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={selectAllVisible}
+              className="font-medium text-blue-600 dark:text-orange-500 hover:underline"
+            >
+              Select all on screen ({sortedModels.length})
+            </button>
+            {selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                className="font-medium text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Content */}
         <div className="flex-1 flex flex-col bg-background">
           {error && (
@@ -616,7 +686,7 @@ async function onMainDrop(e: React.DragEvent) {
               )}
             </div>
           ) : viewMode === "grid" ? (
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(340px,340px))]">
                 {visibleCollections.map((collection) => (
                   <CollectionFolderCard
@@ -626,7 +696,13 @@ async function onMainDrop(e: React.DragEvent) {
                   />
                 ))}
                 {sortedModels.map((model) => (
-                  <ModelCard key={model.id} model={model} />
+                  <ModelCard
+                    key={model.id}
+                    model={model}
+                    selectable={selectMode}
+                    selected={selectedIds.has(model.id)}
+                    onToggleSelect={toggleSelect}
+                  />
                 ))}
               </div>
               <LoadMore hasMore={hasMore} loading={loadingMore} onClick={loadMore} />
@@ -650,7 +726,13 @@ async function onMainDrop(e: React.DragEvent) {
                   />
                 ))}
                 {sortedModels.map((model) => (
-                  <ModelListRow key={model.id} model={model} />
+                  <ModelListRow
+                    key={model.id}
+                    model={model}
+                    selectable={selectMode}
+                    selected={selectedIds.has(model.id)}
+                    onToggleSelect={toggleSelect}
+                  />
                 ))}
               </div>
               <LoadMore hasMore={hasMore} loading={loadingMore} onClick={loadMore} />
@@ -658,6 +740,19 @@ async function onMainDrop(e: React.DragEvent) {
           )}
         </div>
       </main>
+
+      <BatchToolbar
+        count={selectedIds.size}
+        collections={collections}
+        tags={tags}
+        busy={batchBusy}
+        onMove={(target) => runBatch("Moved", () => batchMoveModels(selectedIdList, target))}
+        onApplyTags={(add, remove) =>
+          runBatch("Tagged", () => batchTagModels(selectedIdList, add, remove))
+        }
+        onDelete={() => runBatch("Deleted", () => batchDeleteModels(selectedIdList))}
+        onClear={clearSelection}
+      />
     </>
   );
 }
@@ -668,17 +763,13 @@ function CollectionFolderCard({ collection, onSelect }: { collection: Collection
       type="button"
       data-collection-path={collection.path}
       onClick={() => onSelect(collection.path)}
-      className="group flex flex-col text-left bg-muted border border-border rounded-lg hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-sm transition-all relative overflow-hidden"
+      className="animate-card-in group flex flex-col text-left bg-muted border border-border rounded-lg hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-sm transition-all relative overflow-hidden"
     >
-      <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-[var(--surface-container-high)] min-h-[140px]">
-        <Folder className="w-16 h-16 text-blue-600/30 dark:text-orange-500/25" />
+      <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-[var(--surface-container-high)] min-h-[100px] sm:min-h-[140px]">
+        <Folder className="w-12 h-12 sm:w-16 sm:h-16 text-blue-600/30 dark:text-orange-500/25" />
       </div>
       <div className="p-3 border-t border-border">
-        <div className="flex items-center justify-between gap-2 mb-0.5">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Folder className="w-3.5 h-3.5 text-blue-600 dark:text-orange-500 shrink-0" />
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Folder</span>
-          </div>
+        <div className="flex items-center justify-end gap-2 mb-0.5">
           <span className="text-[10px] text-muted-foreground font-mono">{collection.model_count} models</span>
         </div>
         <p className="text-sm font-bold text-foreground truncate tracking-tight">{collection.name}</p>
@@ -737,7 +828,17 @@ function CollectionListRow({ collection, onSelect }: { collection: CollectionRea
   );
 }
 
-function ModelListRow({ model }: { model: ModelListItem }) {
+function ModelListRow({
+  model,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
+}: {
+  model: ModelListItem;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: number) => void;
+}) {
   const router = useRouter();
   const thumb = useAuthenticatedAssetUrl(model.thumbnail_url);
   const printerPresence = model.printer_presence ?? [];
@@ -745,8 +846,23 @@ function ModelListRow({ model }: { model: ModelListItem }) {
     <Link
       href={`/models/${model.id}`}
       onMouseEnter={() => router.prefetch(`/models/${model.id}`)}
-      className="flex items-center gap-2 md:gap-3 px-4 py-3 border-b border-border hover:bg-muted transition-colors group active:bg-muted"
+      onClick={(e) => {
+        if (selectable) {
+          e.preventDefault();
+          onToggleSelect?.(model.id);
+        }
+      }}
+      className={`flex items-center gap-2 md:gap-3 px-4 py-3 border-b border-border transition-colors group active:bg-muted ${
+        selected ? "bg-blue-50 dark:bg-orange-950/30" : "hover:bg-muted"
+      }`}
     >
+      {selectable && (
+        <Checkbox
+          checked={selected}
+          onChange={() => onToggleSelect?.(model.id)}
+          ariaLabel={`Select ${model.name}`}
+        />
+      )}
       <div className="w-8 h-8 md:w-10 md:h-10 rounded bg-muted flex-shrink-0 overflow-hidden border border-border">
         {thumb ? (
           <img src={thumb} alt={model.name} className="h-full w-full object-cover" loading="lazy" />

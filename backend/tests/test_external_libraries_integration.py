@@ -309,6 +309,42 @@ def test_scan_indexes_mixed_mesh_and_gcode(
         assert f.size_bytes > 0
 
 
+def test_scan_indexes_but_skips_over_cap_mesh(
+    tmp_path: Path, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pathological dense file (the issue #29 case) must not OOM or abort the
+    scan: it is still indexed in place, but its mesh is never loaded, so geometry
+    is empty and the scan completes green."""
+    trimesh = pytest.importorskip("trimesh")
+    from app.db.models import Metadata
+
+    _configure_storage(tmp_path)
+    _enable_feature(db_session)
+    nas = tmp_path / "nas"
+    nas.mkdir(parents=True, exist_ok=True)
+    mesh = trimesh.creation.icosphere(subdivisions=4, radius=10.0)  # 5120 triangles
+    (nas / "dense.stl").write_bytes(mesh.export(file_type="stl"))
+    # Force the file over the triangle cap so the real guard fires on a real file.
+    monkeypatch.setitem(_overlay, "mesh_max_render_triangles", len(mesh.faces) // 2)
+    monkeypatch.setitem(_overlay, "mesh_max_load_mb", 0)
+    lib = _make_library(db_session, nas)
+
+    summary = external_library.scan_library(lib.id)
+
+    assert summary["added"] == 1
+    assert summary["aborted"] is False
+    assert summary["errors"] == []
+    db_session.refresh(lib)
+    assert lib.last_scan_status == ExternalLibraryScanStatus.OK
+    # Indexed in place, but the over-cap mesh was never loaded → no geometry.
+    files = _external_files(db_session)
+    assert len(files) == 1
+    md = db_session.exec(
+        select(Metadata).where(Metadata.file_id == files[0].id)
+    ).first()
+    assert md is None or md.triangle_count is None
+
+
 def test_deep_nested_folders_build_collection_hierarchy(
     tmp_path: Path, db_session: Session
 ) -> None:
@@ -699,9 +735,10 @@ def _supported_files(root: Path) -> list[Path]:
 def test_scan_real_world_folder(tmp_path: Path, db_session: Session) -> None:
     """Scan the engine against real STL/3MF/OBJ/g-code files (repo ``testdata/``).
 
-    Every supported file must index in place without a parse error, point at a
-    real non-empty on-disk path, and an immediate rescan must be a clean no-op.
-    Unsupported files (e.g. ``.bgcode``) are silently ignored, never errored.
+    Every supported file (including PrusaSlicer binary ``.bgcode``) must index in
+    place without a parse error, point at a real non-empty on-disk path, and an
+    immediate rescan must be a clean no-op. Unsupported files are silently
+    ignored, never errored.
     """
     _configure_storage(tmp_path)
     _enable_feature(db_session)

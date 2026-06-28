@@ -5,6 +5,7 @@ import { useRouter } from "@/lib/navigation";
 import { memo, useEffect, useState } from "react";
 import { ModelListItem, FileRevisionStatus } from "@/types";
 import { FileText } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { getAssetUrl } from "@/lib/api";
 import { timeAgoShort } from "@/lib/format";
 import { useAuthenticatedAssetUrl } from "@/lib/use-authenticated-asset-url";
@@ -90,9 +91,25 @@ function MetricCell({ id, model, isLast }: { id: CardMetricId; model: ModelListI
   );
 }
 
-function ModelCardInner({ model, metrics }: { model: ModelListItem; metrics: CardMetrics }) {
+function ModelCardInner({
+  model,
+  metrics,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
+}: {
+  model: ModelListItem;
+  metrics: CardMetrics;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: number) => void;
+}) {
   const router = useRouter();
   const thumb = useAuthenticatedAssetUrl(model.thumbnail_url);
+  // Lazy thumbnails used to snap in at full opacity the instant their bytes
+  // arrived. Fade each one in on load so scrolling/searching settles smoothly
+  // instead of popping card by card.
+  const [thumbLoaded, setThumbLoaded] = useState(false);
   const printerPresence = model.printer_presence ?? [];
   const hasPrinter = printerPresence.length > 0;
   const ps = model.print_summary;
@@ -106,21 +123,51 @@ function ModelCardInner({ model, metrics }: { model: ModelListItem; metrics: Car
 
   return (
     <article
-      className="group flex h-full flex-col bg-card border border-border rounded transition-all duration-200 hover:border-blue-500 dark:hover:border-orange-500 overflow-hidden"
+      className={`animate-card-in group relative flex h-full flex-col bg-card border rounded transition-all duration-200 overflow-hidden ${
+        selected
+          ? "border-blue-600 ring-2 ring-blue-600/40 dark:border-orange-600 dark:ring-orange-600/40"
+          : "border-border hover:border-blue-500 dark:hover:border-orange-500"
+      }`}
       onMouseEnter={handleHover}
       onTouchStart={handleHover}
     >
-      <Link href={`/models/${model.id}`} className="flex flex-col h-full overflow-hidden">
+      {selectable && (
+        <div className="absolute left-2 top-2 z-10">
+          <Checkbox
+            checked={selected}
+            onChange={() => onToggleSelect?.(model.id)}
+            ariaLabel={`Select ${model.name}`}
+          />
+        </div>
+      )}
+      <Link
+        href={`/models/${model.id}`}
+        className="flex flex-col h-full overflow-hidden"
+        onClick={(e) => {
+          if (selectable) {
+            e.preventDefault();
+            onToggleSelect?.(model.id);
+          }
+        }}
+      >
 
         {/* Thumbnail */}
         <div className="bg-muted relative overflow-hidden h-48 border-b border-border shrink-0">
           {thumb ? (
             <img
               alt={model.name}
-              className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
+              className={`w-full h-full object-cover transition-opacity duration-300 ease-out ${
+                thumbLoaded ? "opacity-90 group-hover:opacity-100" : "opacity-0"
+              }`}
               src={thumb}
               loading="lazy"
               decoding="async"
+              onLoad={() => setThumbLoaded(true)}
+              // Cached images can finish before React attaches onLoad; catch that
+              // case so they don't stay stuck at opacity-0.
+              ref={(node) => {
+                if (node?.complete && node.naturalWidth > 0) setThumbLoaded(true);
+              }}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center">
@@ -209,7 +256,17 @@ function ModelCardInner({ model, metrics }: { model: ModelListItem; metrics: Car
 
 const ModelCardMemo = memo(ModelCardInner);
 
-export function ModelCard({ model }: { model: ModelListItem }) {
+export function ModelCard({
+  model,
+  selectable,
+  selected,
+  onToggleSelect,
+}: {
+  model: ModelListItem;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: number) => void;
+}) {
   const [metrics, setMetrics] = useState<CardMetrics>(DEFAULT_CARD_METRICS);
 
   useEffect(() => {
@@ -221,5 +278,13 @@ export function ModelCard({ model }: { model: ModelListItem }) {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  return <ModelCardMemo model={model} metrics={metrics} />;
+  return (
+    <ModelCardMemo
+      model={model}
+      metrics={metrics}
+      selectable={selectable}
+      selected={selected}
+      onToggleSelect={onToggleSelect}
+    />
+  );
 }

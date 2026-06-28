@@ -86,6 +86,61 @@ jobs:
       - name: Test frontend in browser
         run: pnpm test:e2e
 
+  e2e-real:
+    name: Real-backend E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      # Backend: the real e2e suite boots uvicorn against a throwaway SQLite DB.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --extra dev --frozen
+
+      # Frontend: serves a Vite dev server + drives Playwright.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Real-backend E2E
+        working-directory: frontend
+        run: pnpm test:e2e:real
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-real
+          path: frontend/playwright-report/
+          retention-days: 7
+
   docker-build:
     name: Docker build (${{ matrix.image }})
     runs-on: ubuntu-latest

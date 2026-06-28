@@ -16,6 +16,13 @@ backend/_data/
 backend/dev.sqlite*
 *.sqlite
 
+# Local-only large sample meshes for manual mesh/OOM testing (issue #29).
+# Too big to commit; point PRINTSTASH_MESH_CORPUS at them locally instead.
+testdata/dragon_v2.3mf
+testdata/Dragon_v2_PLA_12h2m.gcode
+testdata/bl-dnd-sitting-mando001.3mf
+testdata/batman-on-the-ledge.stl
+
 # Node / Next.js
 node_modules/
 
@@ -53,6 +60,7 @@ CLAUDE.md
 docs/agents/
 frontend/test-results/
 frontend/playwright-report/
+frontend/tests/e2e-real/.data/
 .playwright-mcp/
 screenshots/gif-frames/
 

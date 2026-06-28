@@ -168,7 +168,11 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
     try {
       await deleteModel(model.id);
       toast.success("Model deleted");
-      router.push("/");
+      // Return to the folder the model lived in, not the root — deleting one
+      // model shouldn't kick the user out of the collection they were browsing.
+      router.push(
+        model.collection ? `/?c=${encodeURIComponent(model.collection)}` : "/",
+      );
       router.refresh();
     } catch (e) {
       toast.error(e);
@@ -297,6 +301,12 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
   const sourceFiles = useMemo(
     () => sortedFiles.filter((f) => f.file_type !== "gcode"),
     [sortedFiles],
+  );
+  // Binary G-code (.bgcode) is indexed for metadata but can't be printed by the
+  // Moonraker/Bambu providers, so it's excluded from the "send to printer" list.
+  const printableGcodeFiles = useMemo(
+    () => gcodeFiles.filter((f) => !f.original_filename.toLowerCase().endsWith(".bgcode")),
+    [gcodeFiles],
   );
   const recommendedGcode = gcodeFiles.find((f) => f.is_recommended) ?? null;
   const latestFile = recommendedGcode ?? gcodeFiles[gcodeFiles.length - 1] ?? sortedFiles[sortedFiles.length - 1];
@@ -687,10 +697,10 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
 
           {/* Klipper Sync Panel */}
           <div className="p-4 md:p-6 border-t border-[var(--outline-variant)] bg-[var(--surface-container-low)] shrink-0 space-y-3">
-            {hasGcode && canViewPrinters && (
+            {printableGcodeFiles.length > 0 && canViewPrinters && (
               <SendToButtons
                 modelId={model.id}
-                gcodeFiles={gcodeFiles}
+                gcodeFiles={printableGcodeFiles}
                 printerFiles={printerFiles}
                 open={sendOpen}
                 onOpenChange={setSendOpen}

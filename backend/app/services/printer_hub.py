@@ -467,8 +467,20 @@ class PrinterHub:
                     material = print_results.material_type_for_file(
                         session, job.file_id
                     )
+                    # When a synced spool was selected, prefer its real
+                    # diameter/density over the static per-material table.
+                    linked = print_results.linked_profile_for_spool(
+                        session, job.spool_filament_id
+                    )
                     job.filament_used_g = filament_svc.mm_to_grams(
-                        float(used_mm), material
+                        float(used_mm),
+                        material,
+                        diameter_mm=(
+                            linked.diameter_mm
+                            if linked and linked.diameter_mm
+                            else filament_svc.DEFAULT_DIAMETER_MM
+                        ),
+                        density_g_cm3=linked.density_g_cm3 if linked else None,
                     )
             if changed:
                 job.updated_at = utcnow()
@@ -499,6 +511,12 @@ class PrinterHub:
                 and auto_mark_known_good_enabled(session)
             ):
                 print_results.mark_known_good_if_eligible(session, job.file_id)
+
+            # Write measured consumption back to Spoolman, once, on completion.
+            # No-ops unless a spool was selected and grams were measured; runs
+            # after the job is committed so a Spoolman outage never blocks it.
+            if just_finished and new_state == PrintJobState.COMPLETED:
+                print_results.record_spool_usage(session, job)
 
 
 def get_hub(request: Request) -> PrinterHub:

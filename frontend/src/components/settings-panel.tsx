@@ -36,6 +36,7 @@ import { ExternalLibrariesPanel } from "@/components/external-libraries-panel";
 import { StorageConfigCard } from "@/components/storage-config-card";
 import { MakerWorldConnectCard } from "@/components/makerworld-connect-card";
 import { NotificationsPanel } from "@/components/notifications-panel";
+import { SpoolmanConnectCard } from "@/components/spoolman-connect-card";
 import { BrandMark } from "@/components/brand-mark";
 import {
   createApiKey,
@@ -104,6 +105,7 @@ type SettingsSection =
   | "imports"
   | "libraries"
   | "notifications"
+  | "spoolman"
   | "design"
   | "trash"
   | "about";
@@ -119,6 +121,7 @@ const SETTINGS_SECTIONS: {
   { id: "imports", label: "Imports", icon: Download },
   { id: "libraries", label: "Shared volumes", icon: FolderSync },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "spoolman", label: "Spoolman", icon: Boxes },
   { id: "design", label: "Design", icon: Palette },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "about", label: "About", icon: Info },
@@ -610,14 +613,26 @@ export function SettingsPanel() {
     next[slot] = id;
     setCardMetrics(next);
     writeCardMetrics(next);
-    // Notify other tabs / components
-    window.dispatchEvent(new StorageEvent("storage", { key: "printstash.card.metrics" }));
+    // Notify other components in this tab. Carry newValue: a storage-sync
+    // listener (e.g. dev tools) treats a null newValue as a deletion and would
+    // wipe the key we just wrote.
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "printstash.card.metrics",
+        newValue: JSON.stringify(next),
+      }),
+    );
   }
 
   function resetCardMetrics() {
     setCardMetrics(DEFAULT_CARD_METRICS);
     writeCardMetrics(DEFAULT_CARD_METRICS);
-    window.dispatchEvent(new StorageEvent("storage", { key: "printstash.card.metrics" }));
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "printstash.card.metrics",
+        newValue: JSON.stringify(DEFAULT_CARD_METRICS),
+      }),
+    );
     toast.success("Card metrics reset.");
   }
 
@@ -1337,6 +1352,12 @@ export function SettingsPanel() {
       {activeSection === "notifications" && (
         <div className="space-y-6">
           <NotificationsPanel canEdit={!!user?.is_superuser} />
+        </div>
+      )}
+
+      {activeSection === "spoolman" && (
+        <div className="space-y-6">
+          <SpoolmanConnectCard canEdit={!!user?.is_superuser} />
         </div>
       )}
 

@@ -191,6 +191,27 @@ def filament_cost_for_grams(
     return round(grams * profile.cost_per_kg / 1000, 4)
 
 
+def filament_cost_for_job(
+    profiles: list[FilamentProfile],
+    metadata: Metadata | None,
+    grams: float | None,
+    spool_filament_id: int | None,
+) -> float | None:
+    """Per-print cost, preferring the exact synced spool over metadata matching.
+
+    When a Spoolman spool was selected, its synced FilamentProfile gives the
+    exact cost; otherwise fall back to the fuzzy metadata match.
+    """
+    if grams is not None and spool_filament_id is not None:
+        for profile in profiles:
+            if (
+                profile.spoolman_filament_id == spool_filament_id
+                and profile.cost_per_kg is not None
+            ):
+                return round(grams * profile.cost_per_kg / 1000, 4)
+    return filament_cost_for_grams(profiles, metadata, grams)
+
+
 def _matching_filament_profile(
     profiles: list[FilamentProfile],
     metadata: Metadata,
@@ -334,7 +355,11 @@ def list_items(
     offset: int = 0,
 ) -> List[ModelListItem]:
     """Filtered, paginated library browse with batched per-model facets."""
-    stmt = select(Model).where(live(Model))
+    # Exclude the external-job sentinel model — it's internal bookkeeping for
+    # print jobs that don't map to a real vault model and must never surface in
+    # the library grid (vault_stats/export already exclude it, which is why the
+    # header count and the grid would otherwise disagree).
+    stmt = select(Model).where(live(Model), Model.hash != SENTINEL_MODEL_HASH)
     stmt = _apply_model_access(stmt, session, user)
 
     present_model_ids = (

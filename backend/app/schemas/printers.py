@@ -109,6 +109,12 @@ class SendToPrinter(BaseModel):
     file_id: int = Field(gt=0)
     start_print: bool = False
     remote_filename: Optional[str] = Field(default=None, max_length=512)
+    # Optional Spoolman spool this print consumes. ``spool_name`` is the
+    # caller-supplied label (the UI already has the spool list) cached for
+    # readable history without a backend Spoolman round-trip.
+    spool_id: Optional[int] = None
+    spool_name: Optional[str] = Field(default=None, max_length=256)
+    spool_filament_id: Optional[int] = None
 
     @field_validator("remote_filename")
     @classmethod
@@ -141,6 +147,8 @@ class PrintJobRead(BaseModel):
     progress: float
     source: str = "vault"
     error: Optional[str] = None
+    spool_id: Optional[int] = None
+    spool_name: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     created_at: datetime

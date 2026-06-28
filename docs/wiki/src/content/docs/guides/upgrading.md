@@ -21,7 +21,6 @@ the old image around** until the new one has proven itself.
 ```bash
 docker compose down
 docker compose pull
-docker compose run --rm api uv run alembic upgrade head
 docker compose up -d
 ```
 
@@ -30,13 +29,21 @@ If you build from source instead of pulling published images:
 ```bash
 docker compose down
 docker compose build --pull
-docker compose run --rm api uv run alembic upgrade head
 docker compose up -d
 ```
 
-Running migrations as an explicit step (rather than letting the app do it on
-boot) means a migration failure stops you *before* the new app starts serving,
-which is exactly when you want to know.
+**Migrations run automatically.** The API image's entrypoint runs
+`alembic upgrade head` on every start, before the server launches, so a fresh
+`up -d` migrates the database for you. A failed migration aborts startup *before*
+the app serves a request — which is exactly when you want to know. You no longer
+need a separate migration step or a migration line in the Compose `command:`.
+
+If you prefer to run migrations explicitly first (e.g. to inspect them before the
+app comes up), it's still supported and idempotent:
+
+```bash
+docker compose run --rm api uv run alembic upgrade head
+```
 
 ### Pinning images
 
@@ -57,6 +64,44 @@ uv run alembic upgrade head
 ```
 
 Then restart the backend and frontend dev servers.
+
+## Troubleshooting migrations
+
+**`No module named alembic.__main__; 'alembic' is a package and cannot be
+directly executed`.** Run migrations with the `alembic` console script, not
+`python -m alembic` — Alembic ships no runnable `__main__`. The supported command
+is the one above:
+
+```bash
+docker compose run --rm api uv run alembic upgrade head
+```
+
+If you must invoke Python directly, the equivalent is
+`python -m alembic.config upgrade head`. Don't replace the Compose `command:`
+block with a hand-written `python -m alembic …` line — the shipped command
+already does the right thing.
+
+**`table … already exists` when running `alembic upgrade head`.** This shows up
+if the app was ever started *without* running migrations first — most commonly
+after deleting the Compose `command:` block so the container "just starts." On
+first boot the app creates the current schema itself, but that path doesn't
+record a migration version, so Alembic later tries to re-create tables that are
+already there.
+
+Your data is intact — Alembic simply doesn't know the schema is already current.
+The fix is a one-time **stamp**, done *while still on the image version the app
+last ran*, which records "this database is at this version" without running any
+migration or touching a single row:
+
+```bash
+# back up first (Settings → Backups, or POST /api/v1/backups)
+docker compose run --rm api uv run alembic stamp head
+```
+
+After that, upgrades work normally (`alembic upgrade head`). `stamp` only writes
+the version marker; it never creates, alters, or drops tables. If you're unsure
+which version built your schema, take a backup and restore-then-replay instead
+(see [Rollback](#rollback)).
 
 ## Version-specific notes
 

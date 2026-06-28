@@ -151,7 +151,9 @@ export interface ExternalLibrary {
   collection_mode: ExternalLibraryCollectionMode;
   target_collection_id: number | null;
   last_scanned_at: string | null;
-  last_scan_status: "ok" | "error" | "running" | null;
+  // "partial" = scan completed but one or more files failed to index (terminal,
+  // like "ok"); the backend uses it so a green status never hides a per-file error.
+  last_scan_status: "ok" | "error" | "running" | "partial" | null;
   last_scan_summary: ExternalLibraryScanSummary | null;
 }
 

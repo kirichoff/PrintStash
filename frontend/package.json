@@ -1,6 +1,6 @@
 {
   "name": "printstash-frontend",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "scripts": {
     "dev": "vite",
@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:real": "playwright test --config=playwright.real.config.ts",
     "test:frontend": "node scripts/frontend-smoke.mjs"
   },
   "dependencies": {

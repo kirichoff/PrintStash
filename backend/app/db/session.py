@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import AsyncGenerator, Generator, Iterator, Protocol, runtime_checkable
 
-from sqlalchemy import event
+from sqlalchemy import event, inspect
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -155,16 +155,36 @@ def get_engine() -> Engine:
     return _engine
 
 
-def init_db() -> None:
-    """Bootstrap a fresh database.
+def _is_alembic_managed(engine: Engine) -> bool:
+    """True when the DB's schema is owned by Alembic (an ``alembic_version`` table
+    exists) — i.e. migrations have run against it.
 
-    Schema upgrades now belong to Alembic. ``create_all()`` remains here only
-    so a brand-new self-hosted SQLite install can come up without a separate
-    migration step.
+    In that case ``create_all()`` must NOT also build tables: it can't reproduce
+    the data backfills/ALTERs the migrations carry, and on a fresh DB it would
+    leave an un-stamped, divergent schema. See ``app/db/migrate.py``.
     """
+    try:
+        return "alembic_version" in inspect(engine).get_table_names()
+    except Exception:  # pragma: no cover - defensive; treat unreadable as unmanaged
+        return False
+
+
+def init_db(engine: Engine | None = None) -> None:
+    """Bootstrap a database that Alembic has not already built.
+
+    Production runs migrations *before* the app starts (see ``app/db/migrate.py``
+    and the container entrypoint), so the schema is Alembic-owned and this is a
+    no-op. The direct ``create_all()`` path remains only for the test suite and a
+    brand-new local dev database that hasn't been migrated yet — never on top of
+    an Alembic-managed database, which is what used to produce a divergent,
+    un-stamped schema (issue #29).
+    """
+    eng = engine if engine is not None else _engine
     from app.db import models  # noqa: F401
 
-    SQLModel.metadata.create_all(_engine)
+    if _is_alembic_managed(eng):
+        return
+    SQLModel.metadata.create_all(eng)
 
 
 def _ensure_sentinel_rows() -> None:
