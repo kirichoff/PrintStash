@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Loader2, PlugZap, Save } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, Loader2, PlugZap, Save } from "lucide-react";
 
 import { testSpoolman, updateSpoolman } from "@/lib/api";
 import { useSpoolmanStatus, useSpools } from "@/lib/queries";
+import { queryKeys } from "@/lib/query-client";
 import { formatGrams } from "@/lib/format";
 import { userMessage } from "@/lib/errors";
+import type { SpoolmanStatus } from "@/types";
 
 const INPUT_CLASS =
   "w-full px-2.5 py-1.5 text-sm rounded border border-[var(--outline-variant)] bg-[var(--surface-container-lowest)] text-[var(--on-surface)] placeholder:text-[var(--on-surface-variant)]/40 disabled:opacity-50";
@@ -14,6 +17,7 @@ const INPUT_CLASS =
 const SECRET_MASK = "********";
 
 export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
+  const qc = useQueryClient();
   const { data: status, isLoading } = useSpoolmanStatus();
   const enabled = !!status?.enabled;
   const { data: spools } = useSpools({ enabled });
@@ -22,6 +26,7 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   // Hydrate the form from server state once it loads (and after saves).
   useEffect(() => {
@@ -33,73 +38,61 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
 
   const connected = !!status?.connected;
 
-  const saveConnection = useCallback(async () => {
-    setBusy(true);
-    setError("");
-    try {
-      await updateSpoolman({
-        base_url: baseUrl.trim(),
-        // Leave the stored key untouched when the mask is unchanged.
-        api_key: apiKey === SECRET_MASK ? undefined : apiKey,
-      });
-    } catch (e) {
-      setError(userMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [baseUrl, apiKey]);
-
-  const toggleEnabled = useCallback(
-    async (next: boolean) => {
+  // Run a mutation, push the fresh status into the cache so the badge + form
+  // reflect it immediately, and surface a one-line outcome. `ok` is the success
+  // message (omit for silent toggles).
+  const mutate = useCallback(
+    async (body: Parameters<typeof updateSpoolman>[0], ok?: string) => {
       setBusy(true);
       setError("");
+      setNotice("");
       try {
-        await updateSpoolman({ enabled: next });
+        const updated = await updateSpoolman(body);
+        qc.setQueryData<SpoolmanStatus>(queryKeys.spoolmanStatus, updated);
+        if (ok) setNotice(ok);
       } catch (e) {
         setError(userMessage(e));
       } finally {
         setBusy(false);
       }
     },
-    [],
+    [qc],
   );
 
-  const toggleWrite = useCallback(
-    async (next: boolean) => {
-      setBusy(true);
-      setError("");
-      try {
-        await updateSpoolman({ write_enabled: next });
-      } catch (e) {
-        setError(userMessage(e));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [],
+  const saveConnection = useCallback(
+    () =>
+      mutate(
+        {
+          base_url: baseUrl.trim(),
+          // Leave the stored key untouched when the mask is unchanged.
+          api_key: apiKey === SECRET_MASK ? undefined : apiKey,
+        },
+        "Saved.",
+      ),
+    [mutate, baseUrl, apiKey],
   );
 
+  const toggleEnabled = useCallback((next: boolean) => mutate({ enabled: next }), [mutate]);
+  const toggleWrite = useCallback((next: boolean) => mutate({ write_enabled: next }), [mutate]);
   const toggleWriteForce = useCallback(
-    async (next: boolean) => {
-      setBusy(true);
-      setError("");
-      try {
-        await updateSpoolman({ write_force: next });
-      } catch (e) {
-        setError(userMessage(e));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [],
+    (next: boolean) => mutate({ write_force: next }),
+    [mutate],
   );
 
   const runTest = useCallback(async () => {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
-      const res = await testSpoolman();
-      if (!res.connected) {
+      // Test what's typed in (not just the saved config), so a connection can
+      // be verified before Save.
+      const res = await testSpoolman({
+        base_url: baseUrl.trim(),
+        api_key: apiKey === SECRET_MASK ? undefined : apiKey,
+      });
+      if (res.connected) {
+        setNotice(`Connected${res.version ? ` — Spoolman v${res.version}` : ""}.`);
+      } else {
         setError(res.error || "Spoolman did not respond.");
       }
     } catch (e) {
@@ -107,7 +100,7 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [baseUrl, apiKey]);
 
   return (
     <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
@@ -302,6 +295,12 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
 
             {error && (
               <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+            )}
+            {notice && !error && (
+              <p className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {notice}
+              </p>
             )}
           </>
         )}

@@ -64,3 +64,54 @@ def test_spools_empty_when_disabled(client: TestClient, auth_headers):
 def test_enable_toggle(client: TestClient, auth_headers):
     client.put("/api/v1/spoolman", json={"enabled": True}, headers=auth_headers)
     assert client.get("/api/v1/spoolman", headers=auth_headers).json()["enabled"] is True
+
+
+def test_test_connection_probes_typed_values(client: TestClient, auth_headers, monkeypatch):
+    # /test should probe the values posted from the form, not just saved config,
+    # so a connection can be verified before Save.
+    import app.api.v1.spoolman as mod
+
+    captured: dict = {}
+
+    async def fake_probe(c):
+        captured["base_url"] = c.base_url
+        captured["api_key"] = c.api_key
+        return {"connected": True, "version": "1.2.3", "error": None, "native_hook_detected": False}
+
+    monkeypatch.setattr(mod, "_probe", fake_probe)
+    resp = client.post(
+        "/api/v1/spoolman/test",
+        json={"base_url": "http://typed:7912"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["version"] == "1.2.3"
+    assert captured["base_url"] == "http://typed:7912"
+
+
+def test_test_connection_preserves_saved_key_on_mask(client: TestClient, auth_headers, monkeypatch):
+    import app.api.v1.spoolman as mod
+
+    captured: dict = {}
+
+    async def fake_probe(c):
+        captured["api_key"] = c.api_key
+        return {"connected": True, "version": None, "error": None, "native_hook_detected": False}
+
+    monkeypatch.setattr(mod, "_probe", fake_probe)
+    client.put(
+        "/api/v1/spoolman",
+        json={"base_url": "http://s:7912", "api_key": "secret"},
+        headers=auth_headers,
+    )
+    resp = client.post(
+        "/api/v1/spoolman/test",
+        json={"base_url": "http://s:7912", "api_key": "********"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert captured["api_key"] == "secret"
+
+
+def test_test_connection_requires_base_url(client: TestClient, auth_headers):
+    assert client.post("/api/v1/spoolman/test", json={}, headers=auth_headers).status_code == 400
