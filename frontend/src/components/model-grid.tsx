@@ -151,7 +151,11 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(null);
   const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
-  const [docView, setDocView] = useState<"models" | "docs">("models");
+  // Seed from the URL (`?v=docs`) so returning from a document lands on the
+  // Documents tab instead of resetting to Models.
+  const [docView, setDocView] = useState<"models" | "docs">(
+    searchParams.get("v") === "docs" ? "docs" : "models",
+  );
   const [uploadOpen, setUploadOpen] = useState(false);
   const facetsLoading = collectionsQuery.isLoading || tagsQuery.isLoading;
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);

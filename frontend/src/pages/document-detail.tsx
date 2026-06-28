@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ArrowLeft, Download, Eye, Loader2, Pencil, Save } from "lucide-react";
 
@@ -17,6 +17,11 @@ import { Link, useRouter, useSearchParams } from "@/lib/navigation";
 import { toast } from "@/lib/toast";
 import type { DocumentRead } from "@/types";
 import NotFound from "./not-found";
+
+// pdf.js is heavy — only pull the chunk in when a PDF is actually opened.
+const PdfViewer = lazy(() =>
+  import("@/components/pdf-viewer").then((m) => ({ default: m.PdfViewer })),
+);
 
 function canEditDoc(doc: DocumentRead | null, isSuper: boolean): boolean {
   if (isSuper) return true;
@@ -46,7 +51,9 @@ export default function DocumentDetailPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const canEdit = canEditDoc(doc, !!user?.is_superuser);
-  const backHref = doc?.collection ? `/?c=${encodeURIComponent(doc.collection)}` : "/";
+  const backHref = doc?.collection
+    ? `/?c=${encodeURIComponent(doc.collection)}&v=docs`
+    : "/?v=docs";
 
   useEffect(() => {
     // New doc: no DB row yet — start in the editor, only POST on save.
@@ -281,12 +288,20 @@ export default function DocumentDetailPage() {
             <p className="text-sm text-muted-foreground">This document is empty.</p>
           ))}
 
-        {/* PDF: inline viewer */}
+        {/* PDF: themed inline viewer (pdf.js) */}
         {doc.kind === "pdf" &&
           (pdfUrl ? (
-            <iframe title={doc.name} src={pdfUrl} className="w-full h-[80vh] rounded border border-border" />
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                </div>
+              }
+            >
+              <PdfViewer file={pdfUrl} />
+            </Suspense>
           ) : (
-            <div className="h-[80vh] flex items-center justify-center text-muted-foreground">
+            <div className="flex-1 flex items-center justify-center text-muted-foreground">
               <Loader2 className="w-5 h-5 animate-spin" />
             </div>
           ))}
