@@ -1682,7 +1682,7 @@ export function SettingsPanel() {
           {/* App identity */}
           <div className="bg-card border border-border rounded">
             <div className="px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)]">
+              <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--primary)] text-white">
                 <BrandMark className="h-10 w-10" />
               </div>
               <div className="flex-1 min-w-0">
