@@ -31,6 +31,10 @@ export const CHANGELOG: ChangelogEntry[] = [
       "When a Moonraker-measured print completes, PrintStash decrements the selected Spoolman spool by the real grams used — no double-entry of your inventory",
       "Double-count safety: if Moonraker's own Spoolman integration is already tracking the active spool, PrintStash warns you and keeps its write-back off so a print is never counted twice",
       "Spoolman connection status is reported in the health endpoint and degrades gracefully — a Spoolman outage never blocks or fails a print",
+      "Spoolman: Test connection now checks the address you typed (verify before saving), and Save/Test give clear success and error feedback",
+      "Collection documents & READMEs: attach docs to any collection — write Markdown in a built-in editor (live preview, paste or drop images) or upload PDFs and files",
+      "PDFs open inline in a themed viewer with page navigation and zoom, instead of the browser's default PDF chrome; new Markdown docs open ready to edit and aren't saved until you choose to",
+      "The logo and a document's Back button now return you to the Documents tab when that's where you were",
     ],
   },
   {
