@@ -24,8 +24,8 @@ only after you have seen the result yourself in the browser.
 ## 1. Vault / Library
 
 - [ ] `/` loads in grid and list modes; thumbnails render.
-- [ ] Full-text search, tag filter, printer filter, printer-presence filter,
-      and sort all change the result set.
+- [ ] Printer filter, printer-presence filter, and sort all change the result
+      set.
 - [ ] Drag a model into a collection, move a collection subtree, and
       recursive-delete a non-empty collection.
 - [ ] Delete a tag that is assigned to models.
@@ -47,9 +47,9 @@ only after you have seen the result yourself in the browser.
 - [ ] Edit model collection, description, and tags (add/remove/inline-create);
       save and cancel both behave.
 - [ ] Files tab lists source meshes separately from G-code.
-- [ ] History tab: log a manual print (free-text printer name works), import
-      Moonraker history for a matching file without duplicating jobs.
-- [ ] Download a revision and the slicer-open action.
+- [ ] History tab: import Moonraker history for a matching file without
+      duplicating jobs.
+- [ ] The slicer-open action on a revision.
 
 ## 3. Printers
 
@@ -82,7 +82,6 @@ only after you have seen the result yourself in the browser.
 - [ ] Storage: restore from a backup archive recovers the DB and files.
 - [ ] Shared volumes: add a volume, run a manual scan, confirm files index in
       place; upload a revision and confirm write-back adds (never overwrites).
-- [ ] Design: change model-card metric slots and confirm the reset actions work.
 - [ ] Trash: purge-expired removes models past their retention.
 - [ ] About: version matches the release; changelog renders.
 

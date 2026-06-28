@@ -1,4 +1,5 @@
 import { test, expect } from "./helpers";
+import { modelCard, uploadGcodeModel } from "./util";
 
 test("create and revoke an API key", async ({ page }) => {
   const keyName = `e2e-key-${Date.now()}`;
@@ -71,4 +72,42 @@ test("create a manual backup", async ({ page }) => {
 
   // The new backup shows up in the Restore-backup list with a Download action.
   await expect(page.getByRole("button", { name: "Download" }).first()).toBeVisible();
+});
+
+test("export library metadata as CSV", async ({ page }) => {
+  await page.goto("/settings"); // Overview is the default section.
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: /^CSV$/ }).click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/\.csv$/);
+});
+
+test("About shows the running version", async ({ page }) => {
+  const version = (await (await page.request.get("/api/v1/health")).json()).version;
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "About" }).click();
+  await expect(page.getByText(`v${version}`).first()).toBeVisible();
+});
+
+test("purge-expired empties the trash", async ({ page }) => {
+  const name = `e2e-purge-${Date.now()}`;
+  await uploadGcodeModel(page, name);
+  await modelCard(page, name).click();
+  await page.getByRole("button", { name: /^Delete$/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Trash" }).click();
+  await expect(page.getByText(name)).toBeVisible();
+
+  // Retention 0 means everything already in trash is past expiry.
+  await page.getByRole("spinbutton").fill("0");
+  await page.getByRole("button", { name: "Save retention" }).click();
+  await page.getByRole("button", { name: "Purge expired" }).click();
+  await expect(page.getByText(name)).toHaveCount(0);
+
+  // Restore the default so later runs aren't affected.
+  await page.getByRole("spinbutton").fill("30");
+  await page.getByRole("button", { name: "Save retention" }).click();
 });

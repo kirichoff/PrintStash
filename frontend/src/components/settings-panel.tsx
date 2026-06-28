@@ -613,14 +613,26 @@ export function SettingsPanel() {
     next[slot] = id;
     setCardMetrics(next);
     writeCardMetrics(next);
-    // Notify other tabs / components
-    window.dispatchEvent(new StorageEvent("storage", { key: "printstash.card.metrics" }));
+    // Notify other components in this tab. Carry newValue: a storage-sync
+    // listener (e.g. dev tools) treats a null newValue as a deletion and would
+    // wipe the key we just wrote.
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "printstash.card.metrics",
+        newValue: JSON.stringify(next),
+      }),
+    );
   }
 
   function resetCardMetrics() {
     setCardMetrics(DEFAULT_CARD_METRICS);
     writeCardMetrics(DEFAULT_CARD_METRICS);
-    window.dispatchEvent(new StorageEvent("storage", { key: "printstash.card.metrics" }));
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "printstash.card.metrics",
+        newValue: JSON.stringify(DEFAULT_CARD_METRICS),
+      }),
+    );
     toast.success("Card metrics reset.");
   }
 

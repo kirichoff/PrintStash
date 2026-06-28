@@ -23,15 +23,18 @@ Requires the backend dev venv (`backend/.venv`); falls back to `uv run`.
 ## Coverage
 
 auth (UI login, wrong-password, username + API-key login then revoke) ·
-collections (create / nest / delete) · tags · filament & printer presets
-(create / edit / delete) · model lifecycle (upload → edit → trash → restore →
-purge) · G-code revisions (add, auto-recommend, re-recommend, status, compare) ·
-public share links (view-only vs downloadable, revoke → 404) · RBAC (create
-user, grant collection access, non-admin sees only granted collections) · user
-management (promote/disable/reset password) · API keys · display currency ·
-metadata export · manual backup · design customization (metadata visibility) ·
-printer add/remove · cross-cutting (theme persistence, health version, routes
-free of uncaught errors).
+vault (search, tag filter, list/grid toggle, empty state) · collections
+(create / nest / delete) · tags · uploads (mesh-only source, into a collection) ·
+filament & printer presets (create / edit / delete) · model lifecycle
+(upload → edit → trash → restore → purge) · model detail (log a manual print,
+download a revision) · G-code revisions (add, auto-recommend, re-recommend,
+status, compare) · public share links (view-only vs downloadable, revoke → 404) ·
+RBAC (create user, grant collection access, non-admin sees only granted
+collections, view vs edit role gates editing) · user management
+(promote/disable/reset password) · API keys · display currency · metadata
+export (JSON/CSV) · manual backup · design customization (metadata visibility,
+card-metric slots + reset) · printer add/remove · cross-cutting (theme
+persistence, health version, routes free of uncaught errors).
 
 `util.ts` uploads a model through the real ingest flow; its G-code embeds the
 model name so the backend's content-hash dedupe doesn't collapse separate

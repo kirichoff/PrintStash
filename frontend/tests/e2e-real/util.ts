@@ -12,27 +12,72 @@ function gcodeFor(name: string): string {
   ].join("\n");
 }
 
+// A minimal single-triangle ASCII STL; the solid name keeps the bytes unique.
+function stlFor(name: string): string {
+  return [
+    `solid ${name}`,
+    "facet normal 0 0 1",
+    " outer loop",
+    "  vertex 0 0 0",
+    "  vertex 1 0 0",
+    "  vertex 0 1 0",
+    " endloop",
+    "endfacet",
+    `endsolid ${name}`,
+  ].join("\n");
+}
+
 export function modelCard(page: Page, name: string) {
   return page.locator('a[href^="/models/"]').filter({ hasText: name });
 }
 
-// Upload a G-code-only model through the real upload flow and wait for the
-// async backend ingestion to surface it in the library. Returns when visible.
-export async function uploadGcodeModel(page: Page, name: string): Promise<void> {
+type UploadOpts = { mesh?: boolean; gcode?: boolean; collection?: string; tag?: string };
+
+// Upload a model through the real upload flow and wait for async ingestion to
+// surface it. With a collection it lands inside that collection, not at root.
+export async function uploadModel(page: Page, name: string, opts: UploadOpts = {}): Promise<void> {
+  const { mesh = false, gcode = true, collection, tag } = opts;
   await page.goto("/");
   await page.getByRole("button", { name: "Upload" }).click();
-  await expect(page.getByRole("dialog", { name: "Upload model" })).toBeVisible();
-  await page.locator('input[accept=".gcode,.g,.gco"]').setInputFiles({
-    name: "part.gcode",
-    mimeType: "text/plain",
-    buffer: Buffer.from(gcodeFor(name)),
-  });
-  await page.getByPlaceholder("e.g. Bracket v2").fill(name);
-  await page.getByRole("button", { name: /upload to vault/i }).click();
-  await expect(page.getByRole("dialog", { name: "Upload model" })).toHaveCount(0);
+  const dialog = page.getByRole("dialog", { name: "Upload model" });
+  await expect(dialog).toBeVisible();
 
+  if (gcode) {
+    await page.locator('input[accept=".gcode,.g,.gco"]').setInputFiles({
+      name: `${name}.gcode`,
+      mimeType: "text/plain",
+      buffer: Buffer.from(gcodeFor(name)),
+    });
+  }
+  if (mesh) {
+    await page.locator('input[accept=".stl,.3mf,.obj,.step,.stp"]').setInputFiles({
+      name: `${name}.stl`,
+      mimeType: "model/stl",
+      buffer: Buffer.from(stlFor(name)),
+    });
+  }
+  await page.getByPlaceholder("e.g. Bracket v2").fill(name);
+
+  if (collection) {
+    await dialog.getByRole("button", { name: "None" }).click();
+    await dialog.getByRole("button", { name: new RegExp(collection) }).click();
+  }
+  if (tag) {
+    const tagInput = page.getByPlaceholder("Search or create — press Enter");
+    await tagInput.fill(tag);
+    await tagInput.press("Enter");
+  }
+
+  await page.getByRole("button", { name: /upload to vault/i }).click();
+  await expect(dialog).toHaveCount(0);
+
+  const view = collection ? `/?c=${encodeURIComponent(collection)}` : "/";
   await expect(async () => {
-    await page.goto("/");
+    await page.goto(view);
     await expect(modelCard(page, name)).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 60_000 });
+}
+
+export function uploadGcodeModel(page: Page, name: string): Promise<void> {
+  return uploadModel(page, name, { gcode: true });
 }
