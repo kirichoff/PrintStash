@@ -337,6 +337,20 @@ class CollectionCreate(BaseModel):
     parent_id: Optional[int] = None
 
 
+class CollectionReadmeRead(BaseModel):
+    readme: Optional[str] = None
+
+
+class CollectionReadmeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    readme: Optional[str] = Field(default=None, max_length=100_000)
+
+
+class CollectionImageUpload(BaseModel):
+    url: str
+
+
 class CollectionMove(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -261,6 +261,10 @@ class Collection(SQLModel, table=True):
     )
     path: str = Field(max_length=512, unique=True, index=True)
 
+    # Short markdown description shown on top of the collection view. Image refs
+    # point at /collections/{id}/images/{name} (self-hosted).
+    readme: Optional[str] = Field(default=None, sa_column=Column(Text))
+
     deleted_at: Optional[datetime] = Field(default=None, index=True)
     deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
     created_by: Optional[int] = Field(default=None, foreign_key="users.id")
@@ -353,6 +357,39 @@ class Model(SQLModel, table=True):
             "lazy": "selectin",
         },
     )
+
+
+class DocumentKind(str, Enum):
+    MARKDOWN = "markdown"  # editable in-app, content in ``body``
+    PDF = "pdf"  # binary blob under document_file_key
+    OTHER = "other"  # any other uploaded binary
+
+
+class Document(SQLModel, table=True):
+    """A standalone document item (manual / notes) living in a collection,
+    shown in the library alongside models. Markdown docs keep their content in
+    ``body`` (editable); binary docs (PDF/other) store ``filename`` + a blob."""
+
+    __tablename__ = "documents"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True, max_length=255)
+    kind: DocumentKind = Field(index=True)
+    collection_id: Optional[int] = Field(
+        default=None, foreign_key="collections.id", index=True
+    )
+
+    body: Optional[str] = Field(default=None, sa_column=Column(Text))  # markdown
+    filename: Optional[str] = Field(default=None, max_length=255)  # binary
+    size_bytes: Optional[int] = None
+    sha256: Optional[str] = Field(default=None, max_length=64)
+
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
+    deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    updated_by: Optional[int] = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow, index=True)
 
 
 # ---------------------------------------------------------------------------

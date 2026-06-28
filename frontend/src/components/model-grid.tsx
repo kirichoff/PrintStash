@@ -7,6 +7,8 @@ import { CollectionRead, ModelListItem, PrinterRead, TagRead } from "@/types";
 import { ModelCard } from "@/components/model-card";
 import { BatchToolbar } from "@/components/batch-toolbar";
 import { Checkbox } from "@/components/ui/checkbox";
+import { CollectionReadme } from "@/components/collection-readme";
+import { DocumentBrowser } from "@/components/document-browser";
 import { FilterSidebar } from "@/components/filter-sidebar";
 import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
 import { UploadModal } from "@/components/upload-modal";
@@ -149,6 +151,7 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(null);
   const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [docView, setDocView] = useState<"models" | "docs">("models");
   const [uploadOpen, setUploadOpen] = useState(false);
   const facetsLoading = collectionsQuery.isLoading || tagsQuery.isLoading;
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
@@ -542,6 +545,31 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
           </div>
         </div>
 
+        {selectedCollectionRow && (
+          <CollectionReadme
+            key={selectedCollectionRow.id}
+            collectionId={selectedCollectionRow.id}
+            canEdit={!!user?.is_superuser || canWriteCollection(selectedCollectionRow)}
+          />
+        )}
+
+        {/* Models / Documents tabs */}
+        <div className="flex items-center gap-1 px-4 sm:px-6 pt-3 border-b border-border">
+          {(["models", "docs"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setDocView(v)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                docView === v
+                  ? "border-blue-600 dark:border-orange-500 text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {v === "models" ? "Models" : "Documents"}
+            </button>
+          ))}
+        </div>
+
         {isCreatingCollection && (
           <div className="px-6 py-3 bg-muted border-b border-border">
             <form
@@ -599,6 +627,13 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
         )}
 
         {/* Content */}
+        {docView === "docs" ? (
+          <DocumentBrowser
+            collectionId={selectedCollectionRow?.id ?? null}
+            collectionPath={selectedCollection}
+            canCreate={!!user?.is_superuser || canWriteCollection(selectedCollectionRow)}
+          />
+        ) : (
         <div className="flex-1 flex flex-col bg-background">
           {error && (
             <div className="mx-6 mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
@@ -678,6 +713,7 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
             </div>
           )}
         </div>
+        )}
       </main>
 
       <BatchToolbar
