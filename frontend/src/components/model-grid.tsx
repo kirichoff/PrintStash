@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "@/lib/navigation";
 import { CollectionRead, ModelListItem, PrinterRead, TagRead } from "@/types";
-import { ModelCard } from "@/components/model-card";
+import { ModelCard, MODEL_DND_MIME } from "@/components/model-card";
 import { BatchToolbar } from "@/components/batch-toolbar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CollectionReadme } from "@/components/collection-readme";
@@ -159,19 +159,29 @@ function classifyDrop(files: File[]): { files: File[]; mode: UploadMode } | null
   return null;
 }
 
+// Tell an OS file-upload drag (carries "Files") apart from an internal
+// move-model drag (carries MODEL_DND_MIME) so each gets the right affordance.
+function isFileDrag(e: React.DragEvent) {
+  return e.dataTransfer.types.includes("Files");
+}
+
 function onMainDragEnter(e: React.DragEvent) {
+  if (!isFileDrag(e)) return; // model drags are handled by the folder drop targets
   e.preventDefault();
   if (++dragEnterCount.current === 1) setIsDragging(true);
 }
 function onMainDragOver(e: React.DragEvent) {
+  if (!isFileDrag(e)) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = "copy";
 }
 function onMainDragLeave(e: React.DragEvent) {
+  if (!isFileDrag(e)) return;
   e.preventDefault();
   if (--dragEnterCount.current <= 0) { dragEnterCount.current = 0; setIsDragging(false); }
 }
 async function onMainDrop(e: React.DragEvent) {
+  if (!isFileDrag(e)) return; // a model dropped on empty space is a no-op
   e.preventDefault();
   dragEnterCount.current = 0;
   setIsDragging(false);
@@ -735,6 +745,7 @@ async function onMainDrop(e: React.DragEvent) {
                     key={collection.id}
                     collection={collection}
                     onSelect={handleCollectionChange}
+                    onDropModel={canUploadToVault ? handleMoveModel : undefined}
                   />
                 ))}
                 {sortedModels.map((model) => (
@@ -744,6 +755,7 @@ async function onMainDrop(e: React.DragEvent) {
                     selectable={selectMode}
                     selected={selectedIds.has(model.id)}
                     onToggleSelect={toggleSelect}
+                    draggable={canUploadToVault && !selectMode}
                   />
                 ))}
               </div>
@@ -765,6 +777,7 @@ async function onMainDrop(e: React.DragEvent) {
                     key={collection.id}
                     collection={collection}
                     onSelect={handleCollectionChange}
+                    onDropModel={canUploadToVault ? handleMoveModel : undefined}
                   />
                 ))}
                 {sortedModels.map((model) => (
@@ -774,6 +787,7 @@ async function onMainDrop(e: React.DragEvent) {
                     selectable={selectMode}
                     selected={selectedIds.has(model.id)}
                     onToggleSelect={toggleSelect}
+                    draggable={canUploadToVault && !selectMode}
                   />
                 ))}
               </div>
@@ -800,13 +814,45 @@ async function onMainDrop(e: React.DragEvent) {
   );
 }
 
-function CollectionFolderCard({ collection, onSelect }: { collection: CollectionRead; onSelect: (path: string) => void }) {
+// Makes a collection card accept a dragged model: highlights on hover and calls
+// onDropModel(modelId, path) on drop. Ignores OS file drags (no MODEL_DND_MIME)
+// so those still bubble to the main upload handler.
+function useModelDropTarget(path: string, onDropModel?: (modelId: number, path: string) => void) {
+  const [dragOver, setDragOver] = useState(false);
+  const handlers = {
+    onDragOver: (e: React.DragEvent) => {
+      if (!onDropModel || !e.dataTransfer.types.includes(MODEL_DND_MIME)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      setDragOver(true);
+    },
+    onDragLeave: () => setDragOver(false),
+    onDrop: (e: React.DragEvent) => {
+      if (!onDropModel || !e.dataTransfer.types.includes(MODEL_DND_MIME)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOver(false);
+      const id = Number(e.dataTransfer.getData(MODEL_DND_MIME));
+      if (id) onDropModel(id, path);
+    },
+  };
+  return { dragOver, handlers };
+}
+
+function CollectionFolderCard({ collection, onSelect, onDropModel }: { collection: CollectionRead; onSelect: (path: string) => void; onDropModel?: (modelId: number, path: string) => void }) {
+  const { dragOver, handlers } = useModelDropTarget(collection.path, onDropModel);
   return (
     <button
       type="button"
       data-collection-path={collection.path}
       onClick={() => onSelect(collection.path)}
-      className="animate-card-in group flex flex-col text-left bg-muted border border-border rounded-lg hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-sm transition-all relative overflow-hidden"
+      {...handlers}
+      className={`animate-card-in group flex flex-col text-left bg-muted border rounded-lg hover:shadow-sm transition-all relative overflow-hidden ${
+        dragOver
+          ? "border-blue-500 dark:border-orange-500 ring-2 ring-blue-500/40 dark:ring-orange-500/40"
+          : "border-border hover:border-orange-500 dark:hover:border-orange-500"
+      }`}
     >
       <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-[var(--surface-container-high)] min-h-[100px] sm:min-h-[140px]">
         <Folder className="w-12 h-12 sm:w-16 sm:h-16 text-blue-600/30 dark:text-orange-500/25" />
@@ -846,13 +892,19 @@ function CollectionFolderGrid({ collections, onSelect }: { collections: Collecti
   );
 }
 
-function CollectionListRow({ collection, onSelect }: { collection: CollectionRead; onSelect: (path: string) => void }) {
+function CollectionListRow({ collection, onSelect, onDropModel }: { collection: CollectionRead; onSelect: (path: string) => void; onDropModel?: (modelId: number, path: string) => void }) {
+  const { dragOver, handlers } = useModelDropTarget(collection.path, onDropModel);
   return (
     <button
       type="button"
       data-collection-path={collection.path}
       onClick={() => onSelect(collection.path)}
-      className="flex items-center gap-2 md:gap-3 px-4 py-3 border-b border-border text-left hover:bg-muted transition-colors group"
+      {...handlers}
+      className={`flex items-center gap-2 md:gap-3 px-4 py-3 border-b text-left transition-colors group ${
+        dragOver
+          ? "border-blue-500 dark:border-orange-500 ring-2 ring-inset ring-blue-500/40 dark:ring-orange-500/40 bg-muted"
+          : "border-border hover:bg-muted"
+      }`}
     >
       <span className="w-8 h-8 md:w-10 md:h-10 rounded bg-blue-50 flex-shrink-0 border border-blue-100 dark:border-orange-900 flex items-center justify-center text-blue-600 dark:text-orange-500">
         <Folder className="h-4 w-4 md:h-5 md:w-5" />
@@ -876,11 +928,13 @@ function ModelListRow({
   selectable = false,
   selected = false,
   onToggleSelect,
+  draggable = false,
 }: {
   model: ModelListItem;
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
+  draggable?: boolean;
 }) {
   const router = useRouter();
   const thumb = useAuthenticatedAssetUrl(model.thumbnail_url);
@@ -888,6 +942,15 @@ function ModelListRow({
   return (
     <Link
       href={`/models/${model.id}`}
+      draggable={draggable}
+      onDragStart={
+        draggable
+          ? (e) => {
+              e.dataTransfer.setData(MODEL_DND_MIME, String(model.id));
+              e.dataTransfer.effectAllowed = "move";
+            }
+          : undefined
+      }
       onMouseEnter={() => router.prefetch(`/models/${model.id}`)}
       onClick={(e) => {
         if (selectable) {
@@ -896,8 +959,8 @@ function ModelListRow({
         }
       }}
       className={`flex items-center gap-2 md:gap-3 px-4 py-3 border-b border-border transition-colors group active:bg-muted ${
-        selected ? "bg-blue-50 dark:bg-orange-950/30" : "hover:bg-muted"
-      }`}
+        draggable ? "cursor-grab active:cursor-grabbing" : ""
+      } ${selected ? "bg-blue-50 dark:bg-orange-950/30" : "hover:bg-muted"}`}
     >
       {selectable && (
         <Checkbox
