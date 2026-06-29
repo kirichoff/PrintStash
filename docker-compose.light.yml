@@ -25,7 +25,12 @@ services:
       VAULT_STAGING_DIR: /data/staging
       VAULT_BACKUP_DIR: /data/backups
       # PLEASE CHANGE THE VAULT_JWT_SECRET BELOW
-      VAULT_JWT_SECRET: "changeme_jwt_secret_please_change" # Generate with > openssl rand -hex 32
+      VAULT_JWT_SECRET: "CHANGEME_JWT_SECRET_PLEASE_CHANGE" # Generate with > openssl rand -hex 32
+      VAULT_ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      VAULT_REMEMBER_ME_DAYS: 30
+      VAULT_MAX_UPLOAD_MB: 512
+      VAULT_LOG_LEVEL: INFO
+      TZ: UTC
     volumes:
       - ./foo/bar/PrintStash/files:/data/files
       - ./foo/bar/PrintStash/thumbs:/data/thumbs

@@ -36,9 +36,15 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def create_access_token(user_id: int, username: str, scope: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.access_token_expire_minutes
+def create_access_token(
+    user_id: int,
+    username: str,
+    scope: str,
+    expires_delta: timedelta | None = None,) -> str:
+    expire = datetime.now(timezone.utc) + (
+        expires_delta
+        if expires_delta is not None
+        else timedelta(minutes=settings.access_token_expire_minutes)
     )
     token_id = secrets.token_hex(16)
     payload = {

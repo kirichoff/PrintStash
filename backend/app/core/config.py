@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "changeme_jwt_secret_please_change"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    remember_me_days: int = 30
     # Short-lived token embedded in slicer ("Open in slicer") download URLs so an
     # external slicer process can fetch the file without the user's login session.
     slicer_download_token_expire_minutes: int = 15

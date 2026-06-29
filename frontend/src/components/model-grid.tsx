@@ -449,7 +449,7 @@ async function onMainDrop(e: React.DragEvent) {
         onUploaded={refresh}
         defaultCollection={dropCollection ?? uploadDefaultCollection}
         preloadFiles={dropPreload?.files ?? null}
-        preloadFiles={dropPreload?.files ?? null}
+        preloadItems={dropPreload?.items ?? null}
         initialMode={dropPreload?.mode}
       />
       <MobileFilterDrawer
