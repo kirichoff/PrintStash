@@ -21,7 +21,6 @@ import { login as apiLogin, getMe } from "@/lib/api";
 interface AuthState {
   user: StoredUser | null;
   loading: boolean;
-  // login: (username: string, password: string) => Promise<void>;
   login: (username: string, password: string, remember_me?: boolean) => Promise<void>
   logout: () => void;
   refresh: () => Promise<void>;
