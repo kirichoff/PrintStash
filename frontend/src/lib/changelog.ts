@@ -21,6 +21,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.8.1",
+    date: "Jun 2026",
+    changes: [
+      "Printer controls: set the hotend and bed target temperature right from a Moonraker printer's Status tab, with one-tap PLA/PETG/ABS preheat presets and a Cooldown button",
+      "Home the printer (all axes) and an Emergency stop button — both confirm before acting, and all of these controls are hidden for printers that don't support G-code commands",
+      "Mobile: pages now use the dynamic viewport height so they scroll fully under the browser chrome instead of cutting off at the bottom",
+      "Mobile: the model detail page scrolls when its settings/files panel is taller than the screen, and content no longer hides behind the bottom navigation bar on the vault, model, and document pages",
+      "Thumbnails render with brighter, higher-contrast mesh lighting on the dark theme",
+    ],
+  },
+  {
     version: "0.8.0",
     date: "Jun 2026",
     changes: [

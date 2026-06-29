@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.8.1
+
+### Added
+
+- **Live printer controls (Moonraker).** The printer Status tab now lets you set
+  the hotend and bed target temperature, apply one-tap PLA/PETG/ABS preheat
+  presets or Cooldown, Home all axes, and trigger an Emergency stop. Controls are
+  gated behind a new `can_send_gcode` capability, so they're shown only for
+  providers that accept G-code (hidden for Bambu LAN).
+
+### Fixed
+
+- **Mobile scrolling.** Pages use the dynamic viewport height (`dvh`) so they
+  scroll fully under the mobile browser chrome; the model detail page scrolls
+  when its right-hand panel overflows; and the vault, model, and document pages
+  keep their last content clear of the fixed bottom navigation bar instead of
+  hiding it behind the nav.
+- **Thumbnails.** Brighter, higher-contrast mesh lighting on the dark theme.
+
 ## 0.8.0
 
 ### Added
