@@ -47,7 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         children
       ) : (
         <MobileFilterProvider>
-          <div className="flex flex-col h-screen overflow-hidden">
+          <div className="flex flex-col h-dvh overflow-hidden">
             <TopBar />
             <AuthBanner />
             <div className="flex flex-1 min-h-0 overflow-hidden">
