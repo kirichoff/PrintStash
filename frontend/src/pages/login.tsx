@@ -96,7 +96,7 @@ export default function LoginPage() {
               required
               className="w-full h-10 bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-sm border border-[var(--outline-variant)] rounded px-3 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
             />
-            <label>
+            <div className="flex items-center gap-2">
               <input
                 id="remember_me"
                 type="checkbox"
@@ -107,7 +107,7 @@ export default function LoginPage() {
               <label htmlFor="remember_me" className="text-xs text-[var(--on-surface-variant)]">
                 Remember me
               </label>
-            </label>
+            </div>
           </div>
 
           {error && (

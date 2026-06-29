@@ -27,7 +27,7 @@ import {
   Plus,
   CheckSquare,
 } from "lucide-react";
-import { listModels, createCollection, updateModel, moveCollection, deleteCollection, batchMoveModels, batchTagModels, batchDeleteModels, } from "@/lib/api";
+import { createCollection, updateModel, moveCollection, deleteCollection, batchMoveModels, batchTagModels, batchDeleteModels, } from "@/lib/api";
 import { isMeshFile, isGcodeFile, extensionOf, walkEntries, entriesFromDataTransfer, BulkItem } from "@/lib/bulk-upload";
 import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, type ModelListFilters, } from "@/lib/queries";
 import { queryKeys } from "@/lib/query-client";
