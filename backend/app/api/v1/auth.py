@@ -6,10 +6,12 @@ Stage 4 will graft OAuth2 / multi-tenant onto the same surface.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 
 from app.core.security import oauth2_scheme, require_user
+from app.core.config import settings
 from app.db.models import User
 from app.db.session import get_session
 from app.schemas.auth import (
@@ -61,7 +63,8 @@ def login(body: LoginRequest, session: Session = Depends(get_session)) -> TokenR
             detail="invalid_credentials",
         )
     scope = "admin" if user.is_superuser else "write"
-    access_token = create_access_token(user.id, user.username, scope=scope)
+    expires_delta = timedelta(days=settings.remember_me_days) if body.remember_me else None
+    access_token = create_access_token(user.id, user.username, scope=scope, expires_delta=expires_delta)
     refresh_token = create_refresh_token(session, user_id=user.id)
     return TokenResponse(
         access_token=access_token,

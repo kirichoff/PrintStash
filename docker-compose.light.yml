@@ -1,0 +1,57 @@
+services:
+
+  frontend:
+    image: ghcr.io/xiao-villamor/printstash-frontend:latest
+    container_name: PrintStash_Web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    networks:
+      - printstash_net
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    image: ghcr.io/xiao-villamor/printstash-api:latest
+    container_name: PrintStash_API
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      VAULT_DB_URL: sqlite:////data/db/printstash.sqlite
+      VAULT_DATA_DIR: /data/files
+      VAULT_THUMB_DIR: /data/thumbs
+      VAULT_STAGING_DIR: /data/staging
+      VAULT_BACKUP_DIR: /data/backups
+      # PLEASE CHANGE THE VAULT_JWT_SECRET BELOW
+      VAULT_JWT_SECRET: "CHANGEME_JWT_SECRET_PLEASE_CHANGE" # Generate with > openssl rand -hex 32
+      VAULT_ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      VAULT_REMEMBER_ME_DAYS: 2
+      VAULT_MAX_UPLOAD_MB: 512
+      VAULT_LOG_LEVEL: INFO
+      TZ: UTC
+    volumes:
+      - ./foo/bar/PrintStash/files:/data/files
+      - ./foo/bar/PrintStash/thumbs:/data/thumbs
+      - ./foo/bar/PrintStash/db:/data/db
+      - ./foo/bar/PrintStash/staging:/data/staging
+      - ./foo/bar/PrintStash/backups:/data/backups
+    networks:
+      - printstash_net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    command:
+      - /bin/sh
+      - -c
+      - >
+        uv run alembic upgrade head &&
+        uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log --proxy-headers
+
+networks:
+  printstash_net:
+    driver: bridge

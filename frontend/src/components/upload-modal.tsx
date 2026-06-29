@@ -37,6 +37,7 @@ import {
   entriesFromDataTransfer,
   extensionOf,
   fileListToItems,
+  isGcodeFile,
   isMeshFile,
   mergeBulkItems,
   walkEntries,
@@ -61,7 +62,7 @@ declare module "react" {
   }
 }
 
-type UploadMode = "files" | "bulk" | "url" | "zip";
+export type UploadMode = "files" | "bulk" | "url" | "zip";
 
 const GCODE_ACCEPT = ".gcode,.g,.gco";
 
@@ -93,11 +94,17 @@ export function UploadModal({
   onClose,
   onUploaded,
   defaultCollection,
+  preloadFiles,
+  preloadItems,
+  initialMode,
 }: {
   open: boolean;
   onClose: () => void;
   onUploaded: () => void;
   defaultCollection?: string | null;
+  preloadFiles?: File[] | null;
+  preloadItems?: BulkItem[] | null;
+  initialMode?: UploadMode;
 }) {
   const auth = useRequireAuth();
   const { user } = useAuth();
@@ -143,6 +150,13 @@ export function UploadModal({
     [collections],
   );
 
+function sortIntoSlots(files: File[]) {
+  for (const f of files) {
+    if (isMeshFile(f.name)) setMeshFile(f);
+    else if (isGcodeFile(f.name)) setGcodeFile(f);
+  }
+}
+
   useEffect(() => {
     if (!open) return;
     if (defaultCollection) {
@@ -176,6 +190,22 @@ export function UploadModal({
       cancelled = true;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || (!preloadFiles?.length && !preloadItems?.length)) return;
+    if (initialMode) setMode(initialMode);
+    if (initialMode === "bulk") {
+      setBulkFiles(preloadItems?.length ? preloadItems : fileListToItems(preloadFiles ?? []));
+    } else if (initialMode === "zip") {
+      setZipFile(preloadFiles?.[0] ?? null);
+    } else {
+      setMeshFile(null);
+      setGcodeFile(null);
+      setModelName("");
+      sortIntoSlots(preloadFiles ?? []);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, preloadFiles, preloadItems, initialMode]);
 
   useEffect(() => {
     if (!open) return;
