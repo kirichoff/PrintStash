@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.8.1
+
+### Added
+
+- **Live printer controls (Moonraker).** The printer Status tab now lets you set
+  the hotend and bed target temperature, apply one-tap PLA/PETG/ABS preheat
+  presets or Cooldown, Home all axes, and trigger an Emergency stop. Controls are
+  gated behind a new `can_send_gcode` capability, so they're shown only for
+  providers that accept G-code (hidden for Bambu LAN).
+
+### Fixed
+
+- **Mobile scrolling.** Pages use the dynamic viewport height (`dvh`) so they
+  scroll fully under the mobile browser chrome; the model detail page scrolls
+  when its right-hand panel overflows; and the vault, model, and document pages
+  keep their last content clear of the fixed bottom navigation bar instead of
+  hiding it behind the nav.
+- **Thumbnails.** Brighter, higher-contrast mesh lighting on the dark theme.
+
 ## 0.8.0b1
 
 ### Fix
@@ -49,6 +68,13 @@
   The UI also warns when this is detected. An operator who has disabled
   Moonraker's hook can set a "write back anyway" override to make PrintStash
   own the consumption.
+- **Collection documents & READMEs.** Attach documentation to any collection:
+  write Markdown in an in-app editor (live preview, paste-or-drop image embeds)
+  or upload PDFs and other files. New Markdown docs open straight in the editor
+  and aren't created until you save. PDFs render inline in a themed pdf.js viewer
+  (page navigation, zoom, fit-to-width) that matches the app instead of the
+  browser's default chrome. Each collection can also carry a README shown at the
+  top of its page. Access follows the collection's role (view / edit / admin).
 
 ### Changed
 
@@ -79,6 +105,14 @@
   the cursor crosses items inside the dropzone, the copy cursor shows while
   dragging, and a folder that fails to read now surfaces an error instead of
   silently doing nothing.
+- Spoolman **Test connection** now probes the values typed into the form, so you
+  can verify a connection before saving — it no longer tests only the last-saved
+  config. **Save** and **Test** now show clear success/error feedback (a "Saved."
+  / "Connected — Spoolman vX" line and an immediate status-badge update) instead
+  of appearing to do nothing, and a failed connection names the error instead of
+  showing a bare "transport error:".
+- The PrintStash logo and the document **Back** link now return to the Documents
+  tab when that's where you were, rather than always resetting to Models.
 
 ### Internal
 
@@ -99,6 +133,14 @@
   `PrintJob` (second Alembic migration), a `density` override on `mm_to_grams`,
   and `model_views.filament_cost_for_job` for spool-exact cost. Read-only
   enforcement on linked presets in the filaments API.
+- Collection documents: `app.api.v1.documents` (CRUD, file upload, Markdown image
+  embeds) with a `Document` model and a collection `readme` field across two
+  Alembic migrations. Frontend adds `react-pdf`/`pdfjs-dist` (lazy-loaded, code
+  split) for the inline PDF viewer; the nginx config now serves `.mjs` as
+  `application/javascript` so the pdf.js module worker loads (browsers reject a
+  module worker served as `application/octet-stream`). `POST /spoolman/test`
+  gained optional `base_url`/`api_key` overrides so the UI can probe unsaved
+  values. Covered by document/README and Spoolman API tests.
 
 ## 0.7.3
 

@@ -35,6 +35,7 @@ class ProviderCapabilities:
     can_live_status: bool
     can_upload: bool
     can_list_files: bool = False
+    can_send_gcode: bool = False
     support_level: str = "stable"
     support_notes: tuple[str, ...] = ()
     unsupported_actions: tuple[str, ...] = ()
@@ -65,6 +66,10 @@ class PrinterProviderClient(Protocol):
 
     async def cancel(self) -> dict[str, Any]: ...
 
+    async def run_gcode(self, script: str) -> dict[str, Any]: ...
+
+    async def emergency_stop(self) -> dict[str, Any]: ...
+
     async def subscribe_status(
         self,
         on_status: Callable[[dict[str, Any]], Awaitable[None]],
@@ -82,6 +87,7 @@ class MoonrakerProvider:
         can_live_status=True,
         can_upload=True,
         can_list_files=True,
+        can_send_gcode=True,
         support_level="stable",
     )
 
@@ -153,6 +159,18 @@ class MoonrakerProvider:
     async def cancel(self) -> dict[str, Any]:
         try:
             return await self.client.cancel_print()
+        except MoonrakerError as exc:
+            raise ProviderError(str(exc), code="provider_transport_error") from exc
+
+    async def run_gcode(self, script: str) -> dict[str, Any]:
+        try:
+            return await self.client.run_gcode(script)
+        except MoonrakerError as exc:
+            raise ProviderError(str(exc), code="provider_transport_error") from exc
+
+    async def emergency_stop(self) -> dict[str, Any]:
+        try:
+            return await self.client.emergency_stop()
         except MoonrakerError as exc:
             raise ProviderError(str(exc), code="provider_transport_error") from exc
 
@@ -324,6 +342,18 @@ class BambuLanProvider:
             {"print": {"sequence_id": "0", "command": "stop"}}
         )
 
+    async def run_gcode(self, script: str) -> dict[str, Any]:
+        raise ProviderError(
+            "operation_not_supported_for_provider",
+            code="operation_not_supported_for_provider",
+        )
+
+    async def emergency_stop(self) -> dict[str, Any]:
+        raise ProviderError(
+            "operation_not_supported_for_provider",
+            code="operation_not_supported_for_provider",
+        )
+
     async def subscribe_status(
         self,
         on_status: Callable[[dict[str, Any]], Awaitable[None]],
@@ -369,6 +399,7 @@ def provider_diagnostic_summary(provider: PrinterProvider) -> dict[str, object]:
             "can_live_status": caps.can_live_status,
             "can_upload": caps.can_upload,
             "can_list_files": caps.can_list_files,
+            "can_send_gcode": caps.can_send_gcode,
         },
         "unsupported_actions": list(caps.unsupported_actions),
         "notes": list(caps.support_notes),

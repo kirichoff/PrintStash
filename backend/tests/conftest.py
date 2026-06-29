@@ -52,6 +52,7 @@ _TRUNCATE_TABLES_ORDER = [
     "metadata",
     "models",
     "external_libraries",
+    "documents",
     "collection_permissions",
     "collections",
     "api_keys",
@@ -121,6 +122,13 @@ def _patch_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     _overlay.clear()
     _overlay["db_url"] = TEST_DB_URL
     _truncate_all()
+    # Drop the process-wide httpx client so a test that drives async egress in
+    # its own asyncio.run() loop doesn't inherit one bound to a prior (closed)
+    # loop — the cache only rebinds on is_closed, which a closed loop doesn't
+    # flip. Dropping the ref (not aclose) avoids touching the dead loop.
+    import app.core.http_client as _http_client_mod
+
+    _http_client_mod._http_client = None
 
 
 @pytest.fixture

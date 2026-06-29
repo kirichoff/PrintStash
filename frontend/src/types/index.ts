@@ -1,3 +1,5 @@
+export type { DocumentKind, DocumentListItem, DocumentRead } from "./documents";
+
 export type {
   MetadataRead,
   FileRead,

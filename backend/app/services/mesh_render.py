@@ -222,58 +222,69 @@ def render_mesh_thumbnail(
         def _normalise(v: "np.ndarray") -> "np.ndarray":
             return v / np.linalg.norm(v)
 
+        # Model albedo: the blue-grey surface colour, baked into the light terms
+        # below (not the rasteriser's per-pixel multiply, which is now pure white —
+        # see `base_color`). Folding albedo into shading lets the specular and rim
+        # add *white* highlights on top of the tinted body, so curved surfaces get
+        # a bright sheen that reads on the dark card instead of clipping at a dim
+        # blue-grey ceiling. Slightly lighter + less saturated than the old base so
+        # the model pops against a near-black background.
+        albedo = np.array([0.70, 0.75, 0.84])
+
         # Key light: main illumination, upper-left and well in front of the
-        # camera so the lit side reads as one clean gradient.
+        # camera so the lit side reads as one clean gradient. Strength >1 so the
+        # directly-lit side drives toward white — the gradient has real range now.
         key_dir = _normalise(np.array([-0.5, 0.65, 1.0]))
         key_color = np.array([1.00, 0.98, 0.95])  # warm white
-        key_str = 0.85
+        key_str = 1.05
 
         # Fill light: opposite side, soft and cool. Kept gentle so it only lifts
         # the shadow side and never forms a second highlight — competing
         # directional highlights are what made smooth surfaces look muddy/blotchy.
         fill_dir = _normalise(np.array([0.55, -0.25, 0.55]))
         fill_color = np.array([0.55, 0.62, 0.78])  # cool blue-grey
-        fill_str = 0.26
+        fill_str = 0.30
 
         # Rim: a view-based Fresnel edge light (brightens the silhouette where the
-        # surface turns away from the camera). Derived from the view normal's Z in
-        # the shading pass — a real edge light, not a third directional lamp aimed
-        # across the front, which previously smeared bright patches into the form.
+        # surface turns away from the camera). Additive white, so it lifts the
+        # silhouette off the dark card rather than darkening into it.
         rim_color = np.array([0.85, 0.92, 1.00])  # near-white, slightly cool
-        rim_str = 0.18
+        rim_str = 0.22
         rim_power = 3.0
 
-        # Ambient: blue-grey floor. Lifted a touch so curved faces turned away
-        # from the key don't crush into a muddy near-black blotch (the headphone
-        # arm), while still dark enough to read as 3D form rather than a wash.
-        ambient_color = np.array([0.14, 0.155, 0.185])
+        # Ambient: blue-grey floor tied to the albedo so shadowed faces stay a
+        # dark version of the body colour (never crushed to muddy near-black, never
+        # a flat grey wash). Lifted enough that curved faces turned away from the
+        # key still read as form against the dark card.
+        ambient_str = 0.30
 
-        # Blinn-Phong specular off the key light — a subtle sheen that picks out
-        # ridges, like the 3D viewer. Kept gentle: a strong spec sparkles facet to
-        # facet on tessellated curves. Camera is on +Z in view-space, so the
-        # half-vector is between key_dir and (0,0,1).
+        # Blinn-Phong specular off the key light — an additive *white* sheen that
+        # picks out ridges, like the 3D viewer. Kept gentle: a strong spec sparkles
+        # facet to facet on tessellated curves. Camera is on +Z in view-space, so
+        # the half-vector is between key_dir and (0,0,1).
         half = _normalise(key_dir + np.array([0.0, 0.0, 1.0]))
-        spec_str = 0.16
+        spec_str = 0.22
         spec_power = 32.0
 
         def _shade(n: "np.ndarray") -> "np.ndarray":
             # Per-fragment (Phong) shading from a view-space unit normal of any
-            # leading shape (..., 3). Same lamp rig as before, but evaluated after
-            # the normal is interpolated across the triangle in the rasteriser —
-            # lighting *colour* per vertex (Gouraud) made triangle edges and the
-            # many-triangle "poles" show up as banding and radial fan streaks;
-            # shading per pixel removes them.
+            # leading shape (..., 3), returning absolute linear colour in [0, 1]
+            # (the rasteriser scales by white). Diffuse terms are tinted by the
+            # albedo; rim and specular add white on top so highlights brighten the
+            # body toward white instead of clipping at the albedo. Evaluated per
+            # pixel after the normal is interpolated across the triangle — per-
+            # vertex (Gouraud) colour made triangle edges and many-triangle "poles"
+            # show as banding and radial fan streaks; per-pixel shading removes them.
             diff_k = np.clip(n @ key_dir, 0.0, 1.0)[..., None]
             diff_f = np.clip(n @ fill_dir, 0.0, 1.0)[..., None]
             fres = (1.0 - np.clip(n[..., 2:3], 0.0, 1.0)) ** rim_power
             spec = np.clip(n @ half, 0.0, 1.0)[..., None] ** spec_power
-            rgb = (
-                ambient_color
+            diffuse = (
+                ambient_str
                 + key_str * diff_k * key_color
                 + fill_str * diff_f * fill_color
-                + rim_str * fres * rim_color
-                + spec_str * spec
-            )
+            ) * albedo
+            rgb = diffuse + rim_str * fres * rim_color + spec_str * spec
             return np.clip(rgb, 0.0, 1.0)
 
         # ------------------------------------------------------------------
@@ -281,9 +292,10 @@ def render_mesh_thumbnail(
         #    a time into the shared image/z-buffer. The z-buffer makes chunk order
         #    irrelevant, so the result is identical to a single-pass render.
         # ------------------------------------------------------------------
-        # Model colour: a mid blue-grey. Darker than before so the lit gradient
-        # has room to breathe instead of clipping to a pale wash.
-        base_color = np.array([150, 168, 192], dtype=np.float32)
+        # The albedo now lives in `_shade` (so highlights can add white on top),
+        # so the rasteriser multiply is pure white — it just scales the absolute
+        # [0, 1] colour `_shade` returns up to 8-bit.
+        base_color = np.array([255, 255, 255], dtype=np.float32)
 
         # Transparent background — floats cleanly on any card colour.
         img = np.zeros((ss_height, ss_width, 3), dtype=np.uint8)
@@ -360,7 +372,7 @@ def render_mesh_thumbnail(
             logger.warning(
                 "mesh_render: no visible triangles for %s — using silhouette", name
             )
-            flat_color = np.clip(ambient_color + 0.4, 0.0, 1.0)
+            flat_color = albedo * 0.6
 
             def _flat_shade(n: "np.ndarray", _c=flat_color) -> "np.ndarray":
                 return np.broadcast_to(_c, n.shape)

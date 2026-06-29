@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -30,6 +30,7 @@ class PrinterCapabilities(BaseModel):
     can_live_status: bool
     can_upload: bool
     can_list_files: bool = False
+    can_send_gcode: bool = False
     support_level: str = "stable"
     support_notes: list[str] = Field(default_factory=list)
     unsupported_actions: list[str] = Field(default_factory=list)
@@ -134,6 +135,34 @@ class StartPrinterFile(BaseModel):
         cleaned = validate_remote_filename_value(value)
         if not cleaned:
             raise ValueError("remote_filename_invalid")
+        return cleaned
+
+
+class SetTemperature(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    heater: Literal["extruder", "bed"]
+    # Sanity caps only — Klipper enforces each heater's real ``max_temp`` and
+    # rejects out-of-range targets. This just stops obvious typos.
+    target: float = Field(ge=0, le=500)
+
+
+class HomeAxes(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Empty/None homes all axes (G28). Otherwise a subset like "xy".
+    axes: Optional[str] = Field(default=None, max_length=3)
+
+    @field_validator("axes")
+    @classmethod
+    def validate_axes(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        cleaned = value.strip().lower()
+        if not cleaned:
+            return None
+        if any(c not in "xyz" for c in cleaned) or len(set(cleaned)) != len(cleaned):
+            raise ValueError("axes_invalid")
         return cleaned
 
 

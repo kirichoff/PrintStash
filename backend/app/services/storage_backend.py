@@ -45,6 +45,21 @@ class StorageBackend(ABC):
         the blob tree so it is never treated as an orphan blob by the GC."""
 
     @abstractmethod
+    def collection_image_key(self, collection_id: int, name: str) -> str:
+        """Key for an image embedded in a collection's readme. ``name`` is a
+        server-generated ``{sha256}.{ext}`` — never raw user input."""
+
+    @abstractmethod
+    def document_file_key(self, document_id: int, name: str) -> str:
+        """Key for a Document's binary blob (PDF/other). ``name`` is a sanitised
+        filename — never raw user input."""
+
+    @abstractmethod
+    def document_image_key(self, document_id: int, name: str) -> str:
+        """Key for an image embedded in a markdown Document. ``name`` is a
+        server-generated ``{sha256}.{ext}`` — never raw user input."""
+
+    @abstractmethod
     def exists(self, key: str) -> bool: ...
 
     @abstractmethod
@@ -157,6 +172,19 @@ class LocalStorageBackend(StorageBackend):
 
     def stl_cache_key(self, sha256: str) -> str:
         return str(settings.thumb_dir / "stl-cache" / f"{sha256}.stl")
+
+    def collection_image_key(self, collection_id: int, name: str) -> str:
+        return str(
+            settings.thumb_dir / "collection-images" / str(collection_id) / name
+        )
+
+    def document_file_key(self, document_id: int, name: str) -> str:
+        return str(settings.data_dir / "documents" / str(document_id) / name)
+
+    def document_image_key(self, document_id: int, name: str) -> str:
+        return str(
+            settings.thumb_dir / "document-images" / str(document_id) / name
+        )
 
     def exists(self, key: str) -> bool:
         return Path(key).exists()
@@ -360,6 +388,15 @@ class S3StorageBackend(StorageBackend):
 
     def stl_cache_key(self, sha256: str) -> str:
         return f"{self._prefix()}stl-cache/{sha256}.stl"
+
+    def collection_image_key(self, collection_id: int, name: str) -> str:
+        return f"{self._prefix()}collection-images/{collection_id}/{name}"
+
+    def document_file_key(self, document_id: int, name: str) -> str:
+        return f"{self._prefix()}documents/{document_id}/{name}"
+
+    def document_image_key(self, document_id: int, name: str) -> str:
+        return f"{self._prefix()}document-images/{document_id}/{name}"
 
     def exists(self, key: str) -> bool:
         import botocore.exceptions

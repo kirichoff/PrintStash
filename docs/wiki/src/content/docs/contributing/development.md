@@ -57,6 +57,42 @@ Use the typed API layer in `lib/api/<domain>.ts` (never raw `fetch`) and the
 TanStack Query hooks in `lib/queries.ts` for cached reads. Run lint and
 typecheck after changes.
 
+## Mock printer (testing without hardware)
+
+`backend/tests/e2e/fakes/mock_printer.py` is a standalone service that speaks the
+Moonraker HTTP + WebSocket surface **and** hosts a minimal Spoolman, with a
+simulated print lifecycle. Use it to exercise the send → print → file tracking →
+filament usage → Spoolman write-back flow without a physical printer.
+
+Run it locally alongside the backend:
+
+```bash
+cd backend
+uv run python -m tests.e2e.fakes.mock_printer --port 7125 --print-seconds 30
+```
+
+Flags: `--total-mm` (filament length), `--total-seconds` (reported estimate),
+`--print-seconds` (real time to complete — keep it short for testing),
+`--api-key` (optional). Then in the app, add a printer with:
+
+- **Moonraker URL:** `http://localhost:7125`
+- **Spoolman base URL** (Settings → Spoolman): `http://localhost:7125/spoolman`
+
+Start a print and the simulated job progresses to completion, after which the
+mock Spoolman spool's remaining weight is decremented.
+
+For the dockerized stack, the mock is wired into `docker-compose.build.yml`
+behind the `mock` profile (register the printer at `http://mock-printer:7125`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml \
+  --profile mock up mock-printer
+```
+
+The end-to-end pipeline is covered by
+`backend/tests/test_mock_printer_integration.py` (`uv run pytest
+tests/test_mock_printer_integration.py`).
+
 ## Documentation (this site)
 
 The wiki is an [Astro Starlight](https://starlight.astro.build/) site under

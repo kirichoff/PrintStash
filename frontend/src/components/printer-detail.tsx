@@ -14,14 +14,17 @@ import {
 import {
   cancelPrinter,
   deletePrinterFile,
+  emergencyStopPrinter,
   getMoonrakerConfig,
   getPrinterDiagnostics,
   getPrinter,
+  homePrinter,
   listPrinterFiles,
   listPrinterJobs,
   openPrinterWS,
   pausePrinter,
   resumePrinter,
+  setPrinterTemperature,
   startPrinterFile,
   syncPrinterFiles,
 } from "@/lib/api";
@@ -35,8 +38,10 @@ import {
   FileText,
   Info,
   Loader2,
+  Home,
   Pause,
   Play,
+  Power,
   Square,
   RefreshCcw,
   Settings,
@@ -46,6 +51,12 @@ import {
   WifiOff,
   XCircle,
 } from "lucide-react";
+
+const PREHEAT_PRESETS: { name: string; hotend: number; bed: number }[] = [
+  { name: "PLA", hotend: 200, bed: 60 },
+  { name: "PETG", hotend: 240, bed: 80 },
+  { name: "ABS", hotend: 245, bed: 100 },
+];
 
 const STATUS_COLORS: Record<PrinterStatus, string> = {
   ready: "bg-emerald-500",
@@ -115,6 +126,9 @@ export function PrinterDetailPage({
   const [wsConnected, setWsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"pause" | "resume" | "cancel" | null>(null);
+  const [machineBusy, setMachineBusy] = useState<string | null>(null);
+  const [hotendTarget, setHotendTarget] = useState("");
+  const [bedTarget, setBedTarget] = useState("");
   const [activeTab, setActiveTab] = useState<"status" | "files" | "jobs" | "config" | "diagnostics">("status");
   const [startingFileId, setStartingFileId] = useState<number | null>(null);
   const [deletingFileId, setDeletingFileId] = useState<number | null>(null);
@@ -229,6 +243,72 @@ export function PrinterDetailPage({
     } finally {
       setBusy(null);
     }
+  }
+
+  async function machineAction(
+    key: string,
+    fn: () => Promise<unknown>,
+    successMsg: string,
+  ) {
+    if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
+    setMachineBusy(key);
+    try {
+      await fn();
+      toast.success(successMsg);
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setMachineBusy(null);
+    }
+  }
+
+  function applyTemp(heater: "extruder" | "bed", raw: string, clear: () => void) {
+    const t = Number(raw);
+    if (!Number.isFinite(t) || t < 0 || t > 500) {
+      toast.error("Enter a temperature between 0 and 500.");
+      return;
+    }
+    void machineAction(
+      `set-${heater}`,
+      () => setPrinterTemperature(printerId, heater, t).then(clear),
+      `${heater === "extruder" ? "Hotend" : "Bed"} set to ${t}°C`,
+    );
+  }
+
+  function preheat(p: (typeof PREHEAT_PRESETS)[number]) {
+    void machineAction(
+      `preheat-${p.name}`,
+      async () => {
+        await setPrinterTemperature(printerId, "extruder", p.hotend);
+        await setPrinterTemperature(printerId, "bed", p.bed);
+      },
+      `Preheating for ${p.name}`,
+    );
+  }
+
+  function cooldown() {
+    void machineAction(
+      "cooldown",
+      async () => {
+        await setPrinterTemperature(printerId, "extruder", 0);
+        await setPrinterTemperature(printerId, "bed", 0);
+      },
+      "Cooling down",
+    );
+  }
+
+  function emergencyStop() {
+    if (
+      !window.confirm(
+        "Emergency stop halts the printer immediately and requires a firmware restart. Continue?",
+      )
+    )
+      return;
+    void machineAction(
+      "estop",
+      () => emergencyStopPrinter(printerId),
+      "Emergency stop sent",
+    );
   }
 
   async function syncFiles() {
@@ -490,6 +570,96 @@ export function PrinterDetailPage({
           <div className="p-6 space-y-5">
             <TempRow label="Hotend" cur={ext.temperature} tgt={ext.target} />
             <TempRow label="Bed" cur={bed.temperature} tgt={bed.target} />
+
+            {printer.capabilities.can_send_gcode && (
+              <div className="border-t border-border pt-4 space-y-4">
+                <div className="space-y-2">
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Preheat
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {PREHEAT_PRESETS.map((p) => (
+                      <button
+                        key={p.name}
+                        onClick={() => preheat(p)}
+                        disabled={!auth.isAuthenticated || machineBusy !== null}
+                        title={`Hotend ${p.hotend}°C · Bed ${p.bed}°C`}
+                        className={BTN_SECONDARY}
+                      >
+                        {machineBusy === `preheat-${p.name}` && (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        )}
+                        {p.name}
+                      </button>
+                    ))}
+                    <button
+                      onClick={cooldown}
+                      disabled={!auth.isAuthenticated || machineBusy !== null}
+                      className={BTN_SECONDARY}
+                    >
+                      {machineBusy === "cooldown" && (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      )}
+                      Cooldown
+                    </button>
+                  </div>
+                </div>
+
+                <SetTempInput
+                  label="Hotend target"
+                  value={hotendTarget}
+                  onChange={setHotendTarget}
+                  onApply={() =>
+                    applyTemp("extruder", hotendTarget, () => setHotendTarget(""))
+                  }
+                  busy={machineBusy === "set-extruder"}
+                  disabled={!auth.isAuthenticated || machineBusy !== null}
+                />
+                <SetTempInput
+                  label="Bed target"
+                  value={bedTarget}
+                  onChange={setBedTarget}
+                  onApply={() =>
+                    applyTemp("bed", bedTarget, () => setBedTarget(""))
+                  }
+                  busy={machineBusy === "set-bed"}
+                  disabled={!auth.isAuthenticated || machineBusy !== null}
+                />
+
+                <div className="border-t border-border pt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={() =>
+                      void machineAction(
+                        "home",
+                        () => homePrinter(printerId),
+                        "Homing all axes",
+                      )
+                    }
+                    disabled={!auth.isAuthenticated || machineBusy !== null}
+                    className={BTN_SECONDARY}
+                  >
+                    {machineBusy === "home" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Home className="h-3.5 w-3.5" />
+                    )}
+                    Home all
+                  </button>
+                  <button
+                    onClick={emergencyStop}
+                    disabled={!auth.isAuthenticated || machineBusy !== null}
+                    className={BTN_DANGER}
+                  >
+                    {machineBusy === "estop" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Power className="h-3.5 w-3.5" />
+                    )}
+                    E-stop
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </div>
@@ -1063,6 +1233,52 @@ function ControlButton({
       )}
       {label}
     </button>
+  );
+}
+
+function SetTempInput({
+  label,
+  value,
+  onChange,
+  onApply,
+  busy,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  onApply: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-end gap-2">
+      <label className="flex-1 space-y-1">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+        <input
+          type="number"
+          min={0}
+          max={500}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !disabled) onApply();
+          }}
+          placeholder="°C"
+          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-600 dark:focus:ring-orange-500"
+        />
+      </label>
+      <button
+        onClick={onApply}
+        disabled={disabled || value === ""}
+        className={BTN_SECONDARY}
+      >
+        {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+        Set
+      </button>
+    </div>
   );
 }
 

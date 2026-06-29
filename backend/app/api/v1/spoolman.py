@@ -61,6 +61,15 @@ class SpoolmanUpdate(BaseModel):
     write_force: Optional[bool] = None
 
 
+class SpoolmanTestRequest(BaseModel):
+    """Optional overrides so the UI can test a typed-but-unsaved connection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+
+
 class SpoolRead(BaseModel):
     id: int
     filament_id: Optional[int] = None
@@ -198,14 +207,24 @@ async def sync_filaments(session: Session = Depends(get_session)) -> Dict[str, A
     dependencies=[Depends(require_superuser)],
     summary="Test the configured Spoolman connection",
 )
-async def test_connection(session: Session = Depends(get_session)) -> Dict[str, Any]:
-    try:
-        client = get_spoolman_client(session)
-    except SpoolmanError as exc:
+async def test_connection(
+    body: Optional[SpoolmanTestRequest] = None,
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    # Test the values typed into the form when provided, so the user can verify
+    # a connection before committing it with Save. Fall back to the stored
+    # config (and preserve the saved key when the UI re-sends the mask/blank).
+    config = runtime_config.spoolman_config(session)
+    base_url = (body.base_url if body and body.base_url else None) or config.get("base_url")
+    if not base_url:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-    return await _probe(client)
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Spoolman base URL is not configured",
+        )
+    api_key = config.get("api_key")
+    if body and body.api_key not in (None, _SECRET_MASK):
+        api_key = body.api_key
+    return await _probe(SpoolmanClient(base_url, api_key))
 
 
 # --------------------------------------------------------------------------- #

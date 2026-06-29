@@ -7,6 +7,8 @@ import { CollectionRead, ModelListItem, PrinterRead, TagRead } from "@/types";
 import { ModelCard } from "@/components/model-card";
 import { BatchToolbar } from "@/components/batch-toolbar";
 import { Checkbox } from "@/components/ui/checkbox";
+import { CollectionReadme } from "@/components/collection-readme";
+import { DocumentBrowser } from "@/components/document-browser";
 import { FilterSidebar } from "@/components/filter-sidebar";
 import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
 import { UploadModal, UploadMode } from "@/components/upload-modal";
@@ -34,7 +36,7 @@ import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
 import { Link } from "@/lib/navigation";
 import { timeAgo } from "@/lib/format";
-import { rememberLastCollection } from "@/lib/last-collection";
+import { rememberLastCollection, readLastView, rememberLastView } from "@/lib/last-collection";
 import { useAuthenticatedAssetUrl } from "@/lib/use-authenticated-asset-url";
 
 type SortKey = "date-desc" | "date-asc" | "name-asc" | "name-desc";
@@ -134,6 +136,12 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(null);
   const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  // Seed from the URL (`?v=docs`), falling back to the remembered tab, so
+  // returning from a document (Back or the logo) lands on the Documents tab
+  // instead of resetting to Models.
+  const [docView, setDocView] = useState<"models" | "docs">(
+    searchParams.get("v") === "docs" ? "docs" : readLastView(),
+  );
   const [uploadOpen, setUploadOpen] = useState(false);
   const [dropPreload, setDropPreload] = useState<{ files: File[]; items?: BulkItem[]; mode: UploadMode } | null>(null);
 const [dropCollection, setDropCollection] = useState<string | null>(null);
@@ -203,6 +211,12 @@ async function onMainDrop(e: React.DragEvent) {
     // here instead of resetting to the root once the `?c=` param is dropped.
     rememberLastCollection(selectedCollection);
   }, [selectedCollection]);
+
+  // Remember the active tab so the logo / Back return to it (e.g. opening a
+  // document from the Documents tab and coming back).
+  useEffect(() => {
+    rememberLastView(docView);
+  }, [docView]);
 
   function handleCollectionChange(path: string | null) {
     setSelectedIds(new Set());
@@ -480,7 +494,7 @@ async function onMainDrop(e: React.DragEvent) {
       />
 
       <main
-          className="flex-1 overflow-y-auto bg-background flex flex-col relative"
+          className="flex-1 overflow-y-auto bg-background flex flex-col relative pb-24 md:pb-0"
           onDragEnter={onMainDragEnter}
           onDragOver={onMainDragOver}
           onDragLeave={onMainDragLeave}
@@ -599,6 +613,31 @@ async function onMainDrop(e: React.DragEvent) {
           </div>
         </div>
 
+        {selectedCollectionRow && (
+          <CollectionReadme
+            key={selectedCollectionRow.id}
+            collectionId={selectedCollectionRow.id}
+            canEdit={!!user?.is_superuser || canWriteCollection(selectedCollectionRow)}
+          />
+        )}
+
+        {/* Models / Documents tabs */}
+        <div className="flex items-center gap-1 px-4 sm:px-6 pt-3 border-b border-border">
+          {(["models", "docs"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setDocView(v)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                docView === v
+                  ? "border-blue-600 dark:border-orange-500 text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {v === "models" ? "Models" : "Documents"}
+            </button>
+          ))}
+        </div>
+
         {isCreatingCollection && (
           <div className="px-6 py-3 bg-muted border-b border-border">
             <form
@@ -656,6 +695,13 @@ async function onMainDrop(e: React.DragEvent) {
         )}
 
         {/* Content */}
+        {docView === "docs" ? (
+          <DocumentBrowser
+            collectionId={selectedCollectionRow?.id ?? null}
+            collectionPath={selectedCollection}
+            canCreate={!!user?.is_superuser || canWriteCollection(selectedCollectionRow)}
+          />
+        ) : (
         <div className="flex-1 flex flex-col bg-background">
           {error && (
             <div className="mx-6 mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
@@ -735,6 +781,7 @@ async function onMainDrop(e: React.DragEvent) {
             </div>
           )}
         </div>
+        )}
       </main>
 
       <BatchToolbar

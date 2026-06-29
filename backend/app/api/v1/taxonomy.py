@@ -7,12 +7,25 @@ create/move/delete paths that only touch one row.
 
 from __future__ import annotations
 
+import hashlib
+import re
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File as FileParam,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from app.api.v1.files import _serve_file
+from app.core.config import settings
 from app.core.http import get_or_404
 from app.core.security import require_auth, require_user
 from app.core.time import utcnow
@@ -28,17 +41,34 @@ from app.db.models import (
 from app.db.session import get_session
 from app.schemas.models import (
     CollectionCreate,
+    CollectionImageUpload,
     CollectionMove,
     CollectionPermissionRead,
     CollectionPermissionUpdate,
     CollectionRead,
+    CollectionReadmeRead,
+    CollectionReadmeUpdate,
     TagCreate,
     TagRead,
 )
 from app.services import rbac
 from app.services import taxonomy
+from app.services.storage_backend import get_backend
 from app.services.taxonomy import slugify
 from app.db.scopes import live
+
+# Raster image formats only — no SVG (script-capable) — keeps readme images
+# safe to serve inline. Maps extension -> media type.
+_IMAGE_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+# Server-generated image names are sha256 + a whitelisted extension; this guards
+# the serve path against traversal / arbitrary key reads.
+_IMAGE_NAME_RE = re.compile(r"^[0-9a-f]{64}\.(png|jpe?g|gif|webp)$")
 
 router = APIRouter(tags=["taxonomy"])
 
@@ -274,6 +304,123 @@ def move_collection(
         parent_id=col.parent_id,
         model_count=_collection_model_count(session, col.path, current_user),
         effective_role=rbac.effective_collection_role(session, current_user, col.id),
+    )
+
+
+@router.get(
+    "/collections/{collection_id}/readme",
+    response_model=CollectionReadmeRead,
+    summary="Get a collection's markdown landing page",
+)
+def get_collection_readme(
+    collection_id: int,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> CollectionReadmeRead:
+    col = get_or_404(session, Collection, collection_id, "collection_not_found")
+    rbac.require_collection_role(session, current_user, col.id, CollectionRole.VIEW)
+    return CollectionReadmeRead(readme=col.readme)
+
+
+@router.put(
+    "/collections/{collection_id}/readme",
+    response_model=CollectionReadmeRead,
+    dependencies=[Depends(require_auth)],
+    summary="Set a collection's markdown landing page",
+)
+def set_collection_readme(
+    collection_id: int,
+    payload: CollectionReadmeUpdate,
+    current_user: User = Depends(require_user),
+    _: None = Depends(require_auth),
+    session: Session = Depends(get_session),
+) -> CollectionReadmeRead:
+    col = get_or_404(session, Collection, collection_id, "collection_not_found")
+    rbac.require_collection_role(session, current_user, col.id, CollectionRole.EDIT)
+    readme = payload.readme or None  # store empty as NULL
+    col.readme = readme
+    col.updated_by = current_user.id
+    session.add(col)
+    session.commit()
+    return CollectionReadmeRead(readme=readme)
+
+
+@router.post(
+    "/collections/{collection_id}/images",
+    response_model=CollectionImageUpload,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_auth)],
+    summary="Upload an image for a collection's readme",
+)
+async def upload_collection_image(
+    collection_id: int,
+    file: UploadFile = FileParam(..., description="A PNG/JPEG/GIF/WebP image"),
+    current_user: User = Depends(require_user),
+    _: None = Depends(require_auth),
+    session: Session = Depends(get_session),
+) -> CollectionImageUpload:
+    col = get_or_404(session, Collection, collection_id, "collection_not_found")
+    rbac.require_collection_role(session, current_user, col.id, CollectionRole.EDIT)
+
+    ext = ("." + (file.filename or "").rsplit(".", 1)[-1].lower()) if "." in (
+        file.filename or ""
+    ) else ""
+    media_type = _IMAGE_TYPES.get(ext)
+    if media_type is None:
+        raise HTTPException(status_code=400, detail="unsupported_image_type")
+
+    # Readme images are read fully into memory to hash — bound that with a 10MB
+    # cap (well under the model-upload cap). Check the declared size first so an
+    # oversized upload is rejected before it's buffered.
+    image_cap = min(10 * 1024 * 1024, settings.max_upload_bytes)
+    if file.size is not None and file.size > image_cap:
+        raise HTTPException(status_code=413, detail="upload_too_large")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty_file")
+    if len(data) > image_cap:
+        raise HTTPException(status_code=413, detail="upload_too_large")
+
+    name = f"{hashlib.sha256(data).hexdigest()}{'.jpg' if ext == '.jpeg' else ext}"
+    backend = get_backend()
+    key = backend.collection_image_key(col.id, name)
+    if not backend.exists(key):
+        backend.write_bytes(data, key)
+    # ponytail: orphaned image blobs aren't reclaimed when a readme drops the ref
+    # or the collection is deleted. Add a sweep keyed on collection_image_key
+    # prefixes if storage growth becomes a problem.
+    return CollectionImageUpload(
+        url=f"/api/v1/collections/{col.id}/images/{name}"
+    )
+
+
+@router.get(
+    "/collections/{collection_id}/images/{name}",
+    summary="Serve an image embedded in a collection's readme",
+)
+def get_collection_image(
+    collection_id: int,
+    name: str,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    if not _IMAGE_NAME_RE.match(name):
+        raise HTTPException(status_code=404, detail="image_not_found")
+    col = get_or_404(session, Collection, collection_id, "collection_not_found")
+    rbac.require_collection_role(session, current_user, col.id, CollectionRole.VIEW)
+    backend = get_backend()
+    key = backend.collection_image_key(col.id, name)
+    if not backend.exists(key):
+        raise HTTPException(status_code=404, detail="image_not_found")
+    media_type = _IMAGE_TYPES[f".{name.rsplit('.', 1)[-1]}"]
+    return _serve_file(
+        key,
+        name,
+        media_type,
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

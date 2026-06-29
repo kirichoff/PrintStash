@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+  # Callable from the release workflow so a tag can't publish without these
+  # checks passing first (see ghcr.yml).
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}

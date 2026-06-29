@@ -486,8 +486,9 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
         </div>
       </header>
 
-      {/* Two-Column Layout */}
-      <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden md:overflow-hidden">
+      {/* Two-Column Layout. On mobile the panels stack and the whole area
+          scrolls; on desktop each pane keeps its own fixed height. */}
+      <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-y-auto md:overflow-hidden pb-24 md:pb-0">
         {/* Left: 3D Model Preview */}
         <div className="flex-1 min-h-[250px] md:min-h-0 bg-[var(--surface-container-low)] relative border-b md:border-b-0 md:border-r border-[var(--outline-variant)] flex items-center justify-center m-2 md:m-4 rounded overflow-hidden"
           style={{ boxShadow: "inset 0 0 0 1px var(--surface-variant)" }}>

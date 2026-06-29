@@ -81,7 +81,10 @@ class SpoolmanClient:
                 method, url, headers=self._headers(), timeout=self.timeout, **kwargs
             )
         except httpx.HTTPError as exc:
-            raise SpoolmanError(f"transport error: {exc}", code="transport") from exc
+            # httpx connect errors often stringify to "" — fall back to the
+            # exception type so the UI shows something actionable, not a bare colon.
+            detail = str(exc).strip() or exc.__class__.__name__
+            raise SpoolmanError(f"transport error: {detail}", code="transport") from exc
         if resp.status_code < 200 or resp.status_code >= 300:
             raise SpoolmanError(
                 f"spoolman {resp.status_code}: {resp.text[:200]}", code="http"

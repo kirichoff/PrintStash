@@ -6,6 +6,7 @@ import RootLayout from "@/root-layout";
 
 const HomePage = lazy(() => import("@/pages/home"));
 const ModelDetailPage = lazy(() => import("@/pages/model-detail"));
+const DocumentDetailPage = lazy(() => import("@/pages/document-detail"));
 const LoginPage = lazy(() => import("@/pages/login"));
 const SetupPage = lazy(() => import("@/pages/setup"));
 const OrganizePage = lazy(() => import("@/pages/organize"));
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <RouteChunk><HomePage /></RouteChunk> },
       { path: "models/:id", element: <RouteChunk><ModelDetailPage /></RouteChunk> },
+      { path: "documents/:id", element: <RouteChunk><DocumentDetailPage /></RouteChunk> },
       { path: "login", element: <RouteChunk><LoginPage /></RouteChunk> },
       { path: "setup", element: <RouteChunk><SetupPage /></RouteChunk> },
       { path: "organize", element: <RouteChunk><OrganizePage /></RouteChunk> },

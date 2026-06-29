@@ -144,6 +144,14 @@ class MoonrakerClient:
     async def cancel_print(self) -> Dict[str, Any]:
         return await self._request("POST", "/printer/print/cancel")
 
+    async def run_gcode(self, script: str) -> Dict[str, Any]:
+        return await self._request(
+            "POST", "/printer/gcode/script", params={"script": script}
+        )
+
+    async def emergency_stop(self) -> Dict[str, Any]:
+        return await self._request("POST", "/printer/emergency_stop")
+
     async def get_print_history(self, limit: int = 50) -> list[Dict[str, Any]]:
         data = await self._request(
             "GET", "/server/history/list", params={"limit": limit}

@@ -21,6 +21,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.8.1",
+    date: "Jun 2026",
+    changes: [
+      "Printer controls: set the hotend and bed target temperature right from a Moonraker printer's Status tab, with one-tap PLA/PETG/ABS preheat presets and a Cooldown button",
+      "Home the printer (all axes) and an Emergency stop button — both confirm before acting, and all of these controls are hidden for printers that don't support G-code commands",
+      "Mobile: pages now use the dynamic viewport height so they scroll fully under the browser chrome instead of cutting off at the bottom",
+      "Mobile: the model detail page scrolls when its settings/files panel is taller than the screen, and content no longer hides behind the bottom navigation bar on the vault, model, and document pages",
+      "Thumbnails render with brighter, higher-contrast mesh lighting on the dark theme",
+    ],
+  },
+  {
     version: "0.8.0",
     date: "Jun 2026",
     changes: [
@@ -31,6 +42,10 @@ export const CHANGELOG: ChangelogEntry[] = [
       "When a Moonraker-measured print completes, PrintStash decrements the selected Spoolman spool by the real grams used — no double-entry of your inventory",
       "Double-count safety: if Moonraker's own Spoolman integration is already tracking the active spool, PrintStash warns you and keeps its write-back off so a print is never counted twice",
       "Spoolman connection status is reported in the health endpoint and degrades gracefully — a Spoolman outage never blocks or fails a print",
+      "Spoolman: Test connection now checks the address you typed (verify before saving), and Save/Test give clear success and error feedback",
+      "Collection documents & READMEs: attach docs to any collection — write Markdown in a built-in editor (live preview, paste or drop images) or upload PDFs and files",
+      "PDFs open inline in a themed viewer with page navigation and zoom, instead of the browser's default PDF chrome; new Markdown docs open ready to edit and aren't saved until you choose to",
+      "The logo and a document's Back button now return you to the Documents tab when that's where you were",
     ],
   },
   {
