@@ -66,9 +66,3 @@ screenshots/gif-frames/
 
 # Windows "downloaded from internet" metadata streams (WSL surfaces these)
 *:Zone.Identifier
-
-
-#JRV
-docker-compose.yml.og
-docker-compose.jrv.yml
-Note.md

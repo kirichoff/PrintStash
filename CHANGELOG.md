@@ -1,10 +1,10 @@
 # Changelog
 
-## 0.8.0
+## 0.8.0b1
 
 ### Fix
 
-- fix post merging
+- Minor fix after the merge of 0.8.0 with 0.7.1b1
 
 ## 0.8.0
 
@@ -221,7 +221,6 @@
   "All Models" view only reflected models sitting loose at the root, so a library
   whose models all live in (folder-mirrored) collections showed `0`. It now shows
   the access-scoped library total. (#30)
->>>>>>> origin/0.8.0
 
 ## 0.7.0 - Notifications & event hooks
 
