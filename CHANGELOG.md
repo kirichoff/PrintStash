@@ -23,7 +23,7 @@
 
 ### Fix
 
-- Minor fix after the merge of 0.8.0 with 0.7.1b1
+- Minor fix after the merge of 0.8.0 with 0.7.1b1 (@JrVolt)
 
 ## 0.8.0
 
@@ -207,12 +207,12 @@
 ## 0.7.1b1 - Upload methods improvement & Docker Compose light 
 
 ### Added
-- **Drag file(s) or folder directly** in the new port (or over a specific folder) to open a prefilled upload wizard
+- **Drag file(s) or folder directly** in the new port (or over a specific folder) to open a prefilled upload wizard (@JrVolt)
 - **Added docker-compose.light.yml** since env only JWT secret and all the other service aren't used in basic config.
-  so i made a light compose that requires no env with JWT in compose and removed optional services.
+  so i made a light compose that requires no env with JWT in compose and removed optional services. (@JrVolt)
 
 ### Changed
-- **Drag is now available in every tab** o the upload wizard 
+- **Drag is now available in every tab** o the upload wizard (@JrVolt)
 
 ## 0.7.1
 
