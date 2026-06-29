@@ -449,7 +449,7 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
         loading={facetsLoading}
       />
 
-      <main className="flex-1 overflow-y-auto bg-background flex flex-col">
+      <main className="flex-1 overflow-y-auto bg-background flex flex-col pb-24 md:pb-0">
         {/* Breadcrumb */}
         <nav className="px-4 sm:px-6 py-3 bg-background border-b border-border flex items-center space-x-2 text-sm tracking-tight">
           {selectedCollection && breadcrumbs.length > 0 ? (
