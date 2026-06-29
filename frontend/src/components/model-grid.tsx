@@ -9,7 +9,6 @@ import { BatchToolbar } from "@/components/batch-toolbar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FilterSidebar } from "@/components/filter-sidebar";
 import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
-// import { UploadModal } from "@/components/upload-modal";
 import { UploadModal, UploadMode } from "@/components/upload-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMobileFilterDrawer } from "@/lib/mobile-filter-context";
@@ -28,10 +27,8 @@ import {
 } from "lucide-react";
 import { listModels, createCollection, updateModel, moveCollection, deleteCollection, batchMoveModels, batchTagModels, batchDeleteModels, } from "@/lib/api";
 import { isMeshFile, isGcodeFile, extensionOf, walkEntries, entriesFromDataTransfer, BulkItem } from "@/lib/bulk-upload";
-// import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, type ModelListFilters, } from "@/lib/queries";
 import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, type ModelListFilters, } from "@/lib/queries";
 import { queryKeys } from "@/lib/query-client";
-// import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, queryKeys, type ModelListFilters, } from "@/lib/queries";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
@@ -138,7 +135,6 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [uploadOpen, setUploadOpen] = useState(false);
-  // const [dropPreload, setDropPreload] = useState<{ files: File[]; mode: UploadMode } | null>(null);
   const [dropPreload, setDropPreload] = useState<{ files: File[]; items?: BulkItem[]; mode: UploadMode } | null>(null);
 const [dropCollection, setDropCollection] = useState<string | null>(null);
 const [isDragging, setIsDragging] = useState(false);
@@ -189,10 +185,7 @@ async function onMainDrop(e: React.DragEvent) {
   setDropCollection(collPath);
   setUploadOpen(true);
 }
-  // const [loading, setLoading] = useState(!initial);
-  // const [refreshing, setRefreshing] = useState(false);
-  // const [loadingMore, setLoadingMore] = useState(false);
-  // const [hasMore, setHasMore] = useState(initial ? initial.models.length === PAGE_SIZE : false);
+
   const facetsLoading = collectionsQuery.isLoading || tagsQuery.isLoading;
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
@@ -277,7 +270,7 @@ async function onMainDrop(e: React.DragEvent) {
     if (hasMore && !loadingMore) modelQuery.fetchNextPage();
   }
   function refresh() {
-    queryClient.invalidateQueries();  //({ queryKey: queryKeys.models });
+    queryClient.invalidateQueries({ queryKey: queryKeys.models });
   }
 
   // Multi-select for batch actions. The selected set is view-independent so it
@@ -456,6 +449,7 @@ async function onMainDrop(e: React.DragEvent) {
         onUploaded={refresh}
         defaultCollection={dropCollection ?? uploadDefaultCollection}
         preloadFiles={dropPreload?.files ?? null}
+        preloadFiles={dropPreload?.files ?? null}
         initialMode={dropPreload?.mode}
       />
       <MobileFilterDrawer
@@ -561,7 +555,6 @@ async function onMainDrop(e: React.DragEvent) {
                   New collection
                 </button>
                 <button
-                  // onClick={() => setUploadOpen(true)}
                   onClick={() => { setDropPreload(null); setDropCollection(null); setUploadOpen(true); }}
                   disabled={!canUploadToVault}
                   className="flex items-center px-3 py-2 text-xs font-medium text-white bg-blue-600 dark:bg-orange-600 rounded hover:bg-blue-700 dark:hover:bg-orange-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
