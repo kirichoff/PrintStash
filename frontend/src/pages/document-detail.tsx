@@ -248,7 +248,7 @@ export default function DocumentDetailPage() {
           )}
         </div>
 
-        <div className="flex-1 min-h-0 overflow-auto">
+        <div className="flex-1 min-h-0 overflow-auto pb-24 md:pb-0">
         {/* Markdown: edit or preview */}
         {isMarkdown &&
           (mode === "edit" ? (
