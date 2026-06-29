@@ -42,7 +42,9 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "User guide", slug: "guides/user-guide" },
+            { label: "Documents & READMEs", slug: "guides/documents" },
             { label: "Printers & providers", slug: "guides/printers" },
+            { label: "Spoolman", slug: "guides/spoolman" },
             { label: "Shared volumes", slug: "guides/shared-volumes" },
             { label: "Notifications", slug: "guides/notifications" },
             { label: "Backup & restore", slug: "guides/backup-and-restore" },

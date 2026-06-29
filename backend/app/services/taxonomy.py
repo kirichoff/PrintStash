@@ -85,6 +85,15 @@ def resolve_or_create_tags(session: Session, names: Iterable[str]) -> List[Tag]:
             session.add(existing)
             session.commit()
             session.refresh(existing)
+        elif existing.deleted_at is not None:
+            # Revive a trashed tag rather than linking a model to a dead row
+            # (mirrors resolve_or_create_collection). Otherwise the link points
+            # at a tag that list_tags hides via live(Tag) — a ghost tag.
+            existing.deleted_at = None
+            existing.deleted_by = None
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
         out.append(existing)
     return out
 

@@ -99,6 +99,10 @@ are welcome in
   per-print cost from Moonraker.
 - Provider diagnostics cover capabilities, configuration, and connectivity.
 - Bambu LAN status and pause/resume/cancel, in beta.
+- Optional [Spoolman](https://github.com/Donkie/Spoolman) integration (OFF by
+  default): show spool inventory, pick a spool per print, and decrement it by the
+  real grams used on a Moonraker-measured completion — with double-count
+  detection for Moonraker's native Spoolman hook.
 
 **Statistics and cost insights**
 - A Statistics dashboard (admin-only) turns completed prints into trends: total

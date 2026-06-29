@@ -240,3 +240,66 @@ def test_managed_db_only_upgrades(tmp_path, monkeypatch) -> None:
 
     migrate_mod.run_migrations(url)
     assert spy.upgrade and not spy.stamp and not spy.create_all
+
+
+# --------------------------------------------------------------------------- #
+# Upgrade-from-an-old-release guards. A self-hoster on an older version runs
+# `upgrade head` at container start; if the chain has branched (two heads) or a
+# revision file was deleted/renamed (down_revision can't resolve), that crashes
+# the api container and takes the whole stack down. These catch both in CI.
+# --------------------------------------------------------------------------- #
+
+# Last released migration before the 0.8.0 line (present in the 0.7.2 tree) — a
+# realistic point an existing install is upgrading *from*.
+_PRE_0_8_0 = "f7a5b3c9d2e1"
+
+
+def test_single_head_and_revisions_all_resolve(tmp_path: Path) -> None:
+    cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    script = ScriptDirectory.from_config(cfg)
+    assert len(script.get_heads()) == 1, "multiple alembic heads — `upgrade head` is ambiguous"
+    # Walking every revision resolves each down_revision; a deleted/renamed file
+    # raises here — i.e. the "Can't locate revision X" startup crash, in CI.
+    assert len(list(script.walk_revisions())) > 1
+
+
+def test_upgrade_from_pre_0_8_0_release_preserves_data(tmp_path: Path) -> None:
+    url = _url(tmp_path, "old.sqlite")
+    cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    cfg.set_main_option("sqlalchemy.url", url)
+
+    # Stand up an old (~0.7.2) schema and seed representative rows.
+    command.upgrade(cfg, _PRE_0_8_0)
+    engine = create_engine(url)
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO collections (name, slug, path, created_at) "
+                "VALUES ('Functional','functional','functional','2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO models (name, slug, hash, collection_id, created_at, updated_at) "
+                "VALUES ('Bracket','bracket',:h,1,'2026-01-01','2026-01-01')"
+            ),
+            {"h": "a" * 64},
+        )
+        conn.commit()
+    engine.dispose()
+
+    # The upgrade an existing user actually runs.
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(url)
+    try:
+        inspector = inspect(engine)
+        assert "documents" in inspector.get_table_names()  # new 0.8.0 table
+        assert "readme" in {c["name"] for c in inspector.get_columns("collections")}
+        with engine.connect() as conn:
+            # Existing data survived the ALTER TABLE / CREATE TABLE migrations.
+            assert conn.execute(text("SELECT count(*) FROM collections")).scalar() == 1
+            assert conn.execute(text("SELECT count(*) FROM models")).scalar() == 1
+    finally:
+        engine.dispose()
+    assert _current(url) == _head_revision()

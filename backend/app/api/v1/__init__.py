@@ -7,6 +7,7 @@ from app.api.v1 import (
     auth,
     backup,
     config,
+    documents,
     external_libraries,
     files,
     filaments,
@@ -18,6 +19,7 @@ from app.api.v1 import (
     printers,
     setup,
     share,
+    spoolman,
     taxonomy,
 )
 
@@ -32,10 +34,12 @@ api_router.include_router(files.router)
 api_router.include_router(filaments.router)
 api_router.include_router(printer_profiles.router)
 api_router.include_router(taxonomy.router)
+api_router.include_router(documents.router)
 api_router.include_router(printers.router)
 api_router.include_router(backup.router)
 api_router.include_router(config.router)
 api_router.include_router(external_libraries.router)
 api_router.include_router(notifications.router)
+api_router.include_router(spoolman.router)
 api_router.include_router(share.router)
 api_router.include_router(share.admin_router)

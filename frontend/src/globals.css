@@ -178,6 +178,24 @@
   }
 }
 
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* Cards settle in with a small fade + rise instead of appearing abruptly. Runs
    once per mounted card (stable React keys), so it plays for a new folder /
    search result / next page — not on every keystroke re-render. */
@@ -222,6 +240,14 @@
 
   .slide-in-left {
     animation: slide-in-left 0.2s ease-out;
+  }
+
+  .slide-up {
+    animation: slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .fade-in {
+    animation: fade-in 0.18s ease-out;
   }
 
   .animate-card-in {

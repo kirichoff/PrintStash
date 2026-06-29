@@ -43,11 +43,20 @@ def mm_to_grams(
     length_mm: Optional[float],
     material_type: Optional[str] = None,
     diameter_mm: float = DEFAULT_DIAMETER_MM,
+    density_g_cm3: Optional[float] = None,
 ) -> Optional[float]:
-    """Convert a filament length (mm) to mass (g). Returns None for bad input."""
+    """Convert a filament length (mm) to mass (g). Returns None for bad input.
+
+    ``density_g_cm3`` overrides the per-material table when known (e.g. the real
+    density of a selected Spoolman spool's filament); otherwise density is
+    inferred from ``material_type``.
+    """
     if length_mm is None or length_mm <= 0 or diameter_mm <= 0:
         return None
+    density = density_g_cm3 if density_g_cm3 and density_g_cm3 > 0 else density_for(
+        material_type
+    )
     radius_mm = diameter_mm / 2.0
     volume_mm3 = math.pi * radius_mm * radius_mm * length_mm
-    grams = volume_mm3 / 1000.0 * density_for(material_type)  # mm³→cm³ then ×density
+    grams = volume_mm3 / 1000.0 * density  # mm³→cm³ then ×density
     return round(grams, 2)

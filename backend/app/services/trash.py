@@ -7,6 +7,7 @@ all live here. Query-side filtering uses ``app.db.scopes.live/trashed``.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Iterable
 
 from sqlmodel import Session, delete, select
 
@@ -18,7 +19,6 @@ from app.db.models import (
     File,
     Metadata,
     Model,
-    ModelTagLink,
     Printer,
     PrintJob,
     PrinterFile,
@@ -46,6 +46,19 @@ def soft_delete_model(session: Session, model: Model) -> None:
     model.updated_at = utcnow()
     session.add(model)
     session.commit()
+
+
+def soft_delete_models(session: Session, models: Iterable[Model]) -> None:
+    """Move several models to the trash without committing.
+
+    Caller is responsible for the single ``session.commit()`` so a batch is
+    persisted atomically.
+    """
+    now = utcnow()
+    for model in models:
+        model.deleted_at = now
+        model.updated_at = now
+        session.add(model)
 
 
 def restore_model(session: Session, model: Model) -> None:
@@ -88,7 +101,11 @@ def hard_delete_model(session: Session, model: Model) -> None:
         session.exec(delete(Metadata).where(Metadata.file_id.in_(file_ids)))  # type: ignore[call-overload, union-attr]
         session.exec(delete(File).where(File.id.in_(file_ids)))  # type: ignore[call-overload, union-attr]
 
-    session.exec(delete(ModelTagLink).where(ModelTagLink.model_id == model.id))  # type: ignore[call-overload]
+    # Don't bulk-delete the tag links here: ``Model.tags`` is a link_model
+    # (many-to-many) relationship, so deleting the model already removes its
+    # ModelTagLink rows. Doing both makes the ORM's cascade try to delete rows
+    # this manual DELETE already removed -> StaleDataError on commit (purging any
+    # *tagged* model, including the expired-trash cron, would 500).
     session.delete(model)
 
 

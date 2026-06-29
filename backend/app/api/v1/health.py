@@ -154,6 +154,52 @@ def _external_libraries_probe() -> dict:
         return {"ok": False, "error": exc.__class__.__name__}
 
 
+def _spoolman_probe() -> dict:
+    # Informational, mirroring _external_libraries_probe: while disabled (or
+    # unreachable) it returns ok=True so an optional, OFF-by-default integration
+    # never flips the overall service status to degraded.
+    try:
+        from app.services import runtime_config
+
+        with get_session_factory().session() as session:
+            if not runtime_config.spoolman_enabled(session):
+                return {"ok": True, "enabled": False}
+            config = runtime_config.spoolman_config(session)
+        base_url = config.get("base_url")
+        if not base_url:
+            return {"ok": True, "enabled": True, "configured": False}
+
+        import httpx
+
+        headers = {}
+        if config.get("api_key"):
+            headers["Authorization"] = f"Bearer {config['api_key']}"
+            headers["X-Api-Key"] = config["api_key"]
+        try:
+            resp = httpx.get(
+                f"{base_url.rstrip('/')}/api/v1/info", headers=headers, timeout=5.0
+            )
+            reachable = 200 <= resp.status_code < 300
+            version = resp.json().get("version") if reachable else None
+        except httpx.HTTPError as exc:
+            return {
+                "ok": True,
+                "enabled": True,
+                "configured": True,
+                "reachable": False,
+                "error": exc.__class__.__name__,
+            }
+        return {
+            "ok": True,
+            "enabled": True,
+            "configured": True,
+            "reachable": reachable,
+            "version": version,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": exc.__class__.__name__}
+
+
 @router.get(
     "/health",
     summary="Operational health probe",
@@ -176,6 +222,7 @@ def health() -> dict:
         "printer_providers": _provider_probe(),
         "jobs": _jobs_probe(),
         "external_libraries": _external_libraries_probe(),
+        "spoolman": _spoolman_probe(),
     }
     out["components"] = components
     out["metrics"] = components["database"].get("counts", {})

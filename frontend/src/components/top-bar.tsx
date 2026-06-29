@@ -69,26 +69,26 @@ function TopBarSearch() {
   if (pathname !== "/") return <span className="flex-1" />;
 
   return (
-    <div className="flex-1 max-w-2xl mx-8 hidden sm:block">
+    <div className="flex-1 max-w-2xl mx-3 sm:mx-8 block">
       <div className="relative">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <Search className="h-5 w-5 text-muted-foreground" />
         </div>
         <input
-          className="block w-full pl-10 pr-14 py-2 border border-border rounded-lg leading-5 bg-muted text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-background focus:ring-1 focus:ring-blue-500 dark:focus:ring-orange-500 focus:border-blue-500 dark:focus:border-orange-500 dark:border-orange-500/40 sm:text-sm transition-colors"
+          className="block w-full pl-10 pr-10 sm:pr-14 py-2 border border-border rounded-lg leading-5 bg-muted text-foreground placeholder:text-muted-foreground focus:outline-none focus:bg-background focus:ring-1 focus:ring-blue-500 dark:focus:ring-orange-500 focus:border-blue-500 dark:focus:border-orange-500 dark:border-orange-500/40 text-sm transition-colors"
           placeholder="Search PrintStash..."
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
-        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+        <div className="absolute inset-y-0 right-0 pr-3 hidden sm:flex items-center pointer-events-none">
           <span className="text-xs text-muted-foreground border border-border rounded px-1.5 py-0.5">/</span>
         </div>
         {value && (
           <button
             type="button"
             onClick={clearSearch}
-            className="absolute right-10 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-muted-foreground pointer-events-auto"
+            className="absolute right-2 sm:right-10 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-muted-foreground pointer-events-auto"
             aria-label="Clear search"
           >
             <XCircle className="h-4 w-4" />
@@ -187,8 +187,9 @@ export function TopBar() {
           )}
         </div>
         <div className="h-8 w-px bg-muted hidden sm:block" />
-        {/* Profile */}
-        <div ref={profileRef} className="relative">
+        {/* Profile — hidden on mobile, where the bottom nav's "More" sheet owns
+            the account actions (the avatar menu only duplicated nav links). */}
+        <div ref={profileRef} className="relative hidden sm:block">
           {!loading && !user ? (
             <Link
               href="/login"

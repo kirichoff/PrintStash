@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "@/lib/navigation";
 import { CollectionRead, ModelListItem, PrinterRead, TagRead } from "@/types";
 import { ModelCard } from "@/components/model-card";
+import { BatchToolbar } from "@/components/batch-toolbar";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CollectionReadme } from "@/components/collection-readme";
+import { DocumentBrowser } from "@/components/document-browser";
 import { FilterSidebar } from "@/components/filter-sidebar";
 import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
 import { UploadModal } from "@/components/upload-modal";
@@ -21,8 +25,17 @@ import {
   Folder,
   ChevronRight,
   Plus,
+  CheckSquare,
 } from "lucide-react";
-import { createCollection, updateModel, moveCollection, deleteCollection } from "@/lib/api";
+import {
+  createCollection,
+  updateModel,
+  moveCollection,
+  deleteCollection,
+  batchMoveModels,
+  batchTagModels,
+  batchDeleteModels,
+} from "@/lib/api";
 import {
   useCollections,
   useModelList,
@@ -38,7 +51,7 @@ import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
 import { Link } from "@/lib/navigation";
 import { timeAgo } from "@/lib/format";
-import { rememberLastCollection } from "@/lib/last-collection";
+import { rememberLastCollection, readLastView, rememberLastView } from "@/lib/last-collection";
 import { useAuthenticatedAssetUrl } from "@/lib/use-authenticated-asset-url";
 
 type SortKey = "date-desc" | "date-asc" | "name-asc" | "name-desc";
@@ -138,6 +151,12 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(null);
   const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  // Seed from the URL (`?v=docs`), falling back to the remembered tab, so
+  // returning from a document (Back or the logo) lands on the Documents tab
+  // instead of resetting to Models.
+  const [docView, setDocView] = useState<"models" | "docs">(
+    searchParams.get("v") === "docs" ? "docs" : readLastView(),
+  );
   const [uploadOpen, setUploadOpen] = useState(false);
   const facetsLoading = collectionsQuery.isLoading || tagsQuery.isLoading;
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
@@ -157,7 +176,14 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
     rememberLastCollection(selectedCollection);
   }, [selectedCollection]);
 
+  // Remember the active tab so the logo / Back return to it (e.g. opening a
+  // document from the Documents tab and coming back).
+  useEffect(() => {
+    rememberLastView(docView);
+  }, [docView]);
+
   function handleCollectionChange(path: string | null) {
+    setSelectedIds(new Set());
     const params = new URLSearchParams(searchParams.toString());
     if (path) params.set("c", path);
     else params.delete("c");
@@ -225,7 +251,59 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
     queryClient.invalidateQueries({ queryKey: queryKeys.models });
   }
 
+  // Multi-select for batch actions. The selected set is view-independent so it
+  // survives load-more and search; backend per-model RBAC makes cross-collection
+  // selections safe. We clear it when navigating folders (see below) so a hidden
+  // off-screen selection doesn't linger.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+
+  const toggleSelect = useCallback((id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setSelectMode(false);
+  }, []);
+
   const sortedModels = useMemo(() => sortModels(models, "date-desc"), [models]);
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(sortedModels.map((m) => m.id)));
+  }
+
+  function summarizeBatch(verb: string, result: { succeeded_count: number; failed_count: number }) {
+    if (result.succeeded_count > 0) toast.success(`${verb} ${result.succeeded_count}`);
+    if (result.failed_count > 0) {
+      toast.warning(`${result.failed_count} skipped (no permission)`);
+    }
+    refresh();
+    clearSelection();
+  }
+
+  async function runBatch<T extends { succeeded_count: number; failed_count: number }>(
+    verb: string,
+    fn: () => Promise<T>,
+  ) {
+    if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
+    setBatchBusy(true);
+    try {
+      summarizeBatch(verb, await fn());
+    } catch (e: any) {
+      toast.error(e);
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
+  const selectedIdList = useMemo(() => Array.from(selectedIds), [selectedIds]);
   // "All Models" is a folder explorer: at the root the grid shows collection
   // cards plus only the models sitting directly at the root, so models.length is
   // the uncollected handful — 0 for a fully-foldered NAS library. When we're at
@@ -373,7 +451,7 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
 
       <main className="flex-1 overflow-y-auto bg-background flex flex-col">
         {/* Breadcrumb */}
-        <nav className="px-6 py-3 bg-background border-b border-border flex items-center space-x-2 text-sm tracking-tight">
+        <nav className="px-4 sm:px-6 py-3 bg-background border-b border-border flex items-center space-x-2 text-sm tracking-tight">
           {selectedCollection && breadcrumbs.length > 0 ? (
             <>
               <button
@@ -405,10 +483,10 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
         </nav>
 
         {/* Content Top Bar */}
-        <div className="px-6 py-8 bg-background border-b border-border">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col space-y-1">
-              <h2 className="text-2xl font-bold text-foreground tracking-tight">
+        <div className="px-4 sm:px-6 py-5 sm:py-8 bg-background border-b border-border">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-col space-y-1">
+              <h2 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight truncate">
                 {selectedName ?? "All Models"}
               </h2>
               <p className="text-sm text-muted-foreground">
@@ -416,7 +494,7 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
                 {refreshing && <span className="ml-2 font-mono text-xs text-muted-foreground">Updating...</span>}
               </p>
             </div>
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={openDrawer}
@@ -441,6 +519,22 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
                   Upload
                 </button>
               </div>
+              {auth.isAuthenticated && (
+                <button
+                  onClick={() => {
+                    if (selectMode) clearSelection();
+                    else setSelectMode(true);
+                  }}
+                  className={`hidden md:flex items-center px-3 py-2 text-xs font-medium rounded border transition-all ${
+                    selectMode
+                      ? "text-white bg-blue-600 dark:bg-orange-600 border-transparent hover:bg-blue-700 dark:hover:bg-orange-700"
+                      : "text-foreground bg-background border-border hover:bg-muted"
+                  }`}
+                >
+                  <CheckSquare className="w-4 h-4 mr-1.5" />
+                  {selectMode ? "Done" : "Select"}
+                </button>
+              )}
               <div className="h-6 w-px bg-muted mx-1 hidden md:block" />
               <div className="flex items-center bg-muted p-1 rounded">
                 <button
@@ -460,6 +554,31 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
               </div>
             </div>
           </div>
+        </div>
+
+        {selectedCollectionRow && (
+          <CollectionReadme
+            key={selectedCollectionRow.id}
+            collectionId={selectedCollectionRow.id}
+            canEdit={!!user?.is_superuser || canWriteCollection(selectedCollectionRow)}
+          />
+        )}
+
+        {/* Models / Documents tabs */}
+        <div className="flex items-center gap-1 px-4 sm:px-6 pt-3 border-b border-border">
+          {(["models", "docs"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setDocView(v)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                docView === v
+                  ? "border-blue-600 dark:border-orange-500 text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {v === "models" ? "Models" : "Documents"}
+            </button>
+          ))}
         </div>
 
         {isCreatingCollection && (
@@ -494,7 +613,38 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
           </div>
         )}
 
+        {selectMode && (
+          <div className="px-4 sm:px-6 py-2 bg-muted border-b border-border flex items-center gap-3 text-xs">
+            <span className="font-mono text-muted-foreground">
+              {selectedIds.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={selectAllVisible}
+              className="font-medium text-blue-600 dark:text-orange-500 hover:underline"
+            >
+              Select all on screen ({sortedModels.length})
+            </button>
+            {selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                className="font-medium text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Content */}
+        {docView === "docs" ? (
+          <DocumentBrowser
+            collectionId={selectedCollectionRow?.id ?? null}
+            collectionPath={selectedCollection}
+            canCreate={!!user?.is_superuser || canWriteCollection(selectedCollectionRow)}
+          />
+        ) : (
         <div className="flex-1 flex flex-col bg-background">
           {error && (
             <div className="mx-6 mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
@@ -521,7 +671,7 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
               )}
             </div>
           ) : viewMode === "grid" ? (
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(340px,340px))]">
                 {visibleCollections.map((collection) => (
                   <CollectionFolderCard
@@ -531,7 +681,13 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
                   />
                 ))}
                 {sortedModels.map((model) => (
-                  <ModelCard key={model.id} model={model} />
+                  <ModelCard
+                    key={model.id}
+                    model={model}
+                    selectable={selectMode}
+                    selected={selectedIds.has(model.id)}
+                    onToggleSelect={toggleSelect}
+                  />
                 ))}
               </div>
               <LoadMore hasMore={hasMore} loading={loadingMore} onClick={loadMore} />
@@ -555,14 +711,34 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
                   />
                 ))}
                 {sortedModels.map((model) => (
-                  <ModelListRow key={model.id} model={model} />
+                  <ModelListRow
+                    key={model.id}
+                    model={model}
+                    selectable={selectMode}
+                    selected={selectedIds.has(model.id)}
+                    onToggleSelect={toggleSelect}
+                  />
                 ))}
               </div>
               <LoadMore hasMore={hasMore} loading={loadingMore} onClick={loadMore} />
             </div>
           )}
         </div>
+        )}
       </main>
+
+      <BatchToolbar
+        count={selectedIds.size}
+        collections={collections}
+        tags={tags}
+        busy={batchBusy}
+        onMove={(target) => runBatch("Moved", () => batchMoveModels(selectedIdList, target))}
+        onApplyTags={(add, remove) =>
+          runBatch("Tagged", () => batchTagModels(selectedIdList, add, remove))
+        }
+        onDelete={() => runBatch("Deleted", () => batchDeleteModels(selectedIdList))}
+        onClear={clearSelection}
+      />
     </>
   );
 }
@@ -574,15 +750,11 @@ function CollectionFolderCard({ collection, onSelect }: { collection: Collection
       onClick={() => onSelect(collection.path)}
       className="animate-card-in group flex flex-col text-left bg-muted border border-border rounded-lg hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-sm transition-all relative overflow-hidden"
     >
-      <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-[var(--surface-container-high)] min-h-[140px]">
-        <Folder className="w-16 h-16 text-blue-600/30 dark:text-orange-500/25" />
+      <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-[var(--surface-container-high)] min-h-[100px] sm:min-h-[140px]">
+        <Folder className="w-12 h-12 sm:w-16 sm:h-16 text-blue-600/30 dark:text-orange-500/25" />
       </div>
       <div className="p-3 border-t border-border">
-        <div className="flex items-center justify-between gap-2 mb-0.5">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Folder className="w-3.5 h-3.5 text-blue-600 dark:text-orange-500 shrink-0" />
-            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Folder</span>
-          </div>
+        <div className="flex items-center justify-end gap-2 mb-0.5">
           <span className="text-[10px] text-muted-foreground font-mono">{collection.model_count} models</span>
         </div>
         <p className="text-sm font-bold text-foreground truncate tracking-tight">{collection.name}</p>
@@ -640,7 +812,17 @@ function CollectionListRow({ collection, onSelect }: { collection: CollectionRea
   );
 }
 
-function ModelListRow({ model }: { model: ModelListItem }) {
+function ModelListRow({
+  model,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
+}: {
+  model: ModelListItem;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: number) => void;
+}) {
   const router = useRouter();
   const thumb = useAuthenticatedAssetUrl(model.thumbnail_url);
   const printerPresence = model.printer_presence ?? [];
@@ -648,8 +830,23 @@ function ModelListRow({ model }: { model: ModelListItem }) {
     <Link
       href={`/models/${model.id}`}
       onMouseEnter={() => router.prefetch(`/models/${model.id}`)}
-      className="flex items-center gap-2 md:gap-3 px-4 py-3 border-b border-border hover:bg-muted transition-colors group active:bg-muted"
+      onClick={(e) => {
+        if (selectable) {
+          e.preventDefault();
+          onToggleSelect?.(model.id);
+        }
+      }}
+      className={`flex items-center gap-2 md:gap-3 px-4 py-3 border-b border-border transition-colors group active:bg-muted ${
+        selected ? "bg-blue-50 dark:bg-orange-950/30" : "hover:bg-muted"
+      }`}
     >
+      {selectable && (
+        <Checkbox
+          checked={selected}
+          onChange={() => onToggleSelect?.(model.id)}
+          ariaLabel={`Select ${model.name}`}
+        />
+      )}
       <div className="w-8 h-8 md:w-10 md:h-10 rounded bg-muted flex-shrink-0 overflow-hidden border border-border">
         {thumb ? (
           <img src={thumb} alt={model.name} className="h-full w-full object-cover" loading="lazy" />

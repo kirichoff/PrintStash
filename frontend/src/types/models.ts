@@ -106,6 +106,8 @@ export interface ModelPrintJobRead {
   filament_used_g: number | null;
   actual_duration_s: number | null;
   filament_cost: number | null;
+  spool_id: number | null;
+  spool_name: string | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
@@ -155,6 +157,18 @@ export interface TrashedModelRead {
 export interface TrashPurgeRead {
   purged_model_ids: number[];
   purged_count: number;
+}
+
+export interface ModelBatchFailure {
+  model_id: number;
+  reason: string;
+}
+
+export interface ModelBatchResult {
+  succeeded_ids: number[];
+  failed: ModelBatchFailure[];
+  succeeded_count: number;
+  failed_count: number;
 }
 
 export interface StorageUsageRead {
@@ -229,6 +243,9 @@ export interface ManualPrintJobCreate {
   printer_name?: string | null;
   file_id: number;
   state?: string;
+  spool_id?: number | null;
+  spool_name?: string | null;
+  spool_filament_id?: number | null;
   started_at?: string | null;
   finished_at?: string | null;
   error?: string | null;
@@ -420,6 +437,9 @@ export interface FilamentProfileRead {
   cost_per_kg: number | null;
   notes: string | null;
   usage_count: number;
+  spoolman_filament_id: number | null;
+  density_g_cm3: number | null;
+  diameter_mm: number | null;
   created_at: string;
   updated_at: string;
 }

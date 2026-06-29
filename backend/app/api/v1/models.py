@@ -41,6 +41,7 @@ from app.db.models import (
     PrintJobState,
     Collection,
     CollectionRole,
+    Tag,
     User,
 )
 from app.db.scopes import live
@@ -49,6 +50,11 @@ from app.schemas.models import (
     FileRevisionUpdate,
     ImportedPrintJobRead,
     ManualPrintJobCreate,
+    ModelBatchDelete,
+    ModelBatchFailure,
+    ModelBatchMove,
+    ModelBatchResult,
+    ModelBatchTags,
     ModelPrinterFileRead,
     ModelPrintJobRead,
     ModelListItem,
@@ -69,6 +75,7 @@ from app.services.trash import (
     hard_delete_model,
     restore_model as trash_restore_model,
     soft_delete_model,
+    soft_delete_models,
 )
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -235,9 +242,7 @@ def vault_stats(
     ),
 )
 def print_stats(
-    period: str = Query(
-        "30d", description="Preset window: 7d, 30d, 90d, 1y, or all"
-    ),
+    period: str = Query("30d", description="Preset window: 7d, 30d, 90d, 1y, or all"),
     session: Session = Depends(get_session),
 ) -> PrintStatisticsRead:
     return model_views.print_statistics(session, period)
@@ -440,9 +445,11 @@ def get_model_print_jobs(
             error=job.error,
             filament_used_g=job.filament_used_g,
             actual_duration_s=job.actual_duration_s,
-            filament_cost=model_views.filament_cost_for_grams(
-                profiles, md, job.filament_used_g
+            filament_cost=model_views.filament_cost_for_job(
+                profiles, md, job.filament_used_g, job.spool_filament_id
             ),
+            spool_id=job.spool_id,
+            spool_name=job.spool_name,
             started_at=job.started_at,
             finished_at=job.finished_at,
             created_at=job.created_at,
@@ -493,6 +500,9 @@ def create_manual_print_job(
         remote_filename=file_row.original_filename,
         state=state,
         source="manual",
+        spool_id=payload.spool_id,
+        spool_name=payload.spool_name,
+        spool_filament_id=payload.spool_filament_id,
         started_at=payload.started_at,
         finished_at=payload.finished_at,
         error=payload.error,
@@ -515,6 +525,8 @@ def create_manual_print_job(
         state=job.state,
         material_type=None,
         error=job.error,
+        spool_id=job.spool_id,
+        spool_name=job.spool_name,
         started_at=job.started_at,
         finished_at=job.finished_at,
         created_at=job.created_at,
@@ -639,6 +651,231 @@ async def import_print_jobs_from_printer(
             )
 
     return results
+
+
+def _dedupe_ids(ids: List[int]) -> List[int]:
+    seen: set[int] = set()
+    out: List[int] = []
+    for i in ids:
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
+def _partition_editable_models(
+    session: Session, user: User, ids: List[int]
+) -> tuple[List[Model], List[ModelBatchFailure]]:
+    """Single-pass RBAC for batch ops: split ``ids`` into editable models and
+    per-id failures, preserving input order.
+
+    Replaces a per-model ``_require_model_role`` loop, which re-ran the same
+    "all of this user's grants" query once per model (an N+1 that scaled with
+    the selection). Here the models are fetched in one query and the editable
+    collection set is computed once. Failure reasons match the single-model
+    endpoint so the client sees the same ``reason`` strings.
+    """
+    rows = session.exec(select(Model).where(Model.id.in_(ids))).all()  # type: ignore[union-attr]
+    by_id = {m.id: m for m in rows}
+    # Superuser short-circuits inside accessible_collection_ids (returns every
+    # collection), so a single call covers both roles.
+    editable_ids = rbac.accessible_collection_ids(session, user, CollectionRole.EDIT)
+    editable: List[Model] = []
+    failed: List[ModelBatchFailure] = []
+    for mid in ids:
+        m = by_id.get(mid)
+        if m is None or m.deleted_at is not None:
+            failed.append(ModelBatchFailure(model_id=mid, reason="model_not_found"))
+        elif m.collection_id is None:
+            if user.is_superuser:
+                editable.append(m)
+            else:
+                failed.append(
+                    ModelBatchFailure(
+                        model_id=mid, reason="root_collection_admin_required"
+                    )
+                )
+        elif m.collection_id in editable_ids:
+            editable.append(m)
+        else:
+            failed.append(
+                ModelBatchFailure(model_id=mid, reason="collection_permission_denied")
+            )
+    return editable, failed
+
+
+@router.post(
+    "/batch/move",
+    response_model=ModelBatchResult,
+    dependencies=[Depends(require_auth)],
+    summary="Move several models to a collection",
+    description=(
+        "Moves the given models into one destination collection. The destination "
+        "is resolved once: an empty path means root (superuser only) and a missing "
+        "path is created (superuser only). Models the caller cannot edit are skipped "
+        "and reported in `failed`; everything else is committed atomically."
+    ),
+)
+def batch_move_models(
+    payload: ModelBatchMove,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> ModelBatchResult:
+    # Validate the shared destination up front — these are whole-request errors,
+    # not per-item, because the destination is the same for everyone. Creating a
+    # *missing* collection is deferred until we know at least one model will move
+    # (below), so a fully-failed batch never leaves an orphan empty collection.
+    dest_is_root = payload.collection.strip() == ""
+    if dest_is_root and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="root_collection_admin_required")
+
+    existing_dest: Optional[Collection] = None
+    if not dest_is_root:
+        collection_path = _collection_path_for(payload.collection)
+        existing_dest = session.exec(
+            select(Collection).where(
+                Collection.path == collection_path, live(Collection)
+            )
+        ).first()
+        if existing_dest is None and not current_user.is_superuser:
+            raise HTTPException(status_code=403, detail="collection_permission_denied")
+        if existing_dest is not None:
+            rbac.require_collection_role(
+                session, current_user, existing_dest.id, CollectionRole.EDIT
+            )
+
+    editable, failed = _partition_editable_models(
+        session, current_user, _dedupe_ids(payload.model_ids)
+    )
+    if not editable:
+        # Nothing will move — return before resolving/creating the destination.
+        return ModelBatchResult(
+            succeeded_ids=[], failed=failed, succeeded_count=0, failed_count=len(failed)
+        )
+
+    if dest_is_root:
+        dest_id: Optional[int] = None
+    elif existing_dest is not None:
+        dest_id = existing_dest.id
+    else:
+        cat = taxonomy.resolve_or_create_collection(session, payload.collection)
+        rbac.require_collection_role(session, current_user, cat.id, CollectionRole.EDIT)
+        dest_id = cat.id
+
+    succeeded: List[int] = []
+    for m in editable:
+        m.collection_id = dest_id
+        m.updated_at = utcnow()
+        session.add(m)
+        succeeded.append(m.id)  # type: ignore[arg-type]
+
+    session.commit()
+    return ModelBatchResult(
+        succeeded_ids=succeeded,
+        failed=failed,
+        succeeded_count=len(succeeded),
+        failed_count=len(failed),
+    )
+
+
+@router.post(
+    "/batch/tags",
+    response_model=ModelBatchResult,
+    dependencies=[Depends(require_auth)],
+    summary="Add and/or remove tags on several models",
+    description=(
+        "Additive tag editing across a selection: tags in `add` are created if "
+        "missing and appended (idempotent); tags in `remove` are detached if "
+        "present. Each model keeps its other tags. Models the caller cannot edit "
+        "are skipped and reported in `failed`."
+    ),
+)
+def batch_tag_models(
+    payload: ModelBatchTags,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> ModelBatchResult:
+    editable, failed = _partition_editable_models(
+        session, current_user, _dedupe_ids(payload.model_ids)
+    )
+    if not editable:
+        # No editable models — return before creating any tags, so a fully-failed
+        # batch never spawns tags as a side effect.
+        return ModelBatchResult(
+            succeeded_ids=[], failed=failed, succeeded_count=0, failed_count=len(failed)
+        )
+
+    add_tags = (
+        taxonomy.resolve_or_create_tags(session, payload.add) if payload.add else []
+    )
+    # Removal only targets tags that already exist; never create on remove.
+    remove_tag_ids: List[int] = []
+    for raw in payload.remove:
+        slug = taxonomy.slugify(raw.strip())
+        if not slug:
+            continue
+        tag = session.exec(select(Tag).where(Tag.slug == slug)).first()
+        if tag is not None and tag.id is not None:
+            remove_tag_ids.append(tag.id)
+
+    succeeded: List[int] = []
+    for m in editable:
+        model_id = m.id
+        if add_tags:
+            existing = set(
+                session.exec(
+                    select(ModelTagLink.tag_id).where(ModelTagLink.model_id == model_id)
+                ).all()
+            )
+            for t in add_tags:
+                if t.id not in existing:
+                    session.add(ModelTagLink(model_id=model_id, tag_id=t.id))
+        if remove_tag_ids:
+            session.exec(
+                delete(ModelTagLink).where(  # type: ignore[call-overload]
+                    ModelTagLink.model_id == model_id,
+                    ModelTagLink.tag_id.in_(remove_tag_ids),  # type: ignore[attr-defined]
+                )
+            )
+        m.updated_at = utcnow()
+        session.add(m)
+        succeeded.append(model_id)
+
+    session.commit()
+    return ModelBatchResult(
+        succeeded_ids=succeeded,
+        failed=failed,
+        succeeded_count=len(succeeded),
+        failed_count=len(failed),
+    )
+
+
+@router.post(
+    "/batch/delete",
+    response_model=ModelBatchResult,
+    dependencies=[Depends(require_auth)],
+    summary="Soft-delete several models",
+    description=(
+        "Moves the given models to the trash. Models the caller cannot edit are "
+        "skipped and reported in `failed`; the rest are deleted atomically."
+    ),
+)
+def batch_delete_models(
+    payload: ModelBatchDelete,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> ModelBatchResult:
+    editable, failed = _partition_editable_models(
+        session, current_user, _dedupe_ids(payload.model_ids)
+    )
+    soft_delete_models(session, editable)
+    session.commit()
+    return ModelBatchResult(
+        succeeded_ids=[m.id for m in editable],  # type: ignore[misc]
+        failed=failed,
+        succeeded_count=len(editable),
+        failed_count=len(failed),
+    )
 
 
 @router.patch(
@@ -791,9 +1028,29 @@ def delete_file_revision(
     if file_row.file_type != FileType.GCODE:
         raise HTTPException(status_code=400, detail="revision_not_supported")
 
+    was_recommended = file_row.is_recommended
     file_row.deleted_at = utcnow()
     file_row.deleted_by = current_user.id
     file_row.is_recommended = False
+
+    # Invariant: a model with G-code always keeps exactly one recommended
+    # revision (CONTEXT.md). If we just removed the recommended one, promote the
+    # newest remaining live G-code revision so the model never ends up holding
+    # G-code with nothing recommended.
+    if was_recommended:
+        replacement = session.exec(
+            select(File)
+            .where(
+                File.model_id == model_id,
+                File.id != file_id,
+                File.file_type == FileType.GCODE,
+                live(File),
+            )
+            .order_by(File.version.desc())  # type: ignore[attr-defined]
+        ).first()
+        if replacement is not None:
+            replacement.is_recommended = True
+            session.add(replacement)
 
     # Drop a stale thumbnail pointer if it referenced this revision.
     if m.thumbnail_file_id == file_id:

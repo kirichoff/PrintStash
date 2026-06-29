@@ -241,9 +241,9 @@ def test_huge_mesh_never_allocates_full_face_arrays(monkeypatch) -> None:
     seen_max = {"n": 0}
     real = mesh_render._rasterise_triangles
 
-    def _spy(img, zbuf, tri, vert_rgb, base_color, width, height):
+    def _spy(img, zbuf, tri, vert_nrm, shade, base_color, width, height):
         seen_max["n"] = max(seen_max["n"], int(tri.shape[0]))
-        return real(img, zbuf, tri, vert_rgb, base_color, width, height)
+        return real(img, zbuf, tri, vert_nrm, shade, base_color, width, height)
 
     monkeypatch.setattr(mesh_render, "_rasterise_triangles", _spy)
     png = mesh_render.render_mesh_thumbnail(mesh, "big.stl", width=64, height=64)

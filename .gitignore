@@ -60,6 +60,7 @@ CLAUDE.md
 docs/agents/
 frontend/test-results/
 frontend/playwright-report/
+frontend/tests/e2e-real/.data/
 .playwright-mcp/
 screenshots/gif-frames/
 

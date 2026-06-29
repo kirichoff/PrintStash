@@ -576,6 +576,9 @@ async def send_to_printer(
         model_id=f.model_id,
         remote_filename=remote_name,
         state=PrintJobState.UPLOADING,
+        spool_id=payload.spool_id,
+        spool_name=payload.spool_name,
+        spool_filament_id=payload.spool_filament_id,
     )
     session.add(job)
     session.commit()

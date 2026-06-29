@@ -36,6 +36,7 @@ import { ExternalLibrariesPanel } from "@/components/external-libraries-panel";
 import { StorageConfigCard } from "@/components/storage-config-card";
 import { MakerWorldConnectCard } from "@/components/makerworld-connect-card";
 import { NotificationsPanel } from "@/components/notifications-panel";
+import { SpoolmanConnectCard } from "@/components/spoolman-connect-card";
 import { BrandMark } from "@/components/brand-mark";
 import {
   createApiKey,
@@ -104,6 +105,7 @@ type SettingsSection =
   | "imports"
   | "libraries"
   | "notifications"
+  | "spoolman"
   | "design"
   | "trash"
   | "about";
@@ -119,6 +121,7 @@ const SETTINGS_SECTIONS: {
   { id: "imports", label: "Imports", icon: Download },
   { id: "libraries", label: "Shared volumes", icon: FolderSync },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "spoolman", label: "Spoolman", icon: Boxes },
   { id: "design", label: "Design", icon: Palette },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "about", label: "About", icon: Info },
@@ -610,14 +613,26 @@ export function SettingsPanel() {
     next[slot] = id;
     setCardMetrics(next);
     writeCardMetrics(next);
-    // Notify other tabs / components
-    window.dispatchEvent(new StorageEvent("storage", { key: "printstash.card.metrics" }));
+    // Notify other components in this tab. Carry newValue: a storage-sync
+    // listener (e.g. dev tools) treats a null newValue as a deletion and would
+    // wipe the key we just wrote.
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "printstash.card.metrics",
+        newValue: JSON.stringify(next),
+      }),
+    );
   }
 
   function resetCardMetrics() {
     setCardMetrics(DEFAULT_CARD_METRICS);
     writeCardMetrics(DEFAULT_CARD_METRICS);
-    window.dispatchEvent(new StorageEvent("storage", { key: "printstash.card.metrics" }));
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "printstash.card.metrics",
+        newValue: JSON.stringify(DEFAULT_CARD_METRICS),
+      }),
+    );
     toast.success("Card metrics reset.");
   }
 
@@ -1340,6 +1355,12 @@ export function SettingsPanel() {
         </div>
       )}
 
+      {activeSection === "spoolman" && (
+        <div className="space-y-6">
+          <SpoolmanConnectCard canEdit={!!user?.is_superuser} />
+        </div>
+      )}
+
       {activeSection === "design" && (
         <div className="space-y-6">
           {/* Print tracking behaviour */}
@@ -1661,7 +1682,7 @@ export function SettingsPanel() {
           {/* App identity */}
           <div className="bg-card border border-border rounded">
             <div className="px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)]">
+              <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--primary)] text-white">
                 <BrandMark className="h-10 w-10" />
               </div>
               <div className="flex-1 min-w-0">

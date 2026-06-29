@@ -520,6 +520,44 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     });
     return;
   }
+  if (url.pathname === "/api/v1/spoolman") {
+    if (req.method === "PUT") {
+      drainRequest(req, () =>
+        sendJson(res, {
+          enabled: false,
+          base_url: null,
+          has_api_key: false,
+          write_enabled: true,
+          connected: false,
+          version: null,
+          error: null,
+          native_hook_detected: false,
+        }),
+      );
+      return;
+    }
+    sendJson(res, {
+      enabled: false,
+      base_url: null,
+      has_api_key: false,
+      write_enabled: true,
+      connected: false,
+      version: null,
+      error: null,
+      native_hook_detected: false,
+    });
+    return;
+  }
+  if (url.pathname === "/api/v1/spoolman/spools") {
+    sendJson(res, []);
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/v1/spoolman/sync-filaments") {
+    drainRequest(req, () =>
+      sendJson(res, { created: 0, updated: 0, adopted: 0, unlinked: 0 }),
+    );
+    return;
+  }
   if (url.pathname === "/api/v1/files/1/thumbnail") {
     sendPng(res);
     return;
