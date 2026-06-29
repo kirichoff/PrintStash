@@ -19,6 +19,7 @@ from app.db.models import (
     PrintJobState,
     Printer,
     PrinterFile,
+    PrinterProvider,
     PrinterStatus,
     User,
 )
@@ -245,6 +246,89 @@ class TestPrinterControl:
             resp = client.post(f"/api/v1/printers/{p.id}/cancel", headers=auth_headers)
             assert resp.status_code == 200
             assert resp.json() == {"ok": True}
+
+    def test_set_temperature_builds_gcode(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
+        p = Printer(name="Ender 3", moonraker_url="http://10.0.0.1:7125")
+        db_session.add(p)
+        db_session.commit()
+        db_session.refresh(p)
+
+        with patch(
+            "app.services.printer_provider.MoonrakerProvider.run_gcode",
+            new_callable=AsyncMock,
+        ) as mock_gcode:
+            mock_gcode.return_value = {"result": "ok"}
+            resp = client.post(
+                f"/api/v1/printers/{p.id}/temperature",
+                json={"heater": "bed", "target": 60},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+            mock_gcode.assert_called_once_with("M140 S60")
+
+    def test_home_subset_axes_builds_gcode(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
+        p = Printer(name="Ender 3", moonraker_url="http://10.0.0.1:7125")
+        db_session.add(p)
+        db_session.commit()
+        db_session.refresh(p)
+
+        with patch(
+            "app.services.printer_provider.MoonrakerProvider.run_gcode",
+            new_callable=AsyncMock,
+        ) as mock_gcode:
+            mock_gcode.return_value = {"result": "ok"}
+            resp = client.post(
+                f"/api/v1/printers/{p.id}/home",
+                json={"axes": "xy"},
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+            mock_gcode.assert_called_once_with("G28 X Y")
+
+    def test_emergency_stop_calls_provider(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
+        p = Printer(name="Ender 3", moonraker_url="http://10.0.0.1:7125")
+        db_session.add(p)
+        db_session.commit()
+        db_session.refresh(p)
+
+        with patch(
+            "app.services.printer_provider.MoonrakerProvider.emergency_stop",
+            new_callable=AsyncMock,
+        ) as mock_estop:
+            mock_estop.return_value = {"result": "ok"}
+            resp = client.post(
+                f"/api/v1/printers/{p.id}/emergency_stop", headers=auth_headers
+            )
+            assert resp.status_code == 200
+            mock_estop.assert_called_once()
+
+    def test_set_temperature_rejected_for_bambu(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
+        p = Printer(
+            name="Bambu",
+            provider=PrinterProvider.BAMBU_LAN,
+            moonraker_url="",
+            bambu_host="192.168.1.50",
+            bambu_serial="SN123",
+            bambu_access_code="access",
+        )
+        db_session.add(p)
+        db_session.commit()
+        db_session.refresh(p)
+
+        resp = client.post(
+            f"/api/v1/printers/{p.id}/temperature",
+            json={"heater": "extruder", "target": 200},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 409
 
 
 class TestBambuPrinter:

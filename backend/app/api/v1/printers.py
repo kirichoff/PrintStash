@@ -37,6 +37,7 @@ from app.db.models import (
 )
 from app.db.session import get_session
 from app.schemas.printers import (
+    HomeAxes,
     MoonrakerConfigRead,
     PrinterCapabilities,
     PrinterCreate,
@@ -45,6 +46,7 @@ from app.schemas.printers import (
     PrinterUpdate,
     PrintJobRead,
     SendToPrinter,
+    SetTemperature,
     StartPrinterFile,
 )
 from app.services.printer_hub import (
@@ -789,6 +791,79 @@ async def cancel_printer(
     printer_id: int, session: Session = Depends(get_session)
 ) -> dict:
     return await _printer_control(printer_id, session, "cancel")
+
+
+def _require_gcode_provider(session: Session, printer_id: int):
+    p = get_or_404(session, Printer, printer_id, "printer_not_found")
+    if p.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="printer_not_found")
+    provider = get_provider_client(p)
+    if not provider.capabilities.can_send_gcode:
+        raise HTTPException(
+            status_code=409, detail="operation_not_supported_for_provider"
+        )
+    return provider
+
+
+async def _run_gcode(provider, script: str) -> dict:
+    try:
+        await provider.run_gcode(script)
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=exc.code)
+    except Exception:
+        logger.error("printer gcode failed script=%s", script)
+        raise HTTPException(status_code=502, detail="provider_error")
+    return {"ok": True}
+
+
+@router.post(
+    "/{printer_id}/temperature",
+    dependencies=[Depends(require_superuser)],
+    summary="Set a heater target temperature",
+)
+async def set_printer_temperature(
+    printer_id: int,
+    payload: SetTemperature,
+    session: Session = Depends(get_session),
+) -> dict:
+    provider = _require_gcode_provider(session, printer_id)
+    code = "M104" if payload.heater == "extruder" else "M140"
+    return await _run_gcode(provider, f"{code} S{payload.target:g}")
+
+
+@router.post(
+    "/{printer_id}/home",
+    dependencies=[Depends(require_superuser)],
+    summary="Home the toolhead (all axes, or a subset)",
+)
+async def home_printer(
+    printer_id: int,
+    payload: HomeAxes,
+    session: Session = Depends(get_session),
+) -> dict:
+    provider = _require_gcode_provider(session, printer_id)
+    script = "G28" if not payload.axes else "G28 " + " ".join(payload.axes.upper())
+    return await _run_gcode(provider, script)
+
+
+@router.post(
+    "/{printer_id}/emergency_stop",
+    dependencies=[Depends(require_superuser)],
+    summary="Immediately halt the printer (Klipper emergency stop)",
+)
+async def emergency_stop_printer(
+    printer_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    provider = _require_gcode_provider(session, printer_id)
+    try:
+        await provider.emergency_stop()
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=exc.code)
+    except Exception:
+        logger.error("printer emergency_stop failed printer=%s", printer_id)
+        raise HTTPException(status_code=502, detail="provider_error")
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

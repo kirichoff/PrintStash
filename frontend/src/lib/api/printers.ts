@@ -113,6 +113,25 @@ export function cancelPrinter(id: number): Promise<void> {
   return printerControl(id, "cancel");
 }
 
+export function setPrinterTemperature(
+  id: number,
+  heater: "extruder" | "bed",
+  target: number,
+): Promise<void> {
+  return sendJson(`/api/v1/printers/${id}/temperature`, "POST", {
+    heater,
+    target,
+  });
+}
+
+export function homePrinter(id: number, axes?: string): Promise<void> {
+  return sendJson(`/api/v1/printers/${id}/home`, "POST", { axes: axes ?? null });
+}
+
+export function emergencyStopPrinter(id: number): Promise<void> {
+  return sendAction(`/api/v1/printers/${id}/emergency_stop`, "POST");
+}
+
 export function getPrinterStatus(id: number): Promise<PrinterStatusResponse> {
   // One-shot live snapshot — always fetch fresh.
   return getJson<PrinterStatusResponse>(`/api/v1/printers/${id}/status`, {
