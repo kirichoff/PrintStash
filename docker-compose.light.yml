@@ -1,0 +1,70 @@
+# Light deployment: the minimal two-service stack (frontend + SQLite api) with
+# no optional services (no Postgres, MinIO/S3, or backup config). Runs with zero
+# env — `docker compose -f docker-compose.light.yml up -d` — but every value can
+# still be overridden from a .env file or the shell if you want to.
+services:
+  frontend:
+    image: ghcr.io/xiao-villamor/printstash-frontend:${PRINTSTASH_VERSION:-latest}
+    container_name: printstash-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    # nginx must allow request bodies up to the configured upload limit, or large
+    # uploads fail with 413 before reaching the api.
+    environment:
+      NGINX_CLIENT_MAX_BODY_SIZE: ${VAULT_MAX_UPLOAD_MB:-512}m
+    networks:
+      - printstash_net
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    image: ghcr.io/xiao-villamor/printstash-api:${PRINTSTASH_VERSION:-latest}
+    container_name: printstash-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      VAULT_DATA_DIR: /data/files
+      VAULT_THUMB_DIR: /data/thumbs
+      VAULT_STAGING_DIR: /data/staging
+      VAULT_BACKUP_DIR: /data/backups
+      # DB path must always point at the persistent volume (see docker-compose.yml).
+      VAULT_DB_URL: sqlite:////data/db/printstash.sqlite
+      # CHANGE THIS: generate a strong secret with `openssl rand -hex 32`, then set
+      # VAULT_JWT_SECRET in a .env file or your shell. The default is public, so
+      # leaving it unchanged lets anyone forge admin login tokens.
+      VAULT_JWT_SECRET: ${VAULT_JWT_SECRET:-changeme_jwt_secret_please_change}
+      VAULT_ACCESS_TOKEN_EXPIRE_MINUTES: ${VAULT_ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      VAULT_REMEMBER_ME_DAYS: ${VAULT_REMEMBER_ME_DAYS:-2}
+      VAULT_MAX_UPLOAD_MB: ${VAULT_MAX_UPLOAD_MB:-512}
+      VAULT_LOG_LEVEL: ${VAULT_LOG_LEVEL:-INFO}
+      TZ: UTC
+    volumes:
+      - printstash_data:/data/files
+      - printstash_thumbs:/data/thumbs
+      - printstash_db:/data/db
+      - printstash_staging:/data/staging
+      - printstash_backups:/data/backups
+    networks:
+      - printstash_net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # No command override: the image entrypoint runs DB migrations on every start
+    # then launches the server. Overriding it can silently skip migrations (#29).
+
+networks:
+  printstash_net:
+    driver: bridge
+
+volumes:
+  printstash_data:
+  printstash_thumbs:
+  printstash_db:
+  printstash_staging:
+  printstash_backups:

@@ -21,7 +21,7 @@ import { login as apiLogin, getMe } from "@/lib/api";
 interface AuthState {
   user: StoredUser | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string, remember_me?: boolean) => Promise<void>
   logout: () => void;
   refresh: () => Promise<void>;
 }
@@ -75,8 +75,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const token = await apiLogin({ username, password });
+  const login = useCallback(async (username: string, password: string, remember_me: boolean = false ) => {
+    const token = await apiLogin({ username, password, remember_me });
     storeLogin(token.access_token, { id: 0, username, email: null, is_superuser: false });
     try {
       const me = await getMe();
@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: me.email,
         is_superuser: me.is_superuser,
       };
-      storeLogin(token.access_token, stored);
+      storeLogin(token.access_token, stored, { silent: true });
       setUser(stored);
     } catch (e) {
       clearLogin();

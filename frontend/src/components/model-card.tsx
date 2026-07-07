@@ -10,6 +10,10 @@ import { getAssetUrl } from "@/lib/api";
 import { timeAgoShort } from "@/lib/format";
 import { useAuthenticatedAssetUrl } from "@/lib/use-authenticated-asset-url";
 
+// MIME type carrying a dragged model's id, so collection drop targets can tell
+// an internal "move model" drag apart from an OS file-upload drag.
+export const MODEL_DND_MIME = "application/x-printstash-model";
+
 // STL blobs already warmed this session (the /stl endpoint serves
 // Cache-Control'd responses, so a hover fetch lands in the HTTP cache and the
 // viewer's loader reads from disk instead of the network).
@@ -97,14 +101,17 @@ function ModelCardInner({
   selectable = false,
   selected = false,
   onToggleSelect,
+  draggable = false,
 }: {
   model: ModelListItem;
   metrics: CardMetrics;
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
+  draggable?: boolean;
 }) {
   const router = useRouter();
+  const [dragging, setDragging] = useState(false);
   const thumb = useAuthenticatedAssetUrl(model.thumbnail_url);
   // Lazy thumbnails used to snap in at full opacity the instant their bytes
   // arrived. Fade each one in on load so scrolling/searching settles smoothly
@@ -123,7 +130,20 @@ function ModelCardInner({
 
   return (
     <article
+      draggable={draggable}
+      onDragStart={
+        draggable
+          ? (e) => {
+              e.dataTransfer.setData(MODEL_DND_MIME, String(model.id));
+              e.dataTransfer.effectAllowed = "move";
+              setDragging(true);
+            }
+          : undefined
+      }
+      onDragEnd={() => setDragging(false)}
       className={`animate-card-in group relative flex h-full flex-col bg-card border rounded transition-all duration-200 overflow-hidden ${
+        draggable ? "cursor-grab active:cursor-grabbing" : ""
+      } ${dragging ? "opacity-40" : ""} ${
         selected
           ? "border-blue-600 ring-2 ring-blue-600/40 dark:border-orange-600 dark:ring-orange-600/40"
           : "border-border hover:border-blue-500 dark:hover:border-orange-500"
@@ -142,6 +162,7 @@ function ModelCardInner({
       )}
       <Link
         href={`/models/${model.id}`}
+        draggable={false}
         className="flex flex-col h-full overflow-hidden"
         onClick={(e) => {
           if (selectable) {
@@ -156,6 +177,7 @@ function ModelCardInner({
           {thumb ? (
             <img
               alt={model.name}
+              draggable={false}
               className={`w-full h-full object-cover transition-opacity duration-300 ease-out ${
                 thumbLoaded ? "opacity-90 group-hover:opacity-100" : "opacity-0"
               }`}
@@ -261,11 +283,13 @@ export function ModelCard({
   selectable,
   selected,
   onToggleSelect,
+  draggable,
 }: {
   model: ModelListItem;
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
+  draggable?: boolean;
 }) {
   const [metrics, setMetrics] = useState<CardMetrics>(DEFAULT_CARD_METRICS);
 
@@ -285,6 +309,7 @@ export function ModelCard({
       selectable={selectable}
       selected={selected}
       onToggleSelect={onToggleSelect}
+      draggable={draggable}
     />
   );
 }

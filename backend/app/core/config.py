@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "changeme_jwt_secret_please_change"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    # "Remember me" login lifetime. Kept short because the access token is a
+    # stateless JWT that can't be revoked before it expires; operators who want
+    # longer sessions can raise VAULT_REMEMBER_ME_DAYS.
+    remember_me_days: int = 2
     # Short-lived token embedded in slicer ("Open in slicer") download URLs so an
     # external slicer process can fetch the file without the user's login session.
     slicer_download_token_expire_minutes: int = 15

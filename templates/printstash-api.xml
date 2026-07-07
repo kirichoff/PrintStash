@@ -24,7 +24,7 @@
   <DonateLink/>
   <Date>2026-06-17</Date>
   <MinVer>6.10</MinVer>
-  <License>AGPLv3</License>
+  <License>Elastic License 2.0</License>
   <Requires>Create a user-defined Docker network named "printstash" first (Settings -&gt; Docker, or `docker network create printstash`). Install PrintStash-Frontend on the same network.</Requires>
   <Config Name="API Port" Target="8000" Default="8000" Mode="tcp" Description="Optional. Only needed if you want to hit the API or /metrics directly. The frontend reaches it internally via the printstash network." Type="Port" Display="advanced" Required="false" Mask="false">8000</Config>
   <Config Name="Data (models/files)" Target="/data/files" Default="/mnt/user/appdata/printstash/files" Mode="rw" Description="Uploaded model and G-code files." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printstash/files</Config>

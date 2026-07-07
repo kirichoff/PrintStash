@@ -28,6 +28,11 @@ export function isMeshFile(name: string): boolean {
   return MESH_EXTENSIONS.has(extensionOf(name));
 }
 
+const GCODE_EXTENSIONS = new Set([".gcode", ".g", ".gco"]);
+export function isGcodeFile(name: string): boolean {
+  return GCODE_EXTENSIONS.has(extensionOf(name));
+}
+
 /** Folder portion of a path, no filename. "Lib/brackets/foo.stl" → "Lib/brackets". */
 export function dirOf(path: string): string {
   const i = path.lastIndexOf("/");

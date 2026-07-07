@@ -13,6 +13,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [remember_me, setremember_me] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -25,7 +26,7 @@ export default function LoginPage() {
     setError(null);
     setBusy(true);
     try {
-      await login(username, password);
+      await login(username, password, remember_me);
       router.replace("/");
     } catch (err: any) {
       if (err.message?.includes("401")) {
@@ -95,6 +96,19 @@ export default function LoginPage() {
               required
               className="w-full h-10 bg-[var(--surface-container-lowest)] text-[var(--on-surface)] font-mono text-sm border border-[var(--outline-variant)] rounded px-3 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
             />
+            <label
+              htmlFor="remember_me"
+              className="mt-3 flex items-center gap-2 cursor-pointer select-none text-xs font-mono uppercase tracking-wider text-[var(--on-surface-variant)]"
+            >
+              <input
+                id="remember_me"
+                type="checkbox"
+                checked={remember_me}
+                onChange={(e) => setremember_me(e.target.checked)}
+                className="h-4 w-4 rounded accent-[var(--primary)] cursor-pointer"
+              />
+              Remember me
+            </label>
           </div>
 
           {error && (

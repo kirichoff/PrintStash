@@ -19,6 +19,12 @@
   hiding it behind the nav.
 - **Thumbnails.** Brighter, higher-contrast mesh lighting on the dark theme.
 
+## 0.8.0b1
+
+### Fix
+
+- Minor fix after the merge of 0.8.0 with 0.7.1b1 (@JrVolt)
+
 ## 0.8.0
 
 ### Added
@@ -197,6 +203,16 @@
   "All Models" view; it now returns to the collection the model lived in. (#30)
 - **The PrintStash logo returns you to the collection you were browsing** instead
   of always resetting to "All Models" — the last-viewed folder is remembered. (#30)
+
+## 0.7.1b1 - Upload methods improvement & Docker Compose light 
+
+### Added
+- **Drag file(s) or folder directly** in the viewport (or over a specific folder) to open a prefilled upload wizard (@JrVolt)
+- **Added docker-compose.light.yml** since env only JWT secret and all the other service aren't used in basic config.
+  so i made a light compose that requires no env with JWT in compose and removed optional services. (@JrVolt)
+
+### Changed
+- **Drag is now available in every tab** of the upload wizard (@JrVolt)
 
 ## 0.7.1
 
