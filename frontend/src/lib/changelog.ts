@@ -21,6 +21,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.8.2",
+    date: "Jul 2026",
+    changes: [
+      "Drag a model card onto a folder in the grid view to move it there",
+      "Added a trademark policy (TRADEMARKS.md) protecting the PrintStash name and branding; the project stays licensed under AGPLv3",
+      "Fixed remember-me login not persisting the session correctly, and shortened the token lifetime for accounts that don't opt in",
+      "Fixed a duplicate collections invalidation that could cause extra refetches",
+      "Repaired docker-compose.light.yml",
+    ],
+  },
+  {
     version: "0.8.1",
     date: "Jun 2026",
     changes: [

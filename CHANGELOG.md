@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.2
+
+### Added
+
+- **Grid drag-to-move.** Drag a model card onto a folder in the grid view to
+  move it there.
+- **Trademark policy.** Added `TRADEMARKS.md` to protect the PrintStash name
+  and branding; the project stays licensed under AGPLv3.
+
+### Fixed
+
+- **Remember-me login.** Fixed the remember-me checkbox not persisting the
+  session correctly, and shortened the token lifetime for accounts that don't
+  opt in.
+- **Query client.** Dropped a duplicate collections invalidation that could
+  cause extra refetches.
+- **Docker Compose (light).** Repaired `docker-compose.light.yml`.
+
 ## 0.8.1
 
 ### Added
