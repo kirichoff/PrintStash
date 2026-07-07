@@ -137,7 +137,7 @@ lives at the repository root:
 ```
 ca_profile.xml                      # repository overview + support metadata (required)
 icon.svg                            # repository icon
-LICENSE                             # source-available license (Elastic License 2.0)
+LICENSE                             # OSI-approved license (AGPL-3.0)
 README.md                           # repository readme
 templates/
   printstash-api.xml                # PrintStash-API Docker template
@@ -146,9 +146,8 @@ templates/
 
 Checklist before submitting on the CA submit page:
 
-1. Repo is **public and active**, with a source-available `LICENSE` (we ship
-   Elastic License 2.0). Confirm the current Community Applications policy
-   accepts this license before submitting.
+1. Repo is **public and active**, with an OSI-approved `LICENSE` (we ship
+   AGPL-3.0).
 2. `ca_profile.xml` has a non-empty `<Profile>` section.
 3. Each template lives under `templates/`, has a `<Repository>` tag, and its
    `<TemplateURL>` points at its own **raw** GitHub URL on `main`.

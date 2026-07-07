@@ -24,7 +24,7 @@
   <DonateLink/>
   <Date>2026-06-17</Date>
   <MinVer>6.10</MinVer>
-  <License>Elastic License 2.0</License>
+  <License>AGPLv3</License>
   <Requires>Requires the PrintStash-API container running on the same "printstash" Docker network (it must be reachable as hostname "api").</Requires>
   <Config Name="WebUI Port" Target="3000" Default="3000" Mode="tcp" Description="Port to open PrintStash in your browser." Type="Port" Display="always" Required="true" Mask="false">3000</Config>
   <Config Name="Max upload size" Target="NGINX_CLIENT_MAX_BODY_SIZE" Default="512m" Mode="" Description="nginx client_max_body_size. Match the API VAULT_MAX_UPLOAD_MB (e.g. 512m)." Type="Variable" Display="always" Required="false" Mask="false">512m</Config>

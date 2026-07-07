@@ -54,10 +54,10 @@ is already on the printer.
 
 ## How far along it is
 
-PrintStash is early source-available software. The current build is useful for a
-home library and a Moonraker/Klipper workflow, and the backup, upgrade, and
-migration paths are real. It is **not** a slicer, firmware replacement, or
-print-farm scheduler. See
+PrintStash is early open-source software. The current build is useful for a home
+library and a Moonraker/Klipper workflow, and the backup, upgrade, and migration
+paths are real. It is **not** a slicer, firmware replacement, or print-farm
+scheduler. See
 [Known limitations](/PrintStash/reference/known-limitations/) for the honest
 list of rough edges and explicit non-goals.
 

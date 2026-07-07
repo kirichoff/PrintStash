@@ -19,7 +19,7 @@ print history.
 [![Release](https://img.shields.io/github/v/release/xiao-villamor/PrintStash?style=flat-square&color=22c55e&include_prereleases&sort=semver)](https://github.com/xiao-villamor/PrintStash/releases)
 [![CI](https://github.com/xiao-villamor/PrintStash/actions/workflows/ci.yml/badge.svg)](https://github.com/xiao-villamor/PrintStash/actions/workflows/ci.yml)
 [![Docker image](https://img.shields.io/badge/ghcr.io-printstash-2496ED?logo=docker&logoColor=white&style=flat-square)](https://github.com/xiao-villamor/PrintStash/pkgs/container/printstash-api)
-[![License: Elastic License 2.0](https://img.shields.io/badge/license-Elastic%202.0-blue?style=flat-square)](./LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](./LICENSE)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&style=flat-square)
 ![React 19](https://img.shields.io/badge/react-19-61DAFB?logo=react&style=flat-square)
 ![Vite](https://img.shields.io/badge/vite-8-646CFF?logo=vite&style=flat-square)
@@ -33,10 +33,10 @@ print history.
 
 ## Project Status
 
-PrintStash is an early source-available, self-hosted project. The current
-release is usable for local libraries and Moonraker/Klipper workflows, with
-Docker Compose as the primary install path. SQLite plus local disk is the
-default; Postgres and S3/R2-compatible storage are optional.
+PrintStash is an early open-source, self-hosted project. The current release is
+usable for local libraries and Moonraker/Klipper workflows, with Docker Compose
+as the primary install path. SQLite plus local disk is the default; Postgres and
+S3/R2-compatible storage are optional.
 
 Hardware reports, parser fixtures, install notes, docs fixes, and UX feedback
 are welcome in
@@ -283,14 +283,4 @@ in [Reverse proxy with TLS](https://xiao-villamor.github.io/PrintStash/getting-s
 
 ## License
 
-PrintStash is licensed under the [Elastic License 2.0](./LICENSE). Personal
-self-hosting and internal business self-hosting are allowed, including internal
-company print farms.
-
-You may not provide PrintStash, or a derivative work, to third parties as a
-hosted or managed service without a separate commercial license from the
-maintainer.
-
-The PrintStash name, logo, and branding are covered by the
-[trademark policy](./TRADEMARKS.md); hosted services, commercial services,
-forks, and derivatives may not use PrintStash branding without permission.
+PrintStash is licensed under the [GNU AGPL-3.0](./LICENSE).
