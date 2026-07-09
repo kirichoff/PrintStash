@@ -24,6 +24,47 @@ def clear_audit_context() -> None:
     _ip_ctx.set(None)
 
 
+def current_audit_context() -> tuple[int | None, str | None]:
+    return _actor_id_ctx.get(), _ip_ctx.get()
+
+
+_UNSET = object()
+
+
+def record(
+    session: SASession,
+    *,
+    action: str,
+    resource_type: str,
+    resource_id: int | None = None,
+    diff: dict[str, Any] | None = None,
+    actor_id: Any = _UNSET,
+    ip: Any = _UNSET,
+) -> None:
+    """Write one ``AuditLog`` row directly and commit it.
+
+    For actions that don't go through the ORM ``after_flush`` hook — e.g.
+    backup/restore, which mutate the filesystem and swap the database file
+    rather than changing tracked rows. Defaults to the ambient actor/IP
+    context set by the request middleware; pass ``actor_id``/``ip`` explicitly
+    to override (e.g. after a restore, where the pre-restore actor id may not
+    exist in the restored database).
+    """
+    resolved_actor = _actor_id_ctx.get() if actor_id is _UNSET else actor_id
+    resolved_ip = _ip_ctx.get() if ip is _UNSET else ip
+    session.add(
+        AuditLog(
+            actor_id=resolved_actor,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            diff_json=json.dumps(diff or {}, default=str),
+            ip=resolved_ip,
+        )
+    )
+    session.commit()
+
+
 def _resource_id(obj: Any) -> int | None:
     val = getattr(obj, "id", None)
     return int(val) if isinstance(val, int) else None

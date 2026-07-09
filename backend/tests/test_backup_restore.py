@@ -340,16 +340,52 @@ def test_restore_unknown_backup_raises(backup_env: BackupEnv):
 
 
 # ---------------------------------------------------------------------------
-# Restore gate (item 11: quiesce background loops during restore)
+# Audit trail (0.8.5 item 3): backup/restore mutate the filesystem and swap
+# the DB file, so they don't flow through the ORM after_flush hook — the
+# service writes AuditLog rows explicitly.
 # ---------------------------------------------------------------------------
 
 
-def test_restore_rejected_while_job_running(backup_env: BackupEnv):
+def test_backup_writes_audit_row(backup_env: BackupEnv):
+    from app.db.models import AuditLog
+
+    backup.create_backup()
+
+    with backup_env.new_session() as session:
+        rows = session.exec(
+            select(AuditLog).where(AuditLog.action == "backup.create")
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resource_type == "backup"
+
+
+def test_restore_writes_complete_row_on_success(backup_env: BackupEnv):
+    from app.db.models import AuditLog
+
+    _seed_model_with_blob(backup_env, name="Widget", content=b"x")
+    meta = backup.create_backup()
+
+    backup.restore_backup(meta.id)
+
+    # restore.start was written before the DB swap and lives only in the
+    # pre-restore database, which no longer exists after a successful
+    # restore — restore.complete is the persisted, post-swap signal.
+    with backup_env.new_session() as session:
+        rows = session.exec(
+            select(AuditLog).where(AuditLog.action == "restore.complete")
+        ).all()
+    assert len(rows) == 1
+    assert rows[0].resource_type == "backup"
+
+
+def test_restore_rejected_while_job_running_writes_start_and_failed_rows(
+    backup_env: BackupEnv,
+):
+    from app.db.models import AuditLog
     from app.services.jobs import registry
 
     _seed_model_with_blob(backup_env, name="Widget", content=b"x")
     meta = backup.create_backup()
-    db_bytes_before = backup_env.db_file.read_bytes()
 
     job_id = registry.create()
     registry.update(job_id, state="running")
@@ -359,8 +395,56 @@ def test_restore_rejected_while_job_running(backup_env: BackupEnv):
     finally:
         registry.update(job_id, state="completed")
 
-    assert backup_env.db_file.read_bytes() == db_bytes_before
+    # No DB swap happened, so both rows survive in the current database.
+    with backup_env.new_session() as session:
+        actions = {row.action for row in session.exec(select(AuditLog)).all()}
+    assert "restore.start" in actions
+    assert "restore.failed" in actions
+
+
+def test_failed_restore_writes_failed_row(
+    backup_env: BackupEnv, monkeypatch: pytest.MonkeyPatch
+):
+    from app.db.models import AuditLog
+
+    _seed_model_with_blob(backup_env, name="Widget", content=b"x")
+    meta = backup.create_backup()
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated failure mid-restore")
+
+    monkeypatch.setattr(backup, "_download_backup_to_local", _boom)
+
+    with pytest.raises(RuntimeError):
+        backup.restore_backup(meta.id)
+
+    with backup_env.new_session() as session:
+        actions = {row.action for row in session.exec(select(AuditLog)).all()}
+    assert "restore.failed" in actions
+
+
+# ---------------------------------------------------------------------------
+# Restore gate (item 11: quiesce background loops during restore)
+# ---------------------------------------------------------------------------
+
+
+def test_restore_rejected_while_job_running(backup_env: BackupEnv):
+    from app.services.jobs import registry
+
+    model_id, _key = _seed_model_with_blob(backup_env, name="Widget", content=b"x")
+    meta = backup.create_backup()
+
+    job_id = registry.create()
+    registry.update(job_id, state="running")
+    try:
+        with pytest.raises(backup.RestoreConflictError):
+            backup.restore_backup(meta.id)
+    finally:
+        registry.update(job_id, state="completed")
+
     assert not backup.restore_in_progress()
+    with backup_env.new_session() as session:
+        assert session.get(Model, model_id) is not None
 
 
 def test_gc_skips_during_restore(backup_env: BackupEnv):
