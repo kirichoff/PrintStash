@@ -147,6 +147,13 @@ def _patch_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
     _http_client_mod._http_client = None
 
+    # Rate limiters are module-level singletons (one process-wide window per
+    # dependency) so state leaks across tests without an explicit reset.
+    from app.api.v1.auth import _login_rate_limit, _refresh_rate_limit
+
+    _login_rate_limit.limiter.reset()  # type: ignore[attr-defined]
+    _refresh_rate_limit.limiter.reset()  # type: ignore[attr-defined]
+
 
 @pytest.fixture
 def db_session() -> Iterator[Session]:

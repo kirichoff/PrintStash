@@ -10,6 +10,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 
+from app.core.ratelimit import rate_limit
 from app.core.security import oauth2_scheme, require_user
 from app.core.config import settings
 from app.db.models import User
@@ -39,8 +40,13 @@ from app.services.auth import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# Separate limiters: a login flood must not lock out clients that only need
+# to refresh an existing session.
+_login_rate_limit = rate_limit(10, 60.0)
+_refresh_rate_limit = rate_limit(10, 60.0)
 
-@router.post("/login", response_model=TokenResponse)
+
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(_login_rate_limit)])
 def login(body: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
     """Authenticate and receive a JWT access token.
 
@@ -73,7 +79,9 @@ def login(body: LoginRequest, session: Session = Depends(get_session)) -> TokenR
     )
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post(
+    "/refresh", response_model=TokenResponse, dependencies=[Depends(_refresh_rate_limit)]
+)
 def refresh(
     body: RefreshRequest, session: Session = Depends(get_session)
 ) -> TokenResponse:
