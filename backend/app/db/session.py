@@ -5,13 +5,13 @@ from contextvars import ContextVar
 from typing import AsyncGenerator, Generator, Iterator, Protocol, runtime_checkable
 
 from sqlalchemy import event, inspect
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.core.config import settings
@@ -132,7 +132,7 @@ class SQLiteSessionFactory:
 
 _factory_ctx: ContextVar[SessionFactory] = ContextVar(
     "session_factory",
-    default=SQLiteSessionFactory(_engine),
+    default=SQLiteSessionFactory(_engine),  # noqa: B039
 )
 
 
@@ -191,11 +191,11 @@ def init_db(engine: Engine | None = None) -> None:
 def _ensure_sentinel_rows() -> None:
     """Create sentinel Model + File rows used by external (non-vault) print jobs."""
     from app.db.models import (
+        SENTINEL_FILE_HASH,
+        SENTINEL_MODEL_HASH,
         File,
         FileType,
         Model,
-        SENTINEL_MODEL_HASH,
-        SENTINEL_FILE_HASH,
     )
 
     with Session(_engine) as session:

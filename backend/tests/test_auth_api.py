@@ -289,3 +289,48 @@ class TestAdminUserManagement:
         )
         assert response.status_code == 400
         assert response.json()["detail"] == "last_superuser_required"
+
+
+class TestAuthRateLimit:
+    def test_login_rate_limited_after_10_attempts(
+        self, client: TestClient, db_session: Session
+    ):
+        _create_user(db_session, "bob", "Password123", is_superuser=False)
+
+        for _ in range(10):
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"username": "bob", "password": "wrong-password"},
+            )
+            assert resp.status_code == 401
+
+        blocked = client.post(
+            "/api/v1/auth/login",
+            json={"username": "bob", "password": "wrong-password"},
+        )
+        assert blocked.status_code == 429
+
+    def test_refresh_limiter_is_independent_of_login(
+        self, client: TestClient, db_session: Session
+    ):
+        _create_user(db_session, "carol", "Password123", is_superuser=False)
+
+        for _ in range(10):
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"username": "carol", "password": "wrong-password"},
+            )
+            assert resp.status_code == 401
+        assert (
+            client.post(
+                "/api/v1/auth/login",
+                json={"username": "carol", "password": "wrong-password"},
+            ).status_code
+            == 429
+        )
+
+        # The login limiter being exhausted must not block refresh.
+        refreshed = client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": "not-a-real-token"}
+        )
+        assert refreshed.status_code == 401

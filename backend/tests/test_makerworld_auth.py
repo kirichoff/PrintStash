@@ -7,8 +7,9 @@ authenticator code) without any real network.
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.services import makerworld_auth as auth
 

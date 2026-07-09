@@ -13,14 +13,14 @@ from app.db.models import (
     ExternalLibraryScanStatus,
     File,
     Model,
-    PrintJob,
     Printer,
     PrinterProvider,
+    PrintJob,
 )
+from app.db.scopes import live
 from app.db.session import get_session_factory
 from app.services.printer_provider import provider_diagnostic_summary
 from app.services.storage_backend import get_backend
-from app.db.scopes import live
 
 router = APIRouter(tags=["health"])
 

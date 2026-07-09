@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from app.db.models import File, FileType, FilamentProfile, Metadata, Model
+from app.db.models import FilamentProfile, File, FileType, Metadata, Model
 from app.services.profile_detection import upsert_detected_filament_profile
 
 

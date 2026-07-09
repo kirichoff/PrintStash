@@ -94,11 +94,11 @@ def _truncate_all() -> None:
 def _ensure_test_sentinels() -> None:
     """Create sentinel rows needed for external print job tests."""
     from app.db.models import (
+        SENTINEL_FILE_HASH,
+        SENTINEL_MODEL_HASH,
         File,
         FileType,
         Model,
-        SENTINEL_MODEL_HASH,
-        SENTINEL_FILE_HASH,
     )
 
     with Session(_test_engine) as session:
@@ -147,6 +147,13 @@ def _patch_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
     _http_client_mod._http_client = None
 
+    # Rate limiters are module-level singletons (one process-wide window per
+    # dependency) so state leaks across tests without an explicit reset.
+    from app.api.v1.auth import _login_rate_limit, _refresh_rate_limit
+
+    _login_rate_limit.limiter.reset()  # type: ignore[attr-defined]
+    _refresh_rate_limit.limiter.reset()  # type: ignore[attr-defined]
+
 
 @pytest.fixture
 def db_session() -> Iterator[Session]:
@@ -168,8 +175,8 @@ def db_factory() -> None:
 @pytest.fixture
 def app() -> FastAPI:
     """Return the FastAPI app with in-memory DB, printer hub attached."""
-    from app.services.printer_hub import PrinterHub
     from app.main import app as _app
+    from app.services.printer_hub import PrinterHub
 
     hub = PrinterHub()
     _app.state.printer_hub = hub

@@ -24,7 +24,9 @@ from pathlib import Path
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.time import utcnow
+from app.db.models import User
 from app.db.session import get_engine, get_session_factory
+from app.services import audit
 from app.services.jobs import registry
 from app.services.storage_backend import get_backend
 from app.services.storage_utils import all_owned_blob_keys
@@ -249,6 +251,18 @@ def create_backup() -> BackupMeta:
             logger.info("backup %s uploaded to S3: %s", backup_id, s3_key)
         except Exception:
             logger.warning("backup %s: S3 upload failed", backup_id, exc_info=True)
+
+    with get_session_factory().session() as session:
+        audit.record(
+            session,
+            action="backup.create",
+            resource_type="backup",
+            diff={
+                "backup_id": backup_id,
+                "size_bytes": final_size,
+                "file_count": written_files,
+            },
+        )
 
     return BackupMeta(
         id=backup_id,
@@ -527,44 +541,104 @@ def restore_backup(backup_id: str) -> dict:
     if meta is None:
         raise FileNotFoundError(f"backup {backup_id} not found")
 
+    # Captured before any DB swap: the actor/IP behind this restore, for the
+    # post-swap "complete" row (the ambient ContextVar survives the swap, but
+    # writing it from a session bound to the restored DB is easiest to read).
+    restoring_actor_id, restoring_ip = audit.current_audit_context()
+
     _restore_gate.set()
     try:
+        with get_session_factory().session() as session:
+            audit.record(
+                session,
+                action="restore.start",
+                resource_type="backup",
+                diff={"backup_id": backup_id},
+            )
+
         time.sleep(_RESTORE_GRACE_PERIOD_S)
         running = registry.snapshot_counts()["running"]
         if running:
+            with get_session_factory().session() as session:
+                audit.record(
+                    session,
+                    action="restore.failed",
+                    resource_type="backup",
+                    diff={
+                        "backup_id": backup_id,
+                        "reason": "jobs_running",
+                        "running": running,
+                    },
+                )
             raise RestoreConflictError(
                 f"{running} ingestion job(s) still running; retry once they finish"
             )
 
-        archive_path = _download_backup_to_local(meta)
-        restored_files = 0
+        try:
+            archive_path = _download_backup_to_local(meta)
+            restored_files = 0
 
-        # Seekable read so the manifest (written last) can be consulted before the
-        # file members are written, regardless of their order in the archive.
-        with tarfile.open(archive_path, mode="r:gz") as tar:
-            arc_to_key = _restore_key_map(tar)
+            # Seekable read so the manifest (written last) can be consulted before the
+            # file members are written, regardless of their order in the archive.
+            with tarfile.open(archive_path, mode="r:gz") as tar:
+                arc_to_key = _restore_key_map(tar)
 
-            db_member = (
-                tar.extractfile("db.sqlite3") if _has_member(tar, "db.sqlite3") else None
-            )
-            if db_member is not None:
-                _restore_database(db_member.read())
+                db_member = (
+                    tar.extractfile("db.sqlite3")
+                    if _has_member(tar, "db.sqlite3")
+                    else None
+                )
+                if db_member is not None:
+                    _restore_database(db_member.read())
 
-            for member in tar.getmembers():
-                if not member.name.startswith("files/") or member.name == "files/":
-                    continue
-                f = tar.extractfile(member)
-                if f is None:
-                    continue
-                # Prefer the exact key the manifest recorded; fall back to the legacy
-                # arcname transform for archives created before the map existed.
-                key = arc_to_key.get(member.name, member.name[len("files/") :])
-                get_backend().write_bytes(f.read(), key)
-                restored_files += 1
+                for member in tar.getmembers():
+                    if not member.name.startswith("files/") or member.name == "files/":
+                        continue
+                    f = tar.extractfile(member)
+                    if f is None:
+                        continue
+                    # Prefer the exact key the manifest recorded; fall back to the legacy
+                    # arcname transform for archives created before the map existed.
+                    key = arc_to_key.get(member.name, member.name[len("files/") :])
+                    get_backend().write_bytes(f.read(), key)
+                    restored_files += 1
+        except Exception:
+            # The DB may already be the restored one at this point (a failure
+            # while restoring files, after _restore_database ran) or still the
+            # pre-restore one (a failure downloading/opening the archive) —
+            # either way get_session_factory() points at whichever is live.
+            with get_session_factory().session() as session:
+                audit.record(
+                    session,
+                    action="restore.failed",
+                    resource_type="backup",
+                    diff={"backup_id": backup_id, "reason": "restore_error"},
+                )
+            raise
     finally:
         _restore_gate.clear()
 
     logger.info("backup %s restored: %d files", backup_id, restored_files)
+
+    # Written against the now-restored database. The pre-restore actor may not
+    # exist there (an older/different backup's users table), so validate
+    # before trusting the id — a foreign-key violation here must not turn a
+    # successful restore into a failure.
+    with get_session_factory().session() as session:
+        safe_actor_id = (
+            restoring_actor_id
+            if restoring_actor_id is not None
+            and session.get(User, restoring_actor_id) is not None
+            else None
+        )
+        audit.record(
+            session,
+            action="restore.complete",
+            resource_type="backup",
+            actor_id=safe_actor_id,
+            ip=restoring_ip,
+            diff={"backup_id": backup_id, "restored_files": restored_files},
+        )
 
     return {
         "backup_id": backup_id,

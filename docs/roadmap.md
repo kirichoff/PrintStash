@@ -167,6 +167,5 @@ local-first.
 ## Not Planned Right Now
 
 - A slicer
-- A public cloud service
 - Hard dependency on Postgres, Redis, S3, or external queues
 - Replacing Moonraker/Bambu firmware as the source of truth for print execution

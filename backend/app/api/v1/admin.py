@@ -10,17 +10,17 @@ from app.db.models import (
     Collection,
     File,
     Model,
-    PrintJob,
     Printer,
     PrinterProfile,
+    PrintJob,
     Tag,
     User,
 )
 from app.db.session import get_session
-from app.services.trash import gc_soft_deleted
-from app.services.storage_backend import get_backend
 from app.schemas.auth import UserCreate, UserPasswordUpdate, UserRead, UserUpdate
 from app.services.auth import get_user_by_username, hash_password
+from app.services.storage_backend import get_backend
+from app.services.trash import gc_soft_deleted
 
 router = APIRouter(
     prefix="/admin", tags=["admin"], dependencies=[Depends(require_superuser)]

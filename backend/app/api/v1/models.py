@@ -6,19 +6,21 @@ Read-model assembly lives in ``services/model_views``; trash lifecycle in
 
 from __future__ import annotations
 
-from pathlib import Path
 import uuid
-from typing import Literal, List, Optional
+from pathlib import Path
+from typing import List, Literal, Optional
 
 from fastapi import (
     APIRouter,
     Depends,
-    File as UploadFileParam,
     Form,
     HTTPException,
     Query,
     UploadFile,
     status,
+)
+from fastapi import (
+    File as UploadFileParam,
 )
 from fastapi.responses import Response
 from sqlmodel import Session, delete, select
@@ -28,10 +30,12 @@ from app.core.config import settings
 from app.core.security import require_auth, require_superuser, require_user
 from app.core.time import utcnow
 from app.db.models import (
+    Collection,
+    CollectionRole,
+    FilamentProfile,
     File,
     FileRevisionStatus,
     FileType,
-    FilamentProfile,
     Metadata,
     Model,
     ModelTagLink,
@@ -39,8 +43,6 @@ from app.db.models import (
     PrinterFile,
     PrintJob,
     PrintJobState,
-    Collection,
-    CollectionRole,
     Tag,
     User,
 )
@@ -55,14 +57,14 @@ from app.schemas.models import (
     ModelBatchMove,
     ModelBatchResult,
     ModelBatchTags,
+    ModelListItem,
     ModelPrinterFileRead,
     ModelPrintJobRead,
-    ModelListItem,
     ModelRead,
     ModelUpdate,
     PrintStatisticsRead,
-    TrashPurgeRead,
     TrashedModelRead,
+    TrashPurgeRead,
     VaultStatsRead,
 )
 from app.services import job_import, model_views, print_results, rbac, storage, taxonomy
@@ -71,9 +73,11 @@ from app.services.moonraker import MoonrakerError
 from app.services.trash import (
     hard_delete_expired_models,
     hard_delete_model,
-    restore_model as trash_restore_model,
     soft_delete_model,
     soft_delete_models,
+)
+from app.services.trash import (
+    restore_model as trash_restore_model,
 )
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -566,7 +570,7 @@ async def import_print_jobs_from_printer(
     except MoonrakerError as exc:
         raise HTTPException(
             status_code=502, detail={"code": "printer_unreachable", "detail": str(exc)}
-        )
+        ) from exc
 
 
 def _dedupe_ids(ids: List[int]) -> List[int]:

@@ -73,8 +73,9 @@ async def test_gcode_upload_parses_metadata_and_dedups(api, tmp_path, e2e_db):
     assert any(m["name"] == "Benchy" for m in models), models
 
     # Parsed slicer metadata is attached to the persisted file.
-    from app.db.models import Metadata
     from sqlmodel import select
+
+    from app.db.models import Metadata
 
     meta = e2e_db.exec(select(Metadata)).first()
     assert meta is not None, "expected extracted metadata row"

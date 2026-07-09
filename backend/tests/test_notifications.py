@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.url_safety import PinnedTarget, UnsafeUrlError
 from app.db.models import (
     NotificationChannel,
     NotificationDelivery,
@@ -22,11 +23,9 @@ from app.db.models import (
     Printer,
     PrinterStatus,
 )
-from app.core.url_safety import PinnedTarget, UnsafeUrlError
 from app.services import notifications
 from app.services.printer_hub import PrinterHub
 from app.services.runtime_config import set_notifications_enabled
-
 
 # --------------------------------------------------------------------------- #
 # helpers
@@ -474,18 +473,24 @@ async def test_run_dispatcher_loop_delivers_then_cancels(db_session):
 
 @pytest.mark.asyncio
 async def test_run_dispatcher_loop_survives_tick_error(db_session):
-    # A failing tick must not kill the loop.
+    # A failing tick must not kill the loop. Wait on an actual tick count
+    # rather than a wall-clock sleep — under load, a 0.1s sleep at a 0.01s
+    # poll interval isn't reliably enough time for 2 ticks, and the loop
+    # surviving is exactly what's under test, so the wait must not assume it.
     calls = {"n": 0}
+    two_ticks = asyncio.Event()
 
     async def _boom():
         calls["n"] += 1
+        if calls["n"] >= 2:
+            two_ticks.set()
         raise RuntimeError("tick boom")
 
     with patch.object(notifications, "_POLL_INTERVAL_S", 0.01), patch.object(
         notifications, "dispatch_due", side_effect=_boom
     ):
         task = asyncio.create_task(notifications.run_dispatcher_loop())
-        await asyncio.sleep(0.1)
+        await asyncio.wait_for(two_ticks.wait(), timeout=5.0)
         assert not task.done()  # still running despite repeated errors
         assert calls["n"] >= 2
         task.cancel()
@@ -527,8 +532,9 @@ def test_print_completed_fires_once_and_is_idempotent(db_session):
     _channel(db_session, events=[NotificationEventType.PRINT_COMPLETED])
 
     stats = {"total_duration": 3600, "filament_used": 1000, "filename": "x.gcode"}
-    PrinterHub._sync_active_job_db(p.id, "complete", "x.gcode", 1.0, stats)
-    PrinterHub._sync_active_job_db(p.id, "complete", "x.gcode", 1.0, stats)  # idempotent
+    hub = PrinterHub()
+    hub._sync_active_job_db(p.id, "complete", "x.gcode", 1.0, stats)
+    hub._sync_active_job_db(p.id, "complete", "x.gcode", 1.0, stats)  # idempotent
     db_session.expire_all()
     deliveries = _deliveries(db_session)
     assert len(deliveries) == 1
@@ -546,7 +552,7 @@ def test_cancelled_emits_distinct_event(db_session):
     _channel(db_session, events=[NotificationEventType.PRINT_COMPLETED])
 
     stats = {"filename": "y.gcode"}
-    PrinterHub._sync_active_job_db(p.id, "cancelled", "y.gcode", 0.4, stats)
+    PrinterHub()._sync_active_job_db(p.id, "cancelled", "y.gcode", 0.4, stats)
     db_session.expire_all()
     assert _deliveries(db_session) == []
 

@@ -118,7 +118,10 @@ async def test_pinned_transport_dials_validated_ip_after_dns_flips(monkeypatch):
 
     transport = pinned_transport(target)
     async with httpx.AsyncClient(transport=transport) as client:
-        with pytest.raises(Exception):
+        # The RuntimeError raised by _fake_connect above may arrive wrapped in
+        # an httpx/anyio-internal exception type; only the dialled address
+        # (asserted below) matters here, not which exception surfaces.
+        with pytest.raises(Exception):  # noqa: B017
             await client.get(target.url)
 
     assert dialled == [("93.184.216.34", 80)], (

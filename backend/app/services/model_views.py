@@ -10,13 +10,12 @@ per facet) — N+1 regressions are bugs in this module, testable without HTTP.
 
 from __future__ import annotations
 
-from time import monotonic
-
-from collections import defaultdict
-from datetime import datetime, timedelta
 import csv
 import io
+from collections import defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
+from time import monotonic
 from typing import Any, List, Literal, Optional
 
 from sqlalchemy import func
@@ -25,12 +24,13 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.time import ensure_utc, utcnow
 from app.db.models import (
+    SENTINEL_MODEL_HASH,
     Collection,
     CollectionRole,
+    FilamentProfile,
     File,
     FileRevisionStatus,
     FileType,
-    FilamentProfile,
     Metadata,
     Model,
     ModelTagLink,
@@ -38,15 +38,14 @@ from app.db.models import (
     PrinterFile,
     PrintJob,
     PrintJobState,
-    SENTINEL_MODEL_HASH,
     Tag,
     User,
 )
 from app.db.scopes import live, trashed
 from app.schemas.models import (
     CollectionStatRead,
-    FileRead,
     FilamentStatRead,
+    FileRead,
     MetadataRead,
     ModelListItem,
     ModelPrinterPresenceRead,
@@ -58,9 +57,9 @@ from app.schemas.models import (
     TrashedModelRead,
     VaultStatsRead,
 )
+from app.services import rbac
 from app.services.storage_backend import get_backend
 from app.services.trash import trash_expires_at
-from app.services import rbac
 
 _EXPORT_CSV_FIELDS = [
     "model_id",
@@ -110,16 +109,6 @@ _EXPORT_CSV_FIELDS = [
 # ---------------------------------------------------------------------------
 # Shared building blocks
 # ---------------------------------------------------------------------------
-
-
-def tag_names_for(session: Session, model_id: int) -> List[str]:
-    stmt = (
-        select(Tag.name)
-        .join(ModelTagLink, ModelTagLink.tag_id == Tag.id)
-        .where(ModelTagLink.model_id == model_id)
-        .order_by(Tag.name)
-    )
-    return list(session.exec(stmt).all())
 
 
 def collection_name_for(model: Model) -> Optional[str]:
@@ -214,13 +203,14 @@ def filament_cost_for_job(
     return filament_cost_for_grams(profiles, metadata, grams)
 
 
-def _matching_filament_profile(
+def _matching_filament_profile_by_fields(
     profiles: list[FilamentProfile],
-    metadata: Metadata,
+    material_brand: str | None,
+    material_type: str | None,
 ) -> FilamentProfile | None:
     candidates = [
-        _normalise_profile_key(metadata.material_brand),
-        _normalise_profile_key(metadata.material_type),
+        _normalise_profile_key(material_brand),
+        _normalise_profile_key(material_type),
     ]
     for candidate in candidates:
         if candidate is None:
@@ -229,38 +219,50 @@ def _matching_filament_profile(
             if _normalise_profile_key(profile.name) == candidate:
                 return profile
 
-    material_type = _normalise_profile_key(metadata.material_type)
-    material_brand = _normalise_profile_key(metadata.material_brand)
-    if material_type is None:
+    norm_type = _normalise_profile_key(material_type)
+    norm_brand = _normalise_profile_key(material_brand)
+    if norm_type is None:
         return None
 
     for profile in profiles:
-        if _normalise_profile_key(profile.material_type) != material_type:
+        if _normalise_profile_key(profile.material_type) != norm_type:
             continue
-        if material_brand is not None:
-            if _normalise_profile_key(profile.material_brand) == material_brand:
+        if norm_brand is not None:
+            if _normalise_profile_key(profile.material_brand) == norm_brand:
                 return profile
         elif profile.material_brand is None:
             return profile
     return None
 
 
-def _live_file_metadata(session: Session) -> list[Metadata]:
-    """Metadata rows attached to live (non-trashed) files."""
-    return list(
-        session.exec(
-            select(Metadata).join(File, File.id == Metadata.file_id).where(live(File))
-        ).all()
+def _matching_filament_profile(
+    profiles: list[FilamentProfile],
+    metadata: Metadata,
+) -> FilamentProfile | None:
+    return _matching_filament_profile_by_fields(
+        profiles, metadata.material_brand, metadata.material_type
     )
 
 
 def filament_profile_usage(session: Session) -> dict[int, int]:
     """Live-file count per filament profile id, using the same brand/type
-    matching that drives cost estimates."""
+    matching that drives cost estimates.
+
+    Selects only the two matched columns instead of hydrating full Metadata
+    rows — this scans every live file's metadata, so the row stays as thin as
+    the matching logic allows.
+    """
     profiles = _load_filament_profiles(session)
     counts: dict[int, int] = defaultdict(int)
-    for metadata in _live_file_metadata(session):
-        profile = _matching_filament_profile(profiles, metadata)
+    rows = session.exec(
+        select(Metadata.material_brand, Metadata.material_type)
+        .join(File, File.id == Metadata.file_id)
+        .where(live(File))
+    ).all()
+    for material_brand, material_type in rows:
+        profile = _matching_filament_profile_by_fields(
+            profiles, material_brand, material_type
+        )
         if profile is not None and profile.id is not None:
             counts[profile.id] += 1
     return dict(counts)
@@ -268,13 +270,19 @@ def filament_profile_usage(session: Session) -> dict[int, int]:
 
 def printer_profile_usage(session: Session) -> dict[int, int]:
     """Live-file count per printer profile id, matched on preset name or
-    bare printer model."""
+    bare printer model. Selects only the matched column (see
+    ``filament_profile_usage``)."""
     from app.db.models import PrinterProfile
 
     profiles = list(session.exec(select(PrinterProfile)).all())
     counts: dict[int, int] = defaultdict(int)
-    for metadata in _live_file_metadata(session):
-        key = _normalise_profile_key(metadata.printer_model)
+    rows = session.exec(
+        select(Metadata.printer_model)
+        .join(File, File.id == Metadata.file_id)
+        .where(live(File))
+    ).all()
+    for printer_model in rows:
+        key = _normalise_profile_key(printer_model)
         if key is None:
             continue
         for profile in profiles:
@@ -556,10 +564,8 @@ def detail(session: Session, model_id: int, user: User) -> ModelRead | None:
     m = session.get(Model, model_id)
     if m is None or m.deleted_at is not None:
         return None
-    if not rbac.role_allows(
-        _effective_model_role(session, user, m),
-        CollectionRole.VIEW,
-    ):
+    role = _effective_model_role(session, user, m)
+    if not rbac.role_allows(role, CollectionRole.VIEW):
         return None
 
     files_with_meta = session.exec(
@@ -579,8 +585,9 @@ def detail(session: Session, model_id: int, user: User) -> ModelRead | None:
         collection_id=m.collection_id,
         description=m.description,
         source_url=m.source_url,
-        effective_role=_effective_model_role(session, user, m),
-        tags=tag_names_for(session, m.id),  # type: ignore[arg-type]
+        effective_role=role,
+        # m.tags loads via selectin (see the Model relationship) — no extra query.
+        tags=sorted(t.name for t in m.tags),
         thumbnail_url=thumb_url(m),
         created_at=m.created_at,
         updated_at=m.updated_at,

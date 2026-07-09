@@ -15,12 +15,12 @@ from app.db.models import (
     File,
     FileType,
     Model,
-    PrintJob,
-    PrintJobState,
     Printer,
     PrinterFile,
     PrinterProvider,
     PrinterStatus,
+    PrintJob,
+    PrintJobState,
     User,
 )
 from app.services.auth import create_access_token, hash_password
@@ -1133,7 +1133,7 @@ class TestPrinterFiles:
     def test_start_external_printer_file_creates_external_job(
         self, client: TestClient, auth_headers, db_session: Session
     ):
-        from app.db.models import File, SENTINEL_FILE_HASH, PrinterFile
+        from app.db.models import SENTINEL_FILE_HASH, File, PrinterFile
 
         p = Printer(name="Ender 3", moonraker_url="http://10.0.0.1:7125")
         db_session.add(p)
@@ -1240,6 +1240,57 @@ class TestSendToPrinter:
         )
         assert resp.status_code == 400
         assert resp.json()["detail"] == "file_not_gcode"
+
+    def test_send_unsupported_provider_creates_no_job(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
+        """Regression test for 0.8.5 addenda #3: the provider check must run
+        before the PrintJob is created, or a 409 here leaves a row stuck in
+        UPLOADING forever."""
+        from app.db.models import File, Model
+
+        m = Model(name="Model", slug="model-bambu-send", hash="m" * 64)
+        db_session.add(m)
+        db_session.commit()
+        db_session.refresh(m)
+
+        f = File(
+            model_id=m.id,
+            path="/data/part.gcode",
+            original_filename="part.gcode",
+            file_type="gcode",
+            version=1,
+            size_bytes=4,
+            sha256="n" * 64,
+        )
+        db_session.add(f)
+        db_session.commit()
+        db_session.refresh(f)
+
+        p = Printer(
+            name="Bambu",
+            provider="bambu_lan",
+            moonraker_url="",
+            bambu_host="192.168.1.50",
+            bambu_serial="SN123",
+            bambu_access_code="access",
+        )
+        db_session.add(p)
+        db_session.commit()
+        db_session.refresh(p)
+
+        resp = client.post(
+            f"/api/v1/printers/{p.id}/send",
+            json={"file_id": f.id, "start_print": False},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "operation_not_supported_for_provider"
+        jobs = db_session.exec(
+            select(PrintJob).where(PrintJob.printer_id == p.id)
+        ).all()
+        assert jobs == []
 
     def test_send_404_printer(self, client: TestClient, auth_headers):
         resp = client.post(

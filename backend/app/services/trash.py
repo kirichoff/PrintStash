@@ -20,8 +20,8 @@ from app.db.models import (
     Metadata,
     Model,
     Printer,
-    PrintJob,
     PrinterFile,
+    PrintJob,
     Tag,
     User,
 )

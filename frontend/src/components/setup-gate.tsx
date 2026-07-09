@@ -54,7 +54,6 @@ export function SetupGate({ children }: Props) {
         // If we can't even reach the backend, render children anyway so the
         // existing AuthBanner / api-error UI can surface what went wrong.
         // We just log this and unblock the tree.
-        // eslint-disable-next-line no-console
         console.warn("setup status probe failed:", err);
         setError(err?.message ?? "unknown");
         setReady(true);

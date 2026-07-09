@@ -9,10 +9,9 @@ direct tests rather than only incidental coverage through the API suite.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
-
-from pathlib import Path
 
 from app.db.models import (
     ExternalLibrary,

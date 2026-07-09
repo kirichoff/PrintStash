@@ -126,7 +126,10 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   // Used to label the "All Models" root, where the grid only fetches the models
   // sitting directly at the root (see #30).
   const vaultStatsQuery = useVaultStats();
-  const collections = collectionsQuery.data ?? [];
+  // Stable empty-array fallback: `data ?? []` would allocate a new array every
+  // render, which cascaded into the useMemo hooks below re-running on every
+  // render even when the underlying query data hadn't changed.
+  const collections = useMemo(() => collectionsQuery.data ?? [], [collectionsQuery.data]);
   const tags = tagsQuery.data ?? [];
   // Printers (superuser-only filter) share the same cache as the printers page
   // and send-to dialog; gated so non-admins don't fetch a list they can't use.
@@ -867,30 +870,6 @@ function CollectionFolderCard({ collection, onSelect, onDropModel }: { collectio
   );
 }
 
-function CollectionFolderGrid({ collections, onSelect }: { collections: CollectionRead[]; onSelect: (path: string) => void }) {
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(220px,220px))]">
-      {collections.map((collection) => (
-        <button
-          key={collection.id}
-          type="button"
-          onClick={() => onSelect(collection.path)}
-          className="group flex flex-col p-3 bg-muted border border-border rounded-lg hover:border-blue-600 dark:hover:border-orange-500 hover:bg-blue-50/30 dark:hover:bg-orange-950/20 hover:shadow-sm transition-all text-left relative overflow-hidden"
-        >
-          <div className="flex items-center justify-between w-full mb-2">
-            <div className="flex items-center gap-2">
-              <Folder className="w-5 h-5 text-blue-600 dark:text-orange-500" />
-              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Folder</span>
-            </div>
-            <span className="text-[10px] text-foreground font-mono font-bold">{collection.model_count} models</span>
-          </div>
-          <p className="text-base font-bold text-foreground truncate tracking-tight">{collection.name}</p>
-          <p className="text-[9px] text-muted-foreground mt-1 font-mono uppercase">{collection.path}</p>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function CollectionListRow({ collection, onSelect, onDropModel }: { collection: CollectionRead; onSelect: (path: string) => void; onDropModel?: (modelId: number, path: string) => void }) {
   const { dragOver, handlers } = useModelDropTarget(collection.path, onDropModel);

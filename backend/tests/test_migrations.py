@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlmodel import Session, SQLModel
 
 import app.db.models  # noqa: F401 — register all tables on SQLModel.metadata
+from alembic import command
 from app.db import migrate as migrate_mod
 from app.db.models import User
 from app.db.session import _is_alembic_managed, init_db

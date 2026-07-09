@@ -91,11 +91,11 @@ def get_backup(backup_id: str) -> dict:
 def download_backup(backup_id: str) -> FileResponse:
     try:
         archive_path = backup.get_backup_archive_path(backup_id)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="backup_not_found")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="backup_not_found") from exc
     except Exception as exc:
         logger.exception("backup %s download failed", backup_id)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return FileResponse(
         archive_path,
         media_type="application/gzip",
@@ -129,11 +129,11 @@ def delete_backup(backup_id: str) -> dict:
 def restore_backup(backup_id: str) -> dict:
     try:
         result = backup.restore_backup(backup_id)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="backup_not_found")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="backup_not_found") from exc
     except backup.RestoreConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("restore %s failed", backup_id)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return result

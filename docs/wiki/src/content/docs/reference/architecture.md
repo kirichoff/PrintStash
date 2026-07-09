@@ -86,7 +86,7 @@ same function; nothing re-implements it. That's why uploading through the UI,
 the REST API, and the OrcaSlicer hook all behave identically, down to the
 recommended-revision rule: the first G-code on a model claims the recommended
 marker right here in the pipeline, so the
-[invariant](/PrintStash/concepts/core-concepts/#the-recommended-revision-invariant)
+[invariant](/concepts/core-concepts/#the-recommended-revision-invariant)
 can't be violated by a code path that forgot about it.
 
 ## Live printer status: the PrinterHub
@@ -100,7 +100,7 @@ session-injection decision below was made for.
 
 ## Shared volumes: scanning and watching
 
-A [shared volume](/PrintStash/guides/shared-volumes/) is a folder PrintStash
+A [shared volume](/guides/shared-volumes/) is a folder PrintStash
 indexes in place. One service, `services/external_library`, owns the reconcile:
 `scan_library()` walks the folder, diffs it against the index, and applies
 adds/updates/removes, with the safety guards that abort instead of mass-deleting
@@ -136,7 +136,7 @@ through `app.db.scopes.live()` and `app.db.scopes.trashed()` predicates, with no
 hand-written `deleted_at IS NULL` anywhere. If a trashed model ever shows up in a
 browse list, the bug is a query that forgot to apply the `live` scope, and the
 fix is a one-liner. See
-[Core concepts → Trash](/PrintStash/concepts/core-concepts/#trash-and-the-soft-delete-lifecycle).
+[Core concepts → Trash](/concepts/core-concepts/#trash-and-the-soft-delete-lifecycle).
 
 ## Design decisions (ADRs)
 
@@ -163,4 +163,4 @@ before; runtime changes go through the overlay instead of rewriting frozen
 config. The payoff is that environment values are a stable, auditable source of
 truth on boot, while a small set of values can still be adjusted live from the
 admin UI. The environment surface is documented in
-[Configuration](/PrintStash/getting-started/configuration/).
+[Configuration](/getting-started/configuration/).

@@ -110,5 +110,5 @@ rebuild them, but new thumbnails are always WebP.
 ---
 
 If you want to see how these pieces flow through the system at request time, the
-[Architecture](/PrintStash/reference/architecture/) page traces the
+[Architecture](/reference/architecture/) page traces the
 router → service → database path and the design decisions behind it.

@@ -204,7 +204,6 @@ function sortIntoSlots(files: File[]) {
       setModelName("");
       sortIntoSlots(preloadFiles ?? []);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, preloadFiles, preloadItems, initialMode]);
 
   useEffect(() => {

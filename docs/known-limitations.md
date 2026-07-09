@@ -26,6 +26,13 @@ manufacturing platform.
 - PrintStash is designed for trusted self-hosted networks. Do not expose it
   directly to the public internet without TLS, reverse proxy hardening, strong
   secrets, and network-level care.
+- If you run a reverse proxy in front of the `api` service, set
+  `FORWARDED_ALLOW_IPS` to the proxy's address so uvicorn trusts its
+  `X-Forwarded-For` header. Left unset, the API only trusts `127.0.0.1`, so
+  login rate limiting and audit-log IPs will show the proxy's address instead
+  of the real client's. Only set it to `*` if the API port is unreachable
+  except through that proxy — otherwise a direct connection can forge its own
+  client IP and bypass rate limiting.
 - There is no default admin account. If setup cannot complete, fix setup rather
   than looking for bundled credentials.
 - Images are published for `linux/amd64` and `linux/arm64` (Raspberry Pi 4/5,
@@ -78,7 +85,6 @@ manufacturing platform.
 
 ## Not Current Project Goals
 
-- Public cloud service.
 - CNC, laser, vinyl, PCB, or non-3D-printing adapters.
 - Formal plugin system.
 - Fleet scheduling strategies such as least-busy routing or maintenance windows.

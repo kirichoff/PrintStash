@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from app.core.config import get_config
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from app.core.config import get_config
 
 
 def test_unhandled_errors_return_stable_json(app: FastAPI) -> None:

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
-import re
 from typing import Any
 
 from sqlmodel import Session, select
 
 from app.core.time import utcnow
-from app.db.models import File, FileType, PrintJob, PrinterFile
+from app.db.models import File, FileType, PrinterFile, PrintJob
 from app.db.scopes import live
 
 # The vault marker is appended by build_traceable_remote_filename as the LAST

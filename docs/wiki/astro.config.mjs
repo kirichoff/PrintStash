@@ -3,10 +3,13 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 
 // PrintStash documentation site (Starlight).
-// `site` is the GitHub Pages project URL; adjust if you deploy elsewhere.
+// Served at the custom domain root (wiki.printstash.org via GitHub Pages'
+// custom-domain setting), not the default project-page path — `base` must
+// stay "/" or every built CSS/JS/link is prefixed with a path segment that
+// 404s on the custom domain (the page loads unstyled, links break).
 export default defineConfig({
-  site: "https://xiao-villamor.github.io",
-  base: "/PrintStash",
+  site: "https://wiki.printstash.org",
+  base: "/",
   integrations: [
     starlight({
       title: "PrintStash",

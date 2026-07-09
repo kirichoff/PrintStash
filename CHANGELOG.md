@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.8.5
+
+### Security
+
+- **Login and refresh are now rate-limited** (10 requests/minute per IP,
+  separately for each endpoint), reusing the same limiter the public share
+  API already had.
+- **Backup and restore are now audit-logged** (`backup.create`,
+  `restore.start`, `restore.complete`, `restore.failed`), closing the one gap
+  in audit coverage — everything else already flowed through the ORM's
+  change-tracking hook.
+- **Reverse-proxy IP handling documented.** If `api` sits behind a reverse
+  proxy, set the new `FORWARDED_ALLOW_IPS` compose variable to the proxy's
+  address so rate limiting and audit logs see the real client IP instead of
+  the proxy's. See `docs/known-limitations.md`.
+
+### Fixed
+
+- **S3/R2 backends could fail to boot on first run.** `_ensure_bucket`'s
+  missing-bucket check compared against a response field
+  (`Error.StatusCode`) that a `ClientError` never sets, so the auto-create
+  path never ran on a real S3-compatible store (including MinIO) — startup
+  failed instead of creating the bucket. Found by adding integration tests
+  against a real MinIO instance.
+
+### Performance
+
+- **New model versioning is a single `SELECT MAX()`** instead of loading
+  every file row for the model.
+- **The live-print DB sync skips its lookup query on repeat ticks** — the
+  active job is now cached per printer and re-queried only when the tracked
+  file changes or the print finishes, instead of running a filtered query on
+  every status update (several per second per printer).
+
+### Ops
+
+- CI now runs `bandit` and `pip-audit` on every PR, and a migration-upgrade
+  job that seeds a database from the oldest supported release and replays
+  every migration to head. Release tags are validated as strict semver before
+  publishing.
+
 ## 0.8.4
 
 **Behavior changes on upgrade — read before installing.**

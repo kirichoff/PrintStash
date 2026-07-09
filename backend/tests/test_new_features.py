@@ -12,17 +12,16 @@ from types import SimpleNamespace
 import pytest
 
 from app.db.models import (
+    SUFFIX_TO_FILE_TYPE,
     File,
     FileRevisionStatus,
+    FileType,
     Model,
+    Printer,
     PrintJob,
     PrintJobState,
-    Printer,
     ShareLink,
-    SUFFIX_TO_FILE_TYPE,
-    FileType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -303,6 +302,7 @@ class TestShareIsolation:
 
     def test_expired_token_404(self, client, db_session, auth_headers):
         from datetime import timedelta
+
         from app.core.time import utcnow
 
         m = _make_model(db_session, slug="exp", hash_="e" * 64)

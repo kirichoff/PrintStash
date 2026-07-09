@@ -11,63 +11,30 @@ Two routers with very different trust levels:
 
 from __future__ import annotations
 
-import threading
-import time
-from collections import defaultdict
-
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlmodel import Session
 
 from app.api.v1.files import _serve_file, stl_response, thumbnail_response
+from app.core.ratelimit import rate_limit
 from app.core.security import require_user
 from app.db.models import CollectionRole, FileType, Model, ShareLink, User
 from app.db.session import get_session
 from app.schemas.share import ShareLinkCreate, ShareLinkCreated, ShareLinkRead
 from app.services import rbac, share
 from app.services.storage_backend import get_backend
-from sqlmodel import Session
 
 _MESH_TYPES = {FileType.STL, FileType.THREE_MF, FileType.OBJ, FileType.STEP}
 
 
 # ---------------------------------------------------------------------------
-# Per-IP rate limiter (defense-in-depth against token enumeration).
-# ---------------------------------------------------------------------------
-
-
-class _RateLimiter:
-    def __init__(self, limit: int, window_s: float) -> None:
-        self._limit = limit
-        self._window = window_s
-        self._hits: dict[str, list[float]] = defaultdict(list)
-        self._lock = threading.Lock()
-
-    def check(self, key: str) -> bool:
-        now = time.time()
-        with self._lock:
-            hits = [t for t in self._hits[key] if now - t < self._window]
-            if len(hits) >= self._limit:
-                self._hits[key] = hits
-                return False
-            hits.append(now)
-            self._hits[key] = hits
-            return True
-
-
-_limiter = _RateLimiter(limit=120, window_s=60.0)
-
-
-def _rate_limit(request: Request) -> None:
-    client = request.client.host if request.client else "unknown"
-    if not _limiter.check(client):
-        raise HTTPException(status_code=429, detail="rate_limited")
-
-
-# ---------------------------------------------------------------------------
-# Public router — unauthenticated, GET only.
+# Public router — unauthenticated, GET only. Rate-limited per IP as
+# defense-in-depth against token enumeration.
 # ---------------------------------------------------------------------------
 
 router = APIRouter(
-    prefix="/share", tags=["share"], dependencies=[Depends(_rate_limit)]
+    prefix="/share",
+    tags=["share"],
+    dependencies=[Depends(rate_limit(120, 60.0))],
 )
 
 

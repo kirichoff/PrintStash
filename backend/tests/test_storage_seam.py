@@ -145,3 +145,64 @@ def test_s3_exists_raises_on_auth_error(code: str) -> None:
 
     with pytest.raises(botocore.exceptions.ClientError):
         _s3_backend_raising(code).exists("some/key")
+
+
+# ---------------------------------------------------------------------------
+# S3 _ensure_bucket(): create-if-missing on startup
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("code", ["404", "NoSuchBucket", "NotFound"])
+def test_s3_ensure_bucket_creates_on_missing(
+    code: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A HeadBucket miss (real S3 raises "NoSuchBucket"; MinIO's bodyless HEAD
+    response makes boto3 fall back to the raw HTTP status "404") must trigger
+    bucket creation, not propagate — found by running against real MinIO,
+    where the previous check (`Error.StatusCode`, a key that doesn't exist on
+    a ClientError) never matched and startup always failed."""
+    import botocore.exceptions
+
+    from app.core.config import _overlay
+
+    class _Client:
+        created: list[dict] = []
+
+        def head_bucket(self, **_kwargs):
+            raise botocore.exceptions.ClientError(
+                {"Error": {"Code": code, "Message": code}}, "HeadBucket"
+            )
+
+        def create_bucket(self, **kwargs):
+            self.created.append(kwargs)
+
+    backend = object.__new__(S3StorageBackend)
+    backend._client = _Client()  # type: ignore[attr-defined]
+    backend._bucket = "test-bucket"  # type: ignore[attr-defined]
+    monkeypatch.setitem(_overlay, "s3_region", "auto")
+
+    backend._ensure_bucket()  # type: ignore[attr-defined]
+
+    assert backend._client.created == [  # type: ignore[attr-defined]
+        {"Bucket": "test-bucket", "CreateBucketConfiguration": {}}
+    ]
+
+
+def test_s3_ensure_bucket_raises_on_auth_error() -> None:
+    import botocore.exceptions
+
+    class _Client:
+        def head_bucket(self, **_kwargs):
+            raise botocore.exceptions.ClientError(
+                {"Error": {"Code": "403", "Message": "403"}}, "HeadBucket"
+            )
+
+        def create_bucket(self, **_kwargs):
+            raise AssertionError("must not attempt to create on a non-404 error")
+
+    backend = object.__new__(S3StorageBackend)
+    backend._client = _Client()  # type: ignore[attr-defined]
+    backend._bucket = "test-bucket"  # type: ignore[attr-defined]
+
+    with pytest.raises(botocore.exceptions.ClientError):
+        backend._ensure_bucket()  # type: ignore[attr-defined]

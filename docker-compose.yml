@@ -58,6 +58,14 @@ services:
       VAULT_MAX_UPLOAD_MB: ${VAULT_MAX_UPLOAD_MB:-512}
       VAULT_LOG_LEVEL: ${VAULT_LOG_LEVEL:-INFO}
       TZ: UTC
+      # Trust X-Forwarded-For only from these peer IPs/CIDRs (uvicorn
+      # --proxy-headers is already on in the image CMD). Leave unset if you
+      # publish port 8000 directly (the default above) — an unset value
+      # trusts only 127.0.0.1, so a request that reaches uvicorn straight
+      # from the internet can't spoof its own client IP. Set this only when
+      # api is reachable exclusively through a reverse proxy you control, to
+      # that proxy's address. See docs/known-limitations.md.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
     volumes:
       - printstash_data:/data/files
       - printstash_thumbs:/data/thumbs

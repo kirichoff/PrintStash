@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import os
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO, Iterator
 
@@ -333,8 +333,8 @@ class S3StorageBackend(StorageBackend):
             self._client.head_bucket(Bucket=self._bucket)
             logger.info("s3: bucket %r found", self._bucket)
         except botocore.exceptions.ClientError as exc:
-            code = exc.response.get("Error", {}).get("StatusCode")
-            if code == 404:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in ("404", "NoSuchBucket", "NotFound"):
                 logger.info("s3: creating bucket %r", self._bucket)
                 location = (
                     {"LocationConstraint": settings.s3_region}

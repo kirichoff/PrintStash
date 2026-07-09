@@ -18,12 +18,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
 from sqlmodel import SQLModel
 
+from alembic import command
 from app.core.config import settings
 from app.core.logging import get_logger
 

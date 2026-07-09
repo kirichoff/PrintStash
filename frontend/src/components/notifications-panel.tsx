@@ -29,14 +29,14 @@ import type {
 import { toast } from "@/lib/toast";
 
 const CARD =
-  "bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden";
+  "bg-card border border-border rounded overflow-hidden";
 const INPUT =
-  "w-full px-2.5 py-1.5 text-sm rounded border border-[var(--outline-variant)] bg-[var(--surface-container-lowest)] text-[var(--on-surface)] placeholder:text-[var(--on-surface-variant)]/40 disabled:opacity-50";
+  "w-full px-2.5 py-1.5 text-sm rounded border border-border bg-background text-foreground placeholder:text-muted-foreground/40 disabled:opacity-50";
 const BTN_PRIMARY =
-  "inline-flex items-center gap-1.5 px-3 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-mono text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity";
+  "inline-flex items-center gap-1.5 px-3 py-2 rounded bg-primary text-primary-foreground font-mono text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity";
 const BTN_SECONDARY =
-  "inline-flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] font-mono text-xs uppercase tracking-wider hover:bg-[var(--surface-container)] disabled:opacity-50 transition-colors";
-const LABEL = "block text-[11px] text-[var(--on-surface-variant)] mb-1";
+  "inline-flex items-center gap-1.5 px-3 py-2 rounded border border-border text-muted-foreground font-mono text-xs uppercase tracking-wider hover:bg-muted disabled:opacity-50 transition-colors";
+const LABEL = "block text-[11px] text-muted-foreground mb-1";
 
 const TARGETS: { value: NotificationTarget; label: string }[] = [
   { value: "webhook", label: "Webhook" },
@@ -116,7 +116,7 @@ function statusBadge(status: string | null): { text: string; cls: string } {
     return { text: "Failed", cls: "text-red-600 dark:text-red-400 border-red-600/40" };
   if (status === "pending")
     return { text: "Pending", cls: "text-amber-600 dark:text-amber-400 border-amber-600/40" };
-  return { text: "—", cls: "text-[var(--on-surface-variant)] border-[var(--outline-variant)]" };
+  return { text: "—", cls: "text-muted-foreground border-border" };
 }
 
 export function NotificationsPanel({ canEdit }: { canEdit: boolean }) {
@@ -249,7 +249,7 @@ export function NotificationsPanel({ canEdit }: { canEdit: boolean }) {
   );
 
   if (loading) {
-    return <p className="text-sm text-[var(--on-surface-variant)]">Loading…</p>;
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
 
   return (
@@ -257,10 +257,10 @@ export function NotificationsPanel({ canEdit }: { canEdit: boolean }) {
       {/* Master switch */}
       <div className={`${CARD} px-4 sm:px-6 py-4 flex items-center justify-between gap-3`}>
         <div className="min-w-0 flex items-start gap-2">
-          <Bell className="h-4 w-4 mt-0.5 text-[var(--on-surface-variant)] flex-shrink-0" />
+          <Bell className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0" />
           <div>
-            <h3 className="text-sm font-semibold text-[var(--on-surface)]">Notifications</h3>
-            <p className="text-xs text-[var(--on-surface-variant)] mt-0.5">
+            <h3 className="text-sm font-semibold text-foreground">Notifications</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
               Send webhook, Discord, Telegram, or ntfy alerts on print and printer events.
             </p>
           </div>
@@ -273,14 +273,14 @@ export function NotificationsPanel({ canEdit }: { canEdit: boolean }) {
             onChange={(e) => toggleEnabled(e.target.checked)}
             className="h-4 w-4 accent-[var(--primary)]"
           />
-          <span className="text-xs font-mono uppercase tracking-wider text-[var(--on-surface-variant)]">
+          <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
             {enabled ? "On" : "Off"}
           </span>
         </label>
       </div>
 
       {!canEdit && (
-        <p className="text-xs text-[var(--on-surface-variant)] italic">
+        <p className="text-xs text-muted-foreground italic">
           Only an administrator can manage notification channels.
         </p>
       )}
@@ -289,7 +289,7 @@ export function NotificationsPanel({ canEdit }: { canEdit: boolean }) {
       {canEdit && (
         <div className="space-y-2">
           {channels.length === 0 && !draft && (
-            <p className="text-xs text-[var(--on-surface-variant)] italic px-1">
+            <p className="text-xs text-muted-foreground italic px-1">
               No channels yet. Add one to start receiving alerts.
             </p>
           )}
@@ -300,10 +300,10 @@ export function NotificationsPanel({ canEdit }: { canEdit: boolean }) {
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-[var(--on-surface)] truncate">
+                      <span className="text-sm font-medium text-foreground truncate">
                         {ch.name}
                       </span>
-                      <span className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)]">
+                      <span className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-border text-muted-foreground">
                         {ch.target}
                       </span>
                       {!ch.enabled &&
@@ -315,12 +315,12 @@ export function NotificationsPanel({ canEdit }: { canEdit: boolean }) {
                             Auto-disabled
                           </span>
                         ) : (
-                          <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--on-surface-variant)]">
+                          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                             disabled
                           </span>
                         ))}
                     </div>
-                    <p className="text-[11px] text-[var(--on-surface-variant)] mt-0.5 truncate">
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
                       {ch.events.map((e) => EVENTS.find((x) => x.value === e)?.label ?? e).join(", ")}
                       {ch.printer_ids
                         ? ` · ${ch.printer_ids.length} printer(s)`
@@ -392,12 +392,12 @@ export function NotificationsPanel({ canEdit }: { canEdit: boolean }) {
       {/* Recent deliveries */}
       {canEdit && deliveries.length > 0 && (
         <div className={CARD}>
-          <div className="px-4 py-3 border-b border-[var(--outline-variant)]">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--on-surface-variant)]">
+          <div className="px-4 py-3 border-b border-border">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Recent deliveries
             </h4>
           </div>
-          <div className="divide-y divide-[var(--outline-variant)]">
+          <div className="divide-y divide-border">
             {deliveries.map((d) => {
               const badge = statusBadge(d.status);
               return (
@@ -405,14 +405,14 @@ export function NotificationsPanel({ canEdit }: { canEdit: boolean }) {
                   key={d.id}
                   className="px-4 py-2 flex items-center justify-between gap-3 text-xs"
                 >
-                  <span className="font-mono text-[var(--on-surface-variant)] truncate">
+                  <span className="font-mono text-muted-foreground truncate">
                     {EVENTS.find((e) => e.value === d.event_type)?.label ?? d.event_type}
                   </span>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {d.attempts > 1 && (
-                      <span className="text-[var(--on-surface-variant)]">×{d.attempts}</span>
+                      <span className="text-muted-foreground">×{d.attempts}</span>
                     )}
-                    <span className="text-[var(--on-surface-variant)]">
+                    <span className="text-muted-foreground">
                       {d.created_at ? new Date(d.created_at).toLocaleString() : ""}
                     </span>
                     <span
@@ -509,7 +509,7 @@ function ChannelForm({
         <label className={LABEL}>Events</label>
         <div className="flex flex-wrap gap-3">
           {EVENTS.map((ev) => (
-            <label key={ev.value} className="inline-flex items-center gap-1.5 text-xs text-[var(--on-surface)]">
+            <label key={ev.value} className="inline-flex items-center gap-1.5 text-xs text-foreground">
               <input
                 type="checkbox"
                 checked={draft.events.includes(ev.value)}
@@ -531,7 +531,7 @@ function ChannelForm({
 
       <div>
         <label className={LABEL}>Printers</label>
-        <label className="inline-flex items-center gap-1.5 text-xs text-[var(--on-surface)] mb-2">
+        <label className="inline-flex items-center gap-1.5 text-xs text-foreground mb-2">
           <input
             type="checkbox"
             checked={!scoped}
@@ -543,12 +543,12 @@ function ChannelForm({
         {scoped && (
           <div className="flex flex-wrap gap-3">
             {printers.length === 0 && (
-              <span className="text-[11px] text-[var(--on-surface-variant)] italic">
+              <span className="text-[11px] text-muted-foreground italic">
                 No printers configured.
               </span>
             )}
             {printers.map((p) => (
-              <label key={p.id} className="inline-flex items-center gap-1.5 text-xs text-[var(--on-surface)]">
+              <label key={p.id} className="inline-flex items-center gap-1.5 text-xs text-foreground">
                 <input
                   type="checkbox"
                   checked={(draft.printerIds ?? []).includes(p.id)}
@@ -569,7 +569,7 @@ function ChannelForm({
         )}
       </div>
 
-      <label className="inline-flex items-center gap-1.5 text-xs text-[var(--on-surface)]">
+      <label className="inline-flex items-center gap-1.5 text-xs text-foreground">
         <input
           type="checkbox"
           checked={draft.enabled}

@@ -17,9 +17,9 @@ import gc
 import io
 import struct
 import threading
+import zipfile
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
-import zipfile
 
 from app.core.config import settings
 from app.core.logging import get_logger

@@ -14,20 +14,21 @@ from fastapi import (
     APIRouter,
     BackgroundTasks,
     Depends,
-    File as UploadFileParam,
     Form,
     HTTPException,
     UploadFile,
     status,
 )
+from fastapi import (
+    File as UploadFileParam,
+)
+from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from sqlmodel import Session, select
-
 from app.core.security import require_auth, require_user
-from app.db.models import Collection, CollectionRole, SUFFIX_TO_FILE_TYPE, User
+from app.db.models import SUFFIX_TO_FILE_TYPE, Collection, CollectionRole, User
 from app.db.scopes import live
 from app.db.session import SessionFactory, get_session, get_session_factory
 from app.schemas.ingest import (

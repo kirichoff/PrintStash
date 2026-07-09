@@ -291,6 +291,6 @@ def render(
     """Render ``context`` for ``target`` using its channel ``config``."""
     try:
         renderer = RENDERERS[target]
-    except KeyError:  # pragma: no cover - guarded by enum
-        raise RenderError(f"no renderer registered for target {target}")
+    except KeyError as exc:  # pragma: no cover - guarded by enum
+        raise RenderError(f"no renderer registered for target {target}") from exc
     return renderer(context, config)

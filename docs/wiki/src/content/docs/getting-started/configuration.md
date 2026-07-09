@@ -103,7 +103,7 @@ Backups can be mirrored to object storage with the `VAULT_BACKUP_S3_*` variables
 (`BUCKET`, `ENDPOINT_URL`, `REGION`, `ACCESS_KEY`, `SECRET_KEY`). This is
 **independent** of your vault storage backend; a common setup is keeping vault
 data on local disk while shipping nightly backups off to R2. See
-[Backup & restore](/PrintStash/guides/backup-and-restore/).
+[Backup & restore](/guides/backup-and-restore/).
 
 ## Frontend
 
@@ -120,5 +120,5 @@ same-origin, so no frontend environment variables are needed.
 process boots and never mutated afterward. A small set of values can be
 overridden at runtime through the admin UI overlay, but the environment is the
 source of truth on boot. This is a deliberate design choice; see
-[ADR-0002 in Architecture](/PrintStash/reference/architecture/#adr-0002-frozen-settings--runtime-overlay).
+[ADR-0002 in Architecture](/reference/architecture/#adr-0002-frozen-settings--runtime-overlay).
 :::

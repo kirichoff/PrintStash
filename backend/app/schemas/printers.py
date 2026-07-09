@@ -5,7 +5,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.db.models import PrintJobState, PrinterProvider, PrinterStatus
+from app.db.models import PrinterProvider, PrinterStatus, PrintJobState
 
 
 def validate_remote_filename_value(value: Optional[str]) -> Optional[str]:

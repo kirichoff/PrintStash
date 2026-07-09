@@ -21,20 +21,19 @@ from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import (
     NotificationEventType,
-    PrintJob,
-    PrintJobState,
     Printer,
     PrinterStatus,
+    PrintJob,
+    PrintJobState,
 )
+from app.db.scopes import live
 from app.db.session import get_session_factory
-from app.services.backup import restore_in_progress
 from app.services import filament as filament_svc
-from app.services import notifications
-from app.services import print_results
+from app.services import notifications, print_results
+from app.services.backup import restore_in_progress
 from app.services.printer_provider import ProviderError, get_provider_client
 from app.services.realtime import InProcessBus, RealtimeBus
 from app.services.runtime_config import auto_mark_known_good_enabled
-from app.db.scopes import live
 
 logger = get_logger(__name__)
 
@@ -109,6 +108,11 @@ class PrinterHub:
         self._lock = asyncio.Lock()
         # printer_id -> (status, error, monotonic time of last DB write)
         self._last_status_write: Dict[int, tuple[PrinterStatus, str | None, float]] = {}
+        # printer_id -> (remote_filename, PrintJob.id) of the job currently
+        # tracked for that printer, so each status tick (several/sec) can skip
+        # the PrintJob lookup query and go straight to a PK get(). Falls back
+        # to the query whenever the cache misses or the cached row is stale.
+        self._active_job_cache: Dict[int, tuple[str, int]] = {}
 
     @staticmethod
     def _channel(printer_id: int) -> str:
@@ -349,8 +353,8 @@ class PrinterHub:
         except Exception:
             logger.exception("printer hub: job sync failed for printer %s", printer_id)
 
-    @staticmethod
     def _sync_active_job_db(
+        self,
         printer_id: int,
         ms_state: str,
         filename: str,
@@ -358,14 +362,20 @@ class PrinterHub:
         print_stats: Dict[str, Any],
     ) -> None:
         with get_session_factory().session() as session:
-            job = session.exec(
-                select(PrintJob)
-                .where(
-                    PrintJob.printer_id == printer_id,
-                    PrintJob.remote_filename == filename,
-                )
-                .order_by(PrintJob.created_at.desc())  # type: ignore[attr-defined]
-            ).first()
+            job = None
+            cached = self._active_job_cache.get(printer_id)
+            if cached is not None and cached[0] == filename:
+                job = session.get(PrintJob, cached[1])
+
+            if job is None:
+                job = session.exec(
+                    select(PrintJob)
+                    .where(
+                        PrintJob.printer_id == printer_id,
+                        PrintJob.remote_filename == filename,
+                    )
+                    .order_by(PrintJob.created_at.desc())  # type: ignore[attr-defined]
+                ).first()
 
             # A finished job for this filename is history, not the live print.
             # When the printer starts a *new* run of the same file (a fresh
@@ -379,6 +389,7 @@ class PrinterHub:
                 and ms_state in ("printing", "paused")
             ):
                 job = None
+                self._active_job_cache.pop(printer_id, None)
 
             if job is None:
                 # No vault-created job — check if printer is actively printing.
@@ -408,6 +419,8 @@ class PrinterHub:
                     )
                 else:
                     return
+
+            self._active_job_cache[printer_id] = (filename, job.id)
 
             new_state: PrintJobState
             if ms_state == "printing":
@@ -530,11 +543,11 @@ def get_hub_from_ws(websocket: WebSocket) -> PrinterHub:
 def _get_sentinel_ids(session: Session) -> tuple[int, int]:
     """Return (file_id, model_id) of lazily-created external job sentinel rows."""
     from app.db.models import (
+        SENTINEL_FILE_HASH,
+        SENTINEL_MODEL_HASH,
         File,
         FileType,
         Model,
-        SENTINEL_FILE_HASH,
-        SENTINEL_MODEL_HASH,
     )
 
     model = session.exec(select(Model).where(Model.hash == SENTINEL_MODEL_HASH)).first()

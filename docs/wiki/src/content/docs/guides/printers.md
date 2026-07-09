@@ -89,7 +89,7 @@ duplicate entries.
 - **Status badge stuck on "reconnecting."** The browser can't reach the
   WebSocket. Confirm `VITE_WS_URL` points at an address reachable from
   your browser (not just from inside the container); see
-  [Configuration](/PrintStash/getting-started/configuration/#frontend).
+  [Configuration](/getting-started/configuration/#frontend).
 - **Printer shows offline but Mainsail works.** Check the URL you registered is
   reachable from the PrintStash *server*, and run Diagnostics for the specific
   failing check.

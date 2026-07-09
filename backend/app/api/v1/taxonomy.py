@@ -14,12 +14,14 @@ from typing import List
 from fastapi import (
     APIRouter,
     Depends,
-    File as FileParam,
     HTTPException,
     Query,
     Response,
     UploadFile,
     status,
+)
+from fastapi import (
+    File as FileParam,
 )
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -38,6 +40,7 @@ from app.db.models import (
     Tag,
     User,
 )
+from app.db.scopes import live
 from app.db.session import get_session
 from app.schemas.models import (
     CollectionCreate,
@@ -51,11 +54,9 @@ from app.schemas.models import (
     TagCreate,
     TagRead,
 )
-from app.services import rbac
-from app.services import taxonomy
+from app.services import rbac, taxonomy
 from app.services.storage_backend import get_backend
 from app.services.taxonomy import slugify
-from app.db.scopes import live
 
 # Raster image formats only — no SVG (script-capable) — keeps readme images
 # safe to serve inline. Maps extension -> media type.
@@ -123,6 +124,11 @@ def list_collections(
         session.exec(model_count_stmt.group_by(Model.collection_id)).all()
     )
     count_by_path = {c.path: direct_counts.get(c.id, 0) for c in cats if c.id}
+    # Batched (2 queries total) instead of effective_collection_role per row,
+    # which cost 2 queries each — an N+1 on the endpoint feeding the sidebar.
+    roles = rbac.effective_roles_for_collections(
+        session, current_user, (c.id for c in cats)
+    )
     return [
         CollectionRead(
             id=c.id,
@@ -135,7 +141,7 @@ def list_collections(
                 for path, n in count_by_path.items()
                 if path == c.path or path.startswith(c.path + "/")
             ),
-            effective_role=rbac.effective_collection_role(session, current_user, c.id),
+            effective_role=roles.get(c.id),
         )
         for c in cats
     ]

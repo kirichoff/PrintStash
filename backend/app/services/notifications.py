@@ -23,13 +23,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-
-import httpx
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 
+import httpx
 from sqlalchemy import or_
 from sqlmodel import Session, select
 
@@ -41,7 +40,6 @@ from app.core.url_safety import (
     pinned_transport,
     resolve_public_target,
 )
-from app.db.session import get_session_factory
 from app.db.models import (
     Model,
     NotificationChannel,
@@ -52,6 +50,7 @@ from app.db.models import (
     Printer,
     PrintJob,
 )
+from app.db.session import get_session_factory
 from app.services import notification_renderers as renderers
 from app.services.runtime_config import notifications_enabled
 
