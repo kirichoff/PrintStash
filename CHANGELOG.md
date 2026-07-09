@@ -15,6 +15,11 @@
   proxy, set the new `FORWARDED_ALLOW_IPS` compose variable to the proxy's
   address so rate limiting and audit logs see the real client IP instead of
   the proxy's. See `docs/known-limitations.md`.
+- **Audit-log diffs no longer leak secrets.** The change-tracking hook wrote
+  unredacted before/after values for every changed column, so printer API
+  keys, S3/Spoolman/MakerWorld credentials, the auto-generated JWT secret, and
+  password/token hashes were readable via `GET /admin/audit`. Redacted by
+  field name going forward; a migration scrubs previously-captured rows.
 
 ### Fixed
 
@@ -24,6 +29,18 @@
   path never ran on a real S3-compatible store (including MinIO) — startup
   failed instead of creating the bucket. Found by adding integration tests
   against a real MinIO instance.
+- **A rejected send-to-printer could leave a job stuck "uploading" forever.**
+  The print job was marked `UPLOADING` before checking the printer's provider
+  supported the upload; a 409 on an unsupported provider left it orphaned in
+  that state. The check now runs before the job is created.
+- **"Send to printer" could keep a deleted revision selected** in the picker
+  after it was trashed elsewhere; it now falls back to the current
+  recommended revision. Failed sends now show which printer failed and why,
+  instead of only a success count.
+- **The trash/notification cleanup loop skipped its first run for up to an
+  hour** on every boot (it slept before its first tick), so short-lived
+  containers could go a whole redeploy cycle without expiring trash or
+  pruning old notification deliveries.
 
 ### Performance
 
@@ -33,6 +50,12 @@
   active job is now cached per printer and re-queried only when the tracked
   file changes or the print finishes, instead of running a filtered query on
   every status update (several per second per printer).
+- **Collection and model-detail permission checks are batched**, replacing
+  a per-row lookup with one query for the whole page — most noticeable in
+  the sidebar on installs with many collections.
+- **Filament/printer profile usage counts scan thinner rows**, selecting only
+  the matched columns instead of hydrating full metadata records for every
+  live file.
 
 ### Ops
 
