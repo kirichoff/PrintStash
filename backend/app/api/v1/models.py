@@ -65,11 +65,9 @@ from app.schemas.models import (
     TrashedModelRead,
     VaultStatsRead,
 )
-from app.services import filament as filament_svc
-from app.services import model_views, print_results, rbac, storage, taxonomy
+from app.services import job_import, model_views, print_results, rbac, storage, taxonomy
 from app.services.ingestion import add_gcode_revision_to_model
-from app.services.moonraker import MoonrakerClient, MoonrakerError
-from app.services.runtime_config import auto_mark_known_good_enabled
+from app.services.moonraker import MoonrakerError
 from app.services.trash import (
     hard_delete_expired_models,
     hard_delete_model,
@@ -507,6 +505,10 @@ def create_manual_print_job(
         finished_at=payload.finished_at,
         error=payload.error,
     )
+    if state == PrintJobState.COMPLETED:
+        job.filament_g_effective, job.cost = print_results.resolve_completion_cost(
+            session, job
+        )
     session.add(job)
     session.commit()
     session.refresh(job)
@@ -553,104 +555,18 @@ async def import_print_jobs_from_printer(
     if not printer.moonraker_url:
         raise HTTPException(status_code=400, detail={"code": "printer_no_url"})
 
-    gcode_files = session.exec(
-        select(File)
-        .where(File.model_id == model_id)
-        .where(live(File))
-        .where(File.file_type == FileType.GCODE)
-        .order_by(File.version.asc())  # type: ignore[attr-defined]
-    ).all()
-    filenames_to_file = {f.original_filename.lower(): f for f in gcode_files}
-
-    client = MoonrakerClient(printer.moonraker_url, printer.api_key)
     try:
-        history = await client.get_print_history(limit=100)
+        return await job_import.import_print_jobs_from_printer(
+            session,
+            model_id=model_id,
+            printer_id=printer_id,
+            moonraker_url=printer.moonraker_url,
+            moonraker_api_key=printer.api_key,
+        )
     except MoonrakerError as exc:
         raise HTTPException(
             status_code=502, detail={"code": "printer_unreachable", "detail": str(exc)}
         )
-
-    existing_remote = {
-        row[0]
-        for row in session.exec(
-            select(PrintJob.remote_filename)
-            .where(PrintJob.printer_id == printer_id)
-            .where(PrintJob.model_id == model_id)
-            .where(live(PrintJob))
-        ).all()
-    }
-
-    results: List[ImportedPrintJobRead] = []
-    for entry in history:
-        fname = entry.get("filename", "")
-        matched = filenames_to_file.get(fname.lower())
-        already_imported = fname in existing_remote
-
-        if matched and not already_imported:
-            raw_status = entry.get("status", "completed")
-            state_map = {
-                "completed": PrintJobState.COMPLETED,
-                "cancelled": PrintJobState.CANCELLED,
-                "error": PrintJobState.FAILED,
-            }
-            state = state_map.get(raw_status, PrintJobState.COMPLETED)
-            start_ts = entry.get("start_time")
-            end_ts = entry.get("end_time")
-
-            from datetime import timezone
-            from datetime import datetime as _dt
-
-            def _ts(t: float | None):
-                return _dt.fromtimestamp(t, tz=timezone.utc) if t else None
-
-            duration = entry.get("print_duration")
-            used_mm = entry.get("filament_used")
-            material = print_results.material_type_for_file(session, matched.id)
-            job = PrintJob(
-                printer_id=printer_id,
-                file_id=matched.id,
-                model_id=model_id,
-                remote_filename=fname,
-                state=state,
-                source="printer_history",
-                started_at=_ts(start_ts),
-                finished_at=_ts(end_ts),
-                actual_duration_s=int(duration) if duration else None,
-                filament_used_mm=float(used_mm) if used_mm else None,
-                filament_used_g=filament_svc.mm_to_grams(used_mm, material)
-                if used_mm
-                else None,
-            )
-            session.add(job)
-            session.commit()
-
-            if state == PrintJobState.COMPLETED and auto_mark_known_good_enabled(
-                session
-            ):
-                print_results.mark_known_good_if_eligible(session, matched.id)
-
-            results.append(
-                ImportedPrintJobRead(
-                    filename=fname,
-                    status=raw_status,
-                    print_duration=entry.get("print_duration"),
-                    start_time=start_ts,
-                    end_time=end_ts,
-                    matched_file_id=matched.id,
-                    imported=True,
-                )
-            )
-        elif matched and already_imported:
-            results.append(
-                ImportedPrintJobRead(
-                    filename=fname,
-                    status=entry.get("status", ""),
-                    matched_file_id=matched.id,
-                    imported=False,
-                )
-            )
-
-    return results
 
 
 def _dedupe_ids(ids: List[int]) -> List[int]:
