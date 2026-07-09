@@ -512,6 +512,11 @@ def list_items(
                 slicer_name=md.slicer_name,
             )
 
+    # One resolution for the whole page: per-row lookups cost two queries each.
+    roles = rbac.effective_roles_for_collections(
+        session, user, (m.collection_id for m in rows)
+    )
+
     out: List[ModelListItem] = []
     for m in rows:
         assert m.id is not None
@@ -524,7 +529,7 @@ def list_items(
                 collection=collection_name_for(m),
                 collection_id=m.collection_id,
                 source_url=m.source_url,
-                effective_role=_effective_model_role(session, user, m),
+                effective_role=roles.get(m.collection_id),
                 tags=sorted(t.name for t in m.tags),
                 thumbnail_url=thumb_url(m),
                 file_count=int(file_counts.get(m.id, 0)),

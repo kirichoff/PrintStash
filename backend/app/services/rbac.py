@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Iterable
+
 from fastapi import HTTPException, status
 from sqlalchemy import or_
 from sqlmodel import Session, select
@@ -119,6 +121,55 @@ def accessible_collection_ids(
     )
     rows = session.exec(select(Collection.id).where(live(Collection), reachable)).all()
     return {int(cid) for cid in rows if cid is not None}
+
+
+def effective_roles_for_collections(
+    session: Session,
+    user: User,
+    collection_ids: Iterable[int | None],
+) -> dict[int | None, CollectionRole | None]:
+    """Resolve the effective role for many collections at once.
+
+    Two queries regardless of how many ids are asked for. ``effective_collection_role``
+    costs two queries *per call*, so resolving a page of rows one at a time turns
+    a listing into an N+1. ``None`` maps to ``None`` (the root, which only
+    superusers reach).
+    """
+    ids = {cid for cid in collection_ids if cid is not None}
+    out: dict[int | None, CollectionRole | None] = {None: None}
+
+    if user.is_superuser:
+        out.update({cid: CollectionRole.ADMIN for cid in ids})
+        out[None] = CollectionRole.ADMIN
+        return out
+
+    out.update({cid: None for cid in ids})
+    if not ids:
+        return out
+
+    paths = session.exec(
+        select(Collection.id, Collection.path).where(
+            Collection.id.in_(ids),  # type: ignore[union-attr]
+            live(Collection),
+        )
+    ).all()
+
+    grants = session.exec(
+        select(Collection.path, CollectionPermission.role)
+        .join(CollectionPermission, Collection.id == CollectionPermission.collection_id)  # type: ignore[arg-type]
+        .where(CollectionPermission.user_id == user.id, live(Collection))
+    ).all()
+    if not grants:
+        return out
+
+    for cid, path in paths:
+        best: CollectionRole | None = None
+        for granted_path, role in grants:
+            inherited = path == granted_path or path.startswith(granted_path + "/")
+            if inherited and ROLE_ORDER[role] > ROLE_ORDER.get(best, 0):
+                best = role
+        out[int(cid)] = best
+    return out
 
 
 def require_model_collection_role(
