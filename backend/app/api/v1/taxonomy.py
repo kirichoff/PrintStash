@@ -124,6 +124,11 @@ def list_collections(
         session.exec(model_count_stmt.group_by(Model.collection_id)).all()
     )
     count_by_path = {c.path: direct_counts.get(c.id, 0) for c in cats if c.id}
+    # Batched (2 queries total) instead of effective_collection_role per row,
+    # which cost 2 queries each — an N+1 on the endpoint feeding the sidebar.
+    roles = rbac.effective_roles_for_collections(
+        session, current_user, (c.id for c in cats)
+    )
     return [
         CollectionRead(
             id=c.id,
@@ -136,7 +141,7 @@ def list_collections(
                 for path, n in count_by_path.items()
                 if path == c.path or path.startswith(c.path + "/")
             ),
-            effective_role=rbac.effective_collection_role(session, current_user, c.id),
+            effective_role=roles.get(c.id),
         )
         for c in cats
     ]

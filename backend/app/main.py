@@ -109,8 +109,10 @@ async def lifespan(app: FastAPI):
 
 
 async def _gc_loop() -> None:
+    # Run once at startup (not sleep-first): a container that lives less than
+    # an hour — frequent redeploys, dev — would otherwise never GC expired
+    # trash or prune old notification deliveries.
     while True:
-        await asyncio.sleep(3600)
         try:
             # Sync DB + storage I/O — keep it off the event loop.
             await asyncio.to_thread(gc_soft_deleted)
@@ -122,6 +124,7 @@ async def _gc_loop() -> None:
             await asyncio.to_thread(prune_deliveries)
         except Exception:
             logger.exception("notification delivery pruning failed")
+        await asyncio.sleep(3600)
 
 
 async def _external_scan_loop() -> None:
