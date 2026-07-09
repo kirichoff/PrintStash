@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from typing import Awaitable, Callable, List, Optional
 
 from fastapi import (
@@ -24,17 +24,18 @@ from app.core.logging import get_logger
 from app.core.security import require_superuser
 from app.core.time import utcnow
 from app.db.models import (
+    CollectionRole,
     File,
     FileType,
-    CollectionRole,
     Model,
-    PrintJob,
-    PrintJobState,
     Printer,
     PrinterFile,
     PrinterProvider,
+    PrintJob,
+    PrintJobState,
     User,
 )
+from app.db.scopes import live
 from app.db.session import get_session
 from app.schemas.printers import (
     HomeAxes,
@@ -49,6 +50,14 @@ from app.schemas.printers import (
     SetTemperature,
     StartPrinterFile,
 )
+from app.services import rbac
+from app.services.auth import get_user_by_id, verify_access_token
+from app.services.printer_files import (
+    build_traceable_remote_filename,
+    list_printer_files,
+    sync_printer_files,
+    upsert_printer_file,
+)
 from app.services.printer_hub import (
     PrinterHub,
     _get_sentinel_ids,
@@ -56,21 +65,13 @@ from app.services.printer_hub import (
     get_hub_from_ws,
 )
 from app.services.printer_provider import (
+    MoonrakerProvider,
     ProviderError,
     capabilities_for_provider,
     get_provider_client,
     provider_diagnostic_summary,
 )
-from app.services.printer_files import (
-    build_traceable_remote_filename,
-    list_printer_files,
-    sync_printer_files,
-    upsert_printer_file,
-)
 from app.services.storage_backend import get_backend
-from app.services.auth import get_user_by_id, verify_access_token
-from app.services import rbac
-from app.db.scopes import live
 
 logger = get_logger(__name__)
 
@@ -394,7 +395,7 @@ async def printer_config(
             provider.printer_config(),
         )
     except ProviderError as exc:
-        raise HTTPException(status_code=502, detail=exc.code)
+        raise HTTPException(status_code=502, detail=exc.code) from exc
 
     return MoonrakerConfigRead(
         printer_id=printer_id,
@@ -532,7 +533,11 @@ async def send_to_printer(
 ) -> PrintJobRead:
     p = get_or_404(session, Printer, printer_id, "printer_not_found")
     provider = get_provider_client(p)
-    if not provider.capabilities.can_upload:
+    # Upload is only implemented against the Moonraker client; capabilities.can_upload
+    # is a coarse flag, so also check the concrete type before any PrintJob row
+    # exists — a 409 raised after the job is created would leave it stuck in
+    # UPLOADING forever, since HTTPException isn't caught by the failure handlers below.
+    if not provider.capabilities.can_upload or not isinstance(provider, MoonrakerProvider):
         raise HTTPException(
             status_code=409,
             detail="operation_not_supported_for_provider",
@@ -559,10 +564,10 @@ async def send_to_printer(
     temp_file.close()
     try:
         local = await run_in_threadpool(backend.download_to_path, f.path, temp_target)
-    except Exception:
+    except Exception as exc:
         temp_target.unlink(missing_ok=True)
         logger.warning("failed to stage print upload file=%s", f.id)
-        raise HTTPException(status_code=502, detail="storage_error")
+        raise HTTPException(status_code=502, detail="storage_error") from exc
 
     remote_name = (
         payload.remote_filename.strip()
@@ -587,16 +592,7 @@ async def send_to_printer(
     session.refresh(job)
 
     try:
-        moonraker_provider = provider
-        # Upload is only supported by Moonraker provider at this stage.
-        from app.services.printer_provider import MoonrakerProvider
-
-        if not isinstance(moonraker_provider, MoonrakerProvider):
-            raise HTTPException(
-                status_code=409,
-                detail="operation_not_supported_for_provider",
-            )
-        await moonraker_provider.client.upload_gcode(
+        await provider.client.upload_gcode(
             local, remote_name, start_print=payload.start_print
         )
     except ProviderError as exc:
@@ -605,17 +601,17 @@ async def send_to_printer(
         job.finished_at = utcnow()
         session.add(job)
         session.commit()
-        raise HTTPException(status_code=502, detail=exc.code)
+        raise HTTPException(status_code=502, detail=exc.code) from exc
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         logger.error("send_to_printer failed printer=%s file=%s", printer_id, f.id)
         job.state = PrintJobState.FAILED
         job.error = "provider_error"
         job.finished_at = utcnow()
         session.add(job)
         session.commit()
-        raise HTTPException(status_code=502, detail="provider_error")
+        raise HTTPException(status_code=502, detail="provider_error") from exc
     finally:
         try:
             temp_target.unlink(missing_ok=True)
@@ -722,8 +718,8 @@ async def start_printer_file(
         job.updated_at = utcnow()
         session.add(job)
         session.commit()
-        raise HTTPException(status_code=502, detail=exc.code)
-    except Exception:
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    except Exception as exc:
         logger.error("printer start failed printer=%s", printer_id)
         job.state = PrintJobState.FAILED
         job.error = "provider_error"
@@ -731,7 +727,7 @@ async def start_printer_file(
         job.updated_at = utcnow()
         session.add(job)
         session.commit()
-        raise HTTPException(status_code=502, detail="provider_error")
+        raise HTTPException(status_code=502, detail="provider_error") from exc
 
     return PrintJobRead(**job.model_dump())
 
@@ -753,10 +749,10 @@ async def _printer_control(printer_id: int, session: Session, action: str) -> di
     try:
         await getattr(client, action)()
     except ProviderError as exc:
-        raise HTTPException(status_code=502, detail=exc.code)
-    except Exception:
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    except Exception as exc:
         logger.error("printer control failed action=%s printer=%s", action, printer_id)
-        raise HTTPException(status_code=502, detail="provider_error")
+        raise HTTPException(status_code=502, detail="provider_error") from exc
     return {"ok": True}
 
 
@@ -809,10 +805,10 @@ async def _run_gcode(provider, script: str) -> dict:
     try:
         await provider.run_gcode(script)
     except ProviderError as exc:
-        raise HTTPException(status_code=502, detail=exc.code)
-    except Exception:
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    except Exception as exc:
         logger.error("printer gcode failed script=%s", script)
-        raise HTTPException(status_code=502, detail="provider_error")
+        raise HTTPException(status_code=502, detail="provider_error") from exc
     return {"ok": True}
 
 
@@ -859,10 +855,10 @@ async def emergency_stop_printer(
     try:
         await provider.emergency_stop()
     except ProviderError as exc:
-        raise HTTPException(status_code=502, detail=exc.code)
-    except Exception:
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    except Exception as exc:
         logger.error("printer emergency_stop failed printer=%s", printer_id)
-        raise HTTPException(status_code=502, detail="provider_error")
+        raise HTTPException(status_code=502, detail="provider_error") from exc
     return {"ok": True}
 
 
@@ -927,7 +923,7 @@ async def sync_files_on_printer(
         p.updated_at = utcnow()
         session.add(p)
         session.commit()
-        raise HTTPException(status_code=502, detail=exc.code)
+        raise HTTPException(status_code=502, detail=exc.code) from exc
 
     rows = sync_printer_files(session, printer_id=printer_id, remote_files=remote_files)
     return _printer_file_reads(session, list(rows), printer_name=p.name)
@@ -968,7 +964,7 @@ async def delete_file_on_printer(
         p.updated_at = utcnow()
         session.add(p)
         session.commit()
-        raise HTTPException(status_code=502, detail=exc.code)
+        raise HTTPException(status_code=502, detail=exc.code) from exc
 
     session.delete(row)
     session.commit()

@@ -151,7 +151,9 @@ async def makerworld_login(
     try:
         result = await begin_login(body.account, body.password)
     except MakerWorldAuthError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.code)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=exc.code
+        ) from exc
     if result.status == "ok" and result.token:
         runtime_config.set_makerworld_token(session, result.token)
         return MakerWorldLoginResponse(status="ok", connected=True)
@@ -170,7 +172,9 @@ async def makerworld_verify(
     try:
         result = await submit_code(body.login_token, body.code)
     except MakerWorldAuthError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.code)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=exc.code
+        ) from exc
     if not result.token:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_code")
     runtime_config.set_makerworld_token(session, result.token)

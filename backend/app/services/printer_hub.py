@@ -21,20 +21,19 @@ from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import (
     NotificationEventType,
-    PrintJob,
-    PrintJobState,
     Printer,
     PrinterStatus,
+    PrintJob,
+    PrintJobState,
 )
+from app.db.scopes import live
 from app.db.session import get_session_factory
-from app.services.backup import restore_in_progress
 from app.services import filament as filament_svc
-from app.services import notifications
-from app.services import print_results
+from app.services import notifications, print_results
+from app.services.backup import restore_in_progress
 from app.services.printer_provider import ProviderError, get_provider_client
 from app.services.realtime import InProcessBus, RealtimeBus
 from app.services.runtime_config import auto_mark_known_good_enabled
-from app.db.scopes import live
 
 logger = get_logger(__name__)
 
@@ -544,11 +543,11 @@ def get_hub_from_ws(websocket: WebSocket) -> PrinterHub:
 def _get_sentinel_ids(session: Session) -> tuple[int, int]:
     """Return (file_id, model_id) of lazily-created external job sentinel rows."""
     from app.db.models import (
+        SENTINEL_FILE_HASH,
+        SENTINEL_MODEL_HASH,
         File,
         FileType,
         Model,
-        SENTINEL_FILE_HASH,
-        SENTINEL_MODEL_HASH,
     )
 
     model = session.exec(select(Model).where(Model.hash == SENTINEL_MODEL_HASH)).first()

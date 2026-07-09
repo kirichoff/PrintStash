@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 from datetime import timedelta
+from pathlib import Path
 from typing import Any, Callable
 
 from fastapi.testclient import TestClient
@@ -10,15 +10,14 @@ from sqlmodel import Session, select
 from app.core.config import _overlay
 from app.core.time import utcnow
 from app.db.models import (
+    FilamentProfile,
     File,
     FileType,
-    FilamentProfile,
     Metadata,
     Model,
     PrinterProfile,
 )
 from app.services.storage_backend import get_backend
-
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 WEBP_MAGIC = b"RIFF"

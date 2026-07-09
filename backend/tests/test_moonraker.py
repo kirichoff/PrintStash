@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.moonraker import MoonrakerClient, MoonrakerError, SUBSCRIPTIONS
+from app.services.moonraker import SUBSCRIPTIONS, MoonrakerClient, MoonrakerError
 
 
 class TestMoonrakerClientHTTP:
@@ -215,9 +215,9 @@ class TestMoonrakerWS:
                     if isinstance(msg, dict):
                         return json.dumps(msg)
                     return msg
-                except StopIteration:
+                except StopIteration as exc:
                     stop.set()
-                    raise asyncio.CancelledError
+                    raise asyncio.CancelledError from exc
 
             async def ping(self):
                 pass

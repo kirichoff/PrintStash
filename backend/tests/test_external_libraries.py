@@ -358,7 +358,8 @@ def test_watch_mode_persisted_as_enum_name(tmp_path: Path, db_session: Session) 
 
 
 def test_detect_fs_kind_and_should_watch(tmp_path: Path) -> None:
-    from app.db.models import ExternalLibrary, ExternalLibraryWatchMode as WM
+    from app.db.models import ExternalLibrary
+    from app.db.models import ExternalLibraryWatchMode as WM
 
     # tmp_path is a local filesystem on the test host.
     assert external_library.detect_fs_kind(tmp_path) in {"local", "unknown"}

@@ -14,6 +14,7 @@ from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import (
     Collection,
+    CollectionRole,
     ExternalLibrary,
     ExternalLibraryCollectionMode,
     File,
@@ -22,13 +23,11 @@ from app.db.models import (
     Metadata,
     Model,
     ModelTagLink,
-    CollectionRole,
     User,
 )
 from app.db.scopes import live
 from app.db.session import SessionFactory
-from app.services import gcode_parser, storage, taxonomy, thumbnail
-from app.services import rbac
+from app.services import gcode_parser, rbac, storage, taxonomy, thumbnail
 from app.services.hashing import sha256_file
 from app.services.jobs import registry
 from app.services.profile_detection import upsert_detected_profiles

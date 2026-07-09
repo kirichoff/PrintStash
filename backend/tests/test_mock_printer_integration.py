@@ -13,11 +13,10 @@ import time
 import httpx
 from sqlmodel import Session, select
 
-from app.db.models import File, FileType, Model, PrintJob, PrintJobState, Printer
+from app.db.models import File, FileType, Model, Printer, PrintJob, PrintJobState
 from app.db.session import get_session_factory
 from app.services import runtime_config
 from app.services.printer_hub import PrinterHub
-
 from tests.e2e.fakes.mock_printer import create_app
 from tests.e2e.fakes.server import start_server
 

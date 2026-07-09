@@ -25,11 +25,11 @@ from app.db.models import (
     NotificationDelivery,
     NotificationDeliveryStatus,
     NotificationEventType,
-    PrintJob,
-    PrintJobState,
     Printer,
     PrinterProvider,
     PrinterStatus,
+    PrintJob,
+    PrintJobState,
 )
 from app.services import notifications
 

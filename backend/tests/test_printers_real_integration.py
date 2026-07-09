@@ -8,19 +8,19 @@ error handling without requiring physical printer hardware in CI.
 
 from __future__ import annotations
 
+import json
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import json
 from pathlib import Path
-import threading
 from typing import Iterator
 from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from app.db.models import File, FileType, Model, PrintJob, Printer, PrinterFile
+from app.db.models import File, FileType, Model, Printer, PrinterFile, PrintJob
 
 
 @dataclass

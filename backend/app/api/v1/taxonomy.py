@@ -14,12 +14,14 @@ from typing import List
 from fastapi import (
     APIRouter,
     Depends,
-    File as FileParam,
     HTTPException,
     Query,
     Response,
     UploadFile,
     status,
+)
+from fastapi import (
+    File as FileParam,
 )
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -38,6 +40,7 @@ from app.db.models import (
     Tag,
     User,
 )
+from app.db.scopes import live
 from app.db.session import get_session
 from app.schemas.models import (
     CollectionCreate,
@@ -51,11 +54,9 @@ from app.schemas.models import (
     TagCreate,
     TagRead,
 )
-from app.services import rbac
-from app.services import taxonomy
+from app.services import rbac, taxonomy
 from app.services.storage_backend import get_backend
 from app.services.taxonomy import slugify
-from app.db.scopes import live
 
 # Raster image formats only — no SVG (script-capable) — keeps readme images
 # safe to serve inline. Maps extension -> media type.

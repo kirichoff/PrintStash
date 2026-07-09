@@ -12,6 +12,7 @@ Two routers with very different trust levels:
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlmodel import Session
 
 from app.api.v1.files import _serve_file, stl_response, thumbnail_response
 from app.core.ratelimit import rate_limit
@@ -21,7 +22,6 @@ from app.db.session import get_session
 from app.schemas.share import ShareLinkCreate, ShareLinkCreated, ShareLinkRead
 from app.services import rbac, share
 from app.services.storage_backend import get_backend
-from sqlmodel import Session
 
 _MESH_TYPES = {FileType.STL, FileType.THREE_MF, FileType.OBJ, FileType.STEP}
 

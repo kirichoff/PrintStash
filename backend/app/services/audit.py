@@ -30,6 +30,27 @@ def current_audit_context() -> tuple[int | None, str | None]:
 
 _UNSET = object()
 
+# Column names that must never appear in an audit diff, regardless of which
+# table they belong to — printer/API credentials, password/token hashes, and
+# opaque config blobs that embed secrets (e.g. NotificationChannel.config_json
+# holds a Telegram bot token; see that model's docstring).
+_REDACTED_FIELDS = {
+    "api_key",
+    "bambu_access_code",
+    "hashed_password",
+    "key_hash",
+    "token_hash",
+    "jwt_secret",
+    "spoolman_api_key",
+    "makerworld_token",
+    "s3_secret_key",
+    "s3_access_key",
+    "backup_s3_secret_key",
+    "backup_s3_access_key",
+    "config_json",
+}
+_REDACTED = "[redacted]"
+
 
 def record(
     session: SASession,
@@ -76,6 +97,9 @@ def _diff_for_obj(obj: Any) -> dict[str, Any]:
     for attr in state.attrs:
         hist = attr.history
         if not hist.has_changes():
+            continue
+        if attr.key in _REDACTED_FIELDS:
+            out[attr.key] = {"before": _REDACTED, "after": _REDACTED}
             continue
         out[attr.key] = {
             "before": hist.deleted[0] if hist.deleted else None,

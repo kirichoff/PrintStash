@@ -57,3 +57,7 @@ addopts = "--capture=sys"
 markers = [
     "e2e: end-to-end tests that boot the real app against contract-enforcing fakes (slower; run with `pytest tests/e2e`)",
 ]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+ignore = ["B008"]  # FastAPI Depends() in argument defaults is the standard pattern

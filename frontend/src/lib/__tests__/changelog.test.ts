@@ -17,6 +17,19 @@ const pkg = JSON.parse(
   readFileSync(join(process.cwd(), "package.json"), "utf8"),
 ) as { version: string };
 
+// Version bumps are a triple (backend/pyproject.toml, config.py's
+// app_version, frontend/package.json) — this only guards the frontend/backend
+// half, but that's the half that silently drifted before (0.8.5 addenda #2).
+const backendPyproject = readFileSync(
+  join(process.cwd(), "..", "backend", "pyproject.toml"),
+  "utf8",
+);
+const backendVersionMatch = backendPyproject.match(/^version = "([^"]+)"/m);
+if (!backendVersionMatch) {
+  throw new Error("could not find version in backend/pyproject.toml");
+}
+const backendVersion = backendVersionMatch[1];
+
 describe("changelog ↔ package.json", () => {
   it("APP_VERSION is the newest changelog entry", () => {
     expect(APP_VERSION).toBe(CHANGELOG[0].version);
@@ -26,6 +39,10 @@ describe("changelog ↔ package.json", () => {
     // Bumping package.json without adding the matching changelog entry (or vice
     // versa) breaks here — keep them in lockstep on every release.
     expect(CHANGELOG[0].version).toBe(pkg.version);
+  });
+
+  it("frontend package.json matches backend/pyproject.toml", () => {
+    expect(pkg.version).toBe(backendVersion);
   });
 });
 

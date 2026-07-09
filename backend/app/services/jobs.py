@@ -7,9 +7,9 @@ so the swap is mechanical.
 from __future__ import annotations
 
 import threading
+import uuid
 from datetime import timedelta
 from typing import Any, Dict, Optional
-import uuid
 
 from app.core.time import utcnow
 from app.schemas.ingest import IngestJobStatus, JobState

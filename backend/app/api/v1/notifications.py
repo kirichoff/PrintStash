@@ -114,7 +114,7 @@ def create_channel(
             enabled=body.enabled,
         )
     except notifications.NotificationConfigError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return notifications.serialize_channel(channel)
 
 
@@ -144,7 +144,7 @@ def update_channel(
             enabled=body.enabled,
         )
     except notifications.NotificationConfigError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return notifications.serialize_channel(channel)
 
 

@@ -14,7 +14,6 @@ from app.db.models import ExternalLibrary, ExternalLibraryScanStatus
 from app.services import external_library
 from app.services.jobs import JobRegistry
 
-
 # --- Item 1: richer /health output --------------------------------------------
 
 

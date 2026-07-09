@@ -9,8 +9,8 @@ always re-scoped to ``share.model_id`` by the caller.
 
 from __future__ import annotations
 
-import secrets
 import json
+import secrets
 from datetime import timedelta
 
 from fastapi import HTTPException
@@ -19,8 +19,8 @@ from sqlmodel import Session, select
 from app.core.time import utcnow
 from app.db.models import File, FileType, Metadata, Model, ShareLink
 from app.db.scopes import live
-from app.services.auth import _as_utc, _token_hash
 from app.schemas.share import PublicFileRead, PublicModelRead, ShareLinkRead
+from app.services.auth import _as_utc, _token_hash
 
 _TOKEN_BYTES = 32
 

@@ -26,6 +26,7 @@ from sqlmodel import Session, select
 from app.core.logging import get_logger
 from app.core.time import ensure_utc, utcnow
 from app.db.models import (
+    SUFFIX_TO_FILE_TYPE,
     ExternalLibrary,
     ExternalLibraryCollectionMode,
     ExternalLibraryScanStatus,
@@ -34,7 +35,6 @@ from app.db.models import (
     FileType,
     Metadata,
     Model,
-    SUFFIX_TO_FILE_TYPE,
 )
 from app.db.scopes import live
 from app.db.session import SessionFactory, get_session_factory

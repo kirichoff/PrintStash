@@ -11,8 +11,8 @@ from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.db.models import ApiKey, RefreshToken, User
 from app.core.time import utcnow
+from app.db.models import ApiKey, RefreshToken, User
 
 logger = get_logger(__name__)
 ACCESS_BLOCKLIST: set[str] = set()

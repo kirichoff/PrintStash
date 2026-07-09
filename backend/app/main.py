@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 import asyncio
 import hmac
 import time
 import uuid
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi import Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,13 +16,12 @@ from sqlalchemy.engine.url import make_url
 from sqlmodel import select
 from starlette import status
 
-from app.core.metrics import observe_request, printer_status
-from app.core.metrics import app_info as _app_info
-from app.core.metrics import registry as _metrics_registry
-
 from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.metrics import app_info as _app_info
+from app.core.metrics import observe_request, printer_status
+from app.core.metrics import registry as _metrics_registry
 from app.db.session import get_session_factory, init_db
 from app.services.audit import (
     clear_audit_context,
@@ -31,12 +29,12 @@ from app.services.audit import (
     set_audit_context,
 )
 from app.services.backup import restore_in_progress
-from app.services.trash import gc_soft_deleted
 from app.services.library_watcher import LibraryWatcher
 from app.services.notifications import run_dispatcher_loop
 from app.services.printer_hub import PrinterHub
 from app.services.runtime_config import apply_overlay, ensure_jwt_secret, is_configured
 from app.services.storage_backend import init_backend
+from app.services.trash import gc_soft_deleted
 
 logger = get_logger(__name__)
 

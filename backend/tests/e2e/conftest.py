@@ -29,10 +29,10 @@ import pytest
 import pytest_asyncio
 from sqlmodel import Session, SQLModel, create_engine
 
+from app.core import url_safety
 from app.core.config import _overlay
 from app.db.session import SQLiteSessionFactory, override_session_factory
 from app.services import notification_renderers as renderers
-from app.core import url_safety
 
 from .fakes.provider_targets import build_provider_app
 from .fakes.recorder import Recorder

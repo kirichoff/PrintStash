@@ -452,9 +452,9 @@ def test_gc_skips_during_restore(backup_env: BackupEnv):
 
     # A trashed row past retention would normally be purged.
     with backup_env.new_session() as session:
-        from app.core.time import utcnow
         from datetime import timedelta
 
+        from app.core.time import utcnow
         from app.db.models import Tag
 
         session.add(Tag(name="stale", slug="stale", deleted_at=utcnow() - timedelta(days=999)))

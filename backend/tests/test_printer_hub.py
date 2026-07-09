@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from app.db.models import PrintJob, PrintJobState, Printer, PrinterStatus
+from app.db.models import Printer, PrinterStatus, PrintJob, PrintJobState
 
 
 class TestPrinterHubLifecycle:
@@ -307,8 +307,9 @@ class TestPrinterHubSyncActiveJob:
 
     def test_sync_no_matching_row(self, hub):
         """With printing state and no matching row, an external job is auto-created."""
-        from app.db.models import PrintJob, PrintJobState
         from sqlmodel import select
+
+        from app.db.models import PrintJob, PrintJobState
 
         async def _sync():
             await hub._sync_active_job(
@@ -331,14 +332,15 @@ class TestPrinterHubSyncActiveJob:
             assert job.state == PrintJobState.PRINTING
 
     def test_sentinel_rows_are_created_lazily(self, db_session):
+        from sqlmodel import select
+
         from app.db.models import (
-            File,
-            Model,
             SENTINEL_FILE_HASH,
             SENTINEL_MODEL_HASH,
+            File,
+            Model,
         )
         from app.services.printer_hub import _get_sentinel_ids
-        from sqlmodel import select
 
         sentinel_file = db_session.exec(
             select(File).where(File.sha256 == SENTINEL_FILE_HASH)
@@ -364,9 +366,10 @@ class TestPrinterHubSyncActiveJob:
     def test_external_reprint_creates_new_job(self, hub):
         """A second external print of the same file must not revive the first
         (now-finished) job — it should create a fresh history row."""
+        from sqlmodel import select
+
         from app.db.models import PrintJob, PrintJobState
         from app.db.session import get_session_factory
-        from sqlmodel import select
 
         async def _tick(state, progress, stats):
             await hub._sync_active_job(7, state, "repeat.gcode", progress, stats)
@@ -422,9 +425,10 @@ class TestPrinterHubSyncActiveJob:
     def test_repeated_complete_tick_does_not_duplicate(self, hub):
         """A second 'complete' tick after a print finishes is idempotent — it
         must match the existing finished row, not create a duplicate."""
+        from sqlmodel import select
+
         from app.db.models import PrintJob
         from app.db.session import get_session_factory
-        from sqlmodel import select
 
         async def _tick(state, stats):
             await hub._sync_active_job(8, state, "once.gcode", 1.0, stats)
@@ -441,8 +445,9 @@ class TestPrinterHubSyncActiveJob:
 
     def test_sync_no_matching_row_standby_ignored(self, hub):
         """Standby state with no matching row should NOT create a job."""
-        from app.db.models import PrintJob
         from sqlmodel import select
+
+        from app.db.models import PrintJob
 
         async def _sync():
             await hub._sync_active_job(
@@ -483,9 +488,10 @@ class TestPrinterHubSyncActiveJob:
 class TestGetHubDependency:
     def test_get_hub_from_app_state(self, hub, monkeypatch):
         """get_hub FastAPI dependency resolves hub from app.state."""
-        from app.services.printer_hub import get_hub
         from fastapi import Depends, FastAPI
         from fastapi.testclient import TestClient
+
+        from app.services.printer_hub import get_hub
 
         test_app = FastAPI()
         test_app.state.printer_hub = hub

@@ -10,8 +10,8 @@ from app.db.models import (
     Tag,
     User,
 )
-from app.services.auth import create_access_token, hash_password
 from app.services import taxonomy
+from app.services.auth import create_access_token, hash_password
 
 
 def _user(session: Session, username: str, *, superuser: bool = False) -> User:

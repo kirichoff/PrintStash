@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.url_safety import PinnedTarget, UnsafeUrlError
 from app.db.models import (
     NotificationChannel,
     NotificationDelivery,
@@ -22,11 +23,9 @@ from app.db.models import (
     Printer,
     PrinterStatus,
 )
-from app.core.url_safety import PinnedTarget, UnsafeUrlError
 from app.services import notifications
 from app.services.printer_hub import PrinterHub
 from app.services.runtime_config import set_notifications_enabled
-
 
 # --------------------------------------------------------------------------- #
 # helpers

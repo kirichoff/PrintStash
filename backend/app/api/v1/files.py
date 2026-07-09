@@ -24,9 +24,8 @@ from app.db.models import CollectionRole, File, FileType, Model, User
 from app.db.scopes import live
 from app.db.session import SessionFactory, get_session, get_session_factory
 from app.schemas.ingest import IngestResponse
-from app.services import auth, thumbnail
+from app.services import auth, rbac, thumbnail
 from app.services.jobs import registry
-from app.services import rbac
 from app.services.storage_backend import get_backend
 
 logger = get_logger(__name__)

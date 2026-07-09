@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlmodel import Session
 
-from app.db.models import File, FilamentProfile, FileType, Metadata, Model, PrintJob
+from app.db.models import FilamentProfile, File, FileType, Metadata, Model, PrintJob
 from app.services import print_results
 
 

@@ -10,13 +10,12 @@ per facet) — N+1 regressions are bugs in this module, testable without HTTP.
 
 from __future__ import annotations
 
-from time import monotonic
-
-from collections import defaultdict
-from datetime import datetime, timedelta
 import csv
 import io
+from collections import defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
+from time import monotonic
 from typing import Any, List, Literal, Optional
 
 from sqlalchemy import func
@@ -25,12 +24,13 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.time import ensure_utc, utcnow
 from app.db.models import (
+    SENTINEL_MODEL_HASH,
     Collection,
     CollectionRole,
+    FilamentProfile,
     File,
     FileRevisionStatus,
     FileType,
-    FilamentProfile,
     Metadata,
     Model,
     ModelTagLink,
@@ -38,15 +38,14 @@ from app.db.models import (
     PrinterFile,
     PrintJob,
     PrintJobState,
-    SENTINEL_MODEL_HASH,
     Tag,
     User,
 )
 from app.db.scopes import live, trashed
 from app.schemas.models import (
     CollectionStatRead,
-    FileRead,
     FilamentStatRead,
+    FileRead,
     MetadataRead,
     ModelListItem,
     ModelPrinterPresenceRead,
@@ -58,9 +57,9 @@ from app.schemas.models import (
     TrashedModelRead,
     VaultStatsRead,
 )
+from app.services import rbac
 from app.services.storage_backend import get_backend
 from app.services.trash import trash_expires_at
-from app.services import rbac
 
 _EXPORT_CSV_FIELDS = [
     "model_id",

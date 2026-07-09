@@ -10,9 +10,9 @@ from sqlmodel import Session
 from app.core.time import utcnow
 from app.db.models import (
     Collection,
+    FilamentProfile,
     File,
     FileType,
-    FilamentProfile,
     Metadata,
     Model,
     PrintJob,

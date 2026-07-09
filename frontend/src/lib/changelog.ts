@@ -7,8 +7,9 @@
 // CHANGELOG[0] as the current version's details.
 //
 // Newest release goes FIRST. CHANGELOG[0].version MUST equal the version in
-// frontend/package.json — this is enforced by changelog.test.ts, so a forgotten
-// entry fails CI instead of silently leaving the About tab on an old release.
+// frontend/package.json, which MUST equal backend/pyproject.toml's version —
+// changelog.test.ts enforces both, so a forgotten bump fails CI instead of
+// silently leaving the About tab on an old release.
 // ─────────────────────────────────────────────────────────────────────────
 
 export const GITHUB_REPO = "xiao-villamor/PrintStash";
@@ -20,6 +21,38 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "0.8.5",
+    date: "Jul 2026",
+    changes: [
+      "Login and refresh are now rate-limited to slow down credential-stuffing attempts",
+      "Backup and restore actions are now recorded in the audit log",
+      "Fixed S3/R2-compatible storage (including MinIO) failing to auto-create its bucket on first boot",
+      "Faster model versioning and less database load from live print status syncing",
+      "CI now scans dependencies for known vulnerabilities and verifies database upgrades on every change",
+    ],
+  },
+  {
+    version: "0.8.4",
+    date: "Jul 2026",
+    changes: [
+      "The JWT signing secret can no longer boot with the shipped default value; existing sessions are invalidated once on the upgrade that generates a real one",
+      "SQLite foreign key constraints are now enforced, after repairing any orphaned rows left by earlier versions",
+      "Outbound fetches are now pinned to the address the SSRF guard validated, closing a DNS-rebind gap",
+      "Fixed printer history re-import duplicating past jobs when a printer changed filename casing between polls",
+      "Backup restore no longer races in-flight garbage collection, library scans, or live print syncing",
+      "Faster collection permission checks, atomic print-job ingestion, non-blocking printer status updates, and a cached dashboard storage figure",
+    ],
+  },
+  {
+    version: "0.8.3",
+    date: "Jun 2026",
+    changes: [
+      "Fixed the hourly cleanup job deleting uploaded document files (local storage only; S3/R2 was unaffected)",
+      "Fixed backups omitting document files, so restoring a backup no longer silently loses them",
+      "Fixed S3/R2 existence checks hiding credential or permission errors as \"file does not exist\"",
+    ],
+  },
   {
     version: "0.8.2",
     date: "Jul 2026",

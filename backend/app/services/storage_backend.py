@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import os
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO, Iterator
 

@@ -11,9 +11,9 @@ from sqlmodel import Session, select
 
 from app.core.logging import get_logger
 from app.db.models import (
+    FilamentProfile,
     File,
     FileRevisionStatus,
-    FilamentProfile,
     Metadata,
     PrintJob,
 )
