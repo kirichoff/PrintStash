@@ -5,11 +5,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from sqlmodel import Session, select
 
 from app.db.models import Model
 from app.db.scopes import live, trashed
-from app.services.storage_backend import LocalStorageBackend, StorageBackend
+from app.services.storage_backend import (
+    LocalStorageBackend,
+    S3StorageBackend,
+    StorageBackend,
+)
 from app.services.trash import restore_model, soft_delete_model
 
 
@@ -101,3 +106,42 @@ def test_live_and_trashed_scopes(db_session: Session) -> None:
 
     restore_model(db_session, m)
     assert m in db_session.exec(select(Model).where(live(Model))).all()
+
+
+# ---------------------------------------------------------------------------
+# S3 exists(): only a genuine miss is False
+# ---------------------------------------------------------------------------
+
+
+def _s3_backend_raising(error_code: str) -> S3StorageBackend:
+    """An S3 backend whose head_object always fails with *error_code*.
+
+    Built without __init__ so no boto3 client or bucket config is needed.
+    """
+    import botocore.exceptions
+
+    class _Client:
+        def head_object(self, **_kwargs):
+            raise botocore.exceptions.ClientError(
+                {"Error": {"Code": error_code, "Message": error_code}}, "HeadObject"
+            )
+
+    backend = object.__new__(S3StorageBackend)
+    backend._client = _Client()  # type: ignore[attr-defined]
+    backend._bucket = "test-bucket"  # type: ignore[attr-defined]
+    return backend
+
+
+@pytest.mark.parametrize("code", ["404", "NoSuchKey", "NotFound"])
+def test_s3_exists_false_on_missing_key(code: str) -> None:
+    assert _s3_backend_raising(code).exists("some/key") is False
+
+
+@pytest.mark.parametrize("code", ["403", "AccessDenied", "InvalidAccessKeyId"])
+def test_s3_exists_raises_on_auth_error(code: str) -> None:
+    """A credential failure must never read as 'the blob is gone' — that is how
+    the orphan-blob GC talks itself into deleting the whole bucket."""
+    import botocore.exceptions
+
+    with pytest.raises(botocore.exceptions.ClientError):
+        _s3_backend_raising(code).exists("some/key")

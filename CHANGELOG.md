@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.3
+
+**Upgrade immediately if you use Documents.**
+
+### Fixed
+
+- **Hourly cleanup could delete document files.** The background job that
+  removes unreferenced files only recognised model files as "in use", so
+  uploaded documents (PDFs and other binaries) were treated as leftovers and
+  deleted. Only local storage was affected; S3/R2 installs were not. Documents
+  deleted by an earlier version cannot be recovered by upgrading — restore them
+  from a backup taken before the loss, if you have one.
+- **Backups omitted document files.** For the same reason, document blobs were
+  never written into the backup archive, so restoring a backup silently lost
+  them. New backups include them.
+- **S3/R2 existence checks hid errors.** A credentials or permissions failure
+  was reported as "this file does not exist" instead of raising. Combined with
+  the cleanup job, a transient auth error could have been read as "every file
+  is unreferenced".
+
 ## 0.8.2
 
 ### Added

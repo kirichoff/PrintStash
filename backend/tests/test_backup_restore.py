@@ -24,7 +24,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 import app.services.backup as backup
 import app.services.storage_backend as storage_backend
 from app.core.config import _overlay
-from app.db.models import File, FileType, Model, User
+from app.db.models import Document, DocumentKind, File, FileType, Model, User
 from app.db.session import SQLiteSessionFactory, override_session_factory
 from app.services.auth import create_access_token, hash_password
 from app.services.storage_backend import get_backend
@@ -115,6 +115,22 @@ def _seed_model_with_blob(
         session.add(f)
         session.commit()
         return model.id, key
+
+
+def _seed_document_with_blob(env: BackupEnv, *, name: str, content: bytes) -> str:
+    """Create a binary Document row and write its blob. Returns the storage key."""
+    with env.new_session() as session:
+        doc = Document(name=name, kind=DocumentKind.PDF)
+        session.add(doc)
+        session.commit()
+        session.refresh(doc)
+        key = get_backend().document_file_key(doc.id, name)
+        get_backend().write_bytes(content, key)
+        doc.filename = name
+        doc.size_bytes = len(content)
+        session.add(doc)
+        session.commit()
+        return key
 
 
 def _read_model_names(env: BackupEnv) -> list[str]:
@@ -258,6 +274,20 @@ def test_restore_recovers_blob_bytes(backup_env: BackupEnv):
     # The blob the database references must be back, byte-for-byte.
     assert Path(key).exists(), "restored blob is missing at its storage key"
     assert Path(key).read_bytes() == content
+
+
+def test_backup_includes_document_blobs(backup_env: BackupEnv):
+    """Documents are vault-owned bytes: a backup that omits them is a lie."""
+    content = b"%PDF-1.4 assembly manual\n"
+    key = _seed_document_with_blob(backup_env, name="manual.pdf", content=content)
+    meta = backup.create_backup()
+
+    Path(key).unlink()
+    result = backup.restore_backup(meta.id)
+
+    assert Path(key).exists(), "document blob was never in the archive"
+    assert Path(key).read_bytes() == content
+    assert result["restored_files"] == 1
 
 
 def test_download_then_restore_endpoint_round_trip(

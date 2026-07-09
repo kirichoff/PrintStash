@@ -404,8 +404,17 @@ class S3StorageBackend(StorageBackend):
         try:
             self._client.head_object(Bucket=self._bucket, Key=key)
             return True
-        except botocore.exceptions.ClientError:
-            return False
+        except botocore.exceptions.ClientError as exc:
+            # Only a genuine "not there" is False. Credential, permission and
+            # network errors must raise: swallowing them tells the orphan-blob
+            # GC that every blob is missing, and it deletes the bucket.
+            if exc.response.get("Error", {}).get("Code") in (
+                "404",
+                "NoSuchKey",
+                "NotFound",
+            ):
+                return False
+            raise
 
     def write_stream(self, src: BinaryIO, key: str) -> int:
         from boto3.s3.transfer import TransferConfig

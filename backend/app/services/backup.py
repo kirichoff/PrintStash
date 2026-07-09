@@ -22,9 +22,9 @@ from pathlib import Path
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.time import utcnow
-from app.db.models import File as FileModel
 from app.db.session import get_engine, get_session_factory
 from app.services.storage_backend import get_backend
+from app.services.storage_utils import all_owned_blob_keys
 
 logger = get_logger(__name__)
 
@@ -121,11 +121,8 @@ def _find_blobs() -> list[tuple[str, int]]:
     key is gone), and surfacing the size lets ``create_backup`` build the
     manifest *before* streaming the file bodies.
     """
-    from sqlmodel import select
-
     with get_session_factory().session() as session:
-        rows = session.exec(select(FileModel.path)).all()
-    keys = list(dict.fromkeys(rows))
+        keys = sorted(all_owned_blob_keys(session))
     backend = get_backend()
     out: list[tuple[str, int]] = []
     for key in keys:

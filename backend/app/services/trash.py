@@ -28,6 +28,7 @@ from app.db.models import (
 from app.db.scopes import trashed
 from app.db.session import get_session_factory
 from app.services.storage_backend import get_backend
+from app.services.storage_utils import all_owned_blob_keys
 
 logger = get_logger(__name__)
 
@@ -128,14 +129,14 @@ def hard_delete_expired_models(session: Session, retention_days: int) -> list[in
 
 def _cleanup_orphan_blobs(session: Session) -> int:
     backend = get_backend()
-    file_paths = set(session.exec(select(File.path)).all())
+    owned = all_owned_blob_keys(session)
     removed = 0
     if settings.storage_backend == "s3":
         walker = backend.walk_keys("vault-data/files/")
     else:
         walker = backend.walk_keys(str(settings.data_dir))
     for key in walker:
-        if key not in file_paths:
+        if key not in owned:
             backend.delete(key)
             removed += 1
     return removed
