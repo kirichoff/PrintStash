@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.db.models import Collection, CollectionPermission, CollectionRole, User
@@ -66,33 +67,58 @@ def require_collection_role(
     )
 
 
+def _like_prefix(path: str) -> str:
+    """Build the descendant-matching LIKE pattern for *path*.
+
+    ``slugify`` cannot currently emit ``%`` or ``_``, so the escaping is belt
+    and braces — but this is an access-control boundary, and an unescaped ``_``
+    is a single-character wildcard that would widen a grant to sibling trees.
+    """
+    escaped = path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return escaped + "/%"
+
+
 def accessible_collection_ids(
     session: Session,
     user: User,
     minimum: CollectionRole = CollectionRole.VIEW,
 ) -> set[int]:
-    collections = list(session.exec(select(Collection).where(live(Collection))).all())
-    if user.is_superuser:
-        return {int(c.id) for c in collections if c.id is not None}
+    """Ids of every live collection *user* can reach at *minimum* or above.
 
-    grants = session.exec(
-        select(CollectionPermission, Collection)
-        .join(Collection, Collection.id == CollectionPermission.collection_id)
-        .where(CollectionPermission.user_id == user.id, live(Collection))
+    A grant cascades to descendants, which the materialised ``path`` turns into
+    a prefix test. Grant filtering and cascade both run in SQL; the previous
+    version compared every live collection against every grant in Python, on
+    every permission check.
+    """
+    if user.is_superuser:
+        rows = session.exec(select(Collection.id).where(live(Collection))).all()
+        return {int(cid) for cid in rows if cid is not None}
+
+    granted_paths = session.exec(
+        select(Collection.path)
+        .join(CollectionPermission, Collection.id == CollectionPermission.collection_id)  # type: ignore[arg-type]
+        .where(
+            CollectionPermission.user_id == user.id,
+            CollectionPermission.role.in_(  # type: ignore[union-attr]
+                [role for role in CollectionRole if role_allows(role, minimum)]
+            ),
+            live(Collection),
+        )
     ).all()
-    out: set[int] = set()
-    for collection in collections:
-        if collection.id is None:
-            continue
-        for permission, granted_collection in grants:
-            inherited = (
-                collection.path == granted_collection.path
-                or collection.path.startswith(granted_collection.path + "/")
+    if not granted_paths:
+        return set()
+
+    reachable = or_(
+        *[
+            or_(
+                Collection.path == path,
+                Collection.path.like(_like_prefix(path), escape="\\"),  # type: ignore[union-attr]
             )
-            if inherited and role_allows(permission.role, minimum):
-                out.add(collection.id)
-                break
-    return out
+            for path in granted_paths
+        ]
+    )
+    rows = session.exec(select(Collection.id).where(live(Collection), reachable)).all()
+    return {int(cid) for cid in rows if cid is not None}
 
 
 def require_model_collection_role(
