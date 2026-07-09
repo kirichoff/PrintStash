@@ -27,8 +27,11 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       "Login and refresh are now rate-limited to slow down credential-stuffing attempts",
       "Backup and restore actions are now recorded in the audit log",
+      "Fixed audit-log entries leaking printer/storage/notification secrets in their change diffs",
       "Fixed S3/R2-compatible storage (including MinIO) failing to auto-create its bucket on first boot",
-      "Faster model versioning and less database load from live print status syncing",
+      "Fixed a rejected send-to-printer leaving the print job stuck \"uploading\" forever",
+      "Fixed the send-to-printer picker keeping a deleted revision selected, and failed sends now show which printer failed and why",
+      "Faster model versioning, permission checks, and profile usage counts; less database load from live print status syncing",
       "CI now scans dependencies for known vulnerabilities and verifies database upgrades on every change",
     ],
   },
