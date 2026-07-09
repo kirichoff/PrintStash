@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+
+import httpx
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional
@@ -31,10 +33,14 @@ from urllib.parse import urlsplit
 from sqlalchemy import or_
 from sqlmodel import Session, select
 
-from app.core.http_client import get_http_client
 from app.core.logging import get_logger
 from app.core.time import utcnow
-from app.core.url_safety import is_public_url
+from app.core.url_safety import (
+    PinnedTarget,
+    UnsafeUrlError,
+    pinned_transport,
+    resolve_public_target,
+)
 from app.db.session import get_session_factory
 from app.db.models import (
     Model,
@@ -81,6 +87,17 @@ _MAX_RETRY_AFTER_SECONDS = 3600
 _CIRCUIT_BREAKER_THRESHOLD = 10
 # Delivered/failed rows older than this are pruned by the GC loop.
 _DELIVERY_RETENTION_DAYS = 30
+
+
+def _client_for(target: PinnedTarget) -> httpx.AsyncClient:
+    """HTTP client bound to the address the SSRF guard validated.
+
+    A seam: the dispatcher's only network egress, so tests replace this rather
+    than the guard itself.
+    """
+    return httpx.AsyncClient(
+        transport=pinned_transport(target), timeout=_REQUEST_TIMEOUT_S
+    )
 
 
 def next_retry_delay(attempts: int) -> Optional[int]:
@@ -397,7 +414,11 @@ async def _send_one(item: Dict[str, Any]) -> None:
 
     # SSRF guard: never POST to a user-supplied URL that resolves to a private/
     # loopback/link-local host. DNS resolution blocks, so run it in a thread.
-    if not await asyncio.to_thread(is_public_url, req.url):
+    # We keep the resolved address and dial it directly below, so a hostile DNS
+    # server cannot answer differently between this check and the connection.
+    try:
+        target = await asyncio.to_thread(resolve_public_target, req.url)
+    except UnsafeUrlError:
         host = urlsplit(req.url).hostname or req.url
         await asyncio.to_thread(
             _record_result,
@@ -416,15 +437,14 @@ async def _send_one(item: Dict[str, Any]) -> None:
     headers.setdefault("X-PrintStash-Delivery-Id", str(delivery_id))
 
     try:
-        client = get_http_client()
-        resp = await client.request(
-            req.method,
-            req.url,
-            headers=headers,
-            json=req.json,
-            content=req.data.encode("utf-8") if req.data is not None else None,
-            timeout=_REQUEST_TIMEOUT_S,
-        )
+        async with _client_for(target) as client:
+            resp = await client.request(
+                req.method,
+                req.url,
+                headers=headers,
+                json=req.json,
+                content=req.data.encode("utf-8") if req.data is not None else None,
+            )
         if 200 <= resp.status_code < 300:
             await asyncio.to_thread(
                 _record_result, delivery_id, channel_id, success=True, error=None
@@ -790,21 +810,22 @@ async def send_test(channel_id: int) -> Dict[str, Any]:
         await asyncio.to_thread(_record_channel_test, channel_id, False, str(exc))
         return {"ok": False, "error": str(exc)}
     # Same SSRF guard as live delivery — the Test button must not be an escape.
-    if not await asyncio.to_thread(is_public_url, req.url):
+    try:
+        target = await asyncio.to_thread(resolve_public_target, req.url)
+    except UnsafeUrlError:
         host = urlsplit(req.url).hostname or req.url
         err = f"blocked: {host} is not a public host"
         await asyncio.to_thread(_record_channel_test, channel_id, False, err)
         return {"ok": False, "error": err}
     try:
-        client = get_http_client()
-        resp = await client.request(
-            req.method,
-            req.url,
-            headers=req.headers or None,
-            json=req.json,
-            content=req.data.encode("utf-8") if req.data is not None else None,
-            timeout=_REQUEST_TIMEOUT_S,
-        )
+        async with _client_for(target) as client:
+            resp = await client.request(
+                req.method,
+                req.url,
+                headers=req.headers or None,
+                json=req.json,
+                content=req.data.encode("utf-8") if req.data is not None else None,
+            )
         if 200 <= resp.status_code < 300:
             await asyncio.to_thread(_record_channel_test, channel_id, True, None)
             return {"ok": True, "error": None}

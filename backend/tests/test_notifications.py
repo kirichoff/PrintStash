@@ -1,6 +1,6 @@
 """Coverage for the notification outbox: enqueue, dispatch, and hub edge-triggers.
 
-Network is always mocked at ``get_http_client``; the in-memory test engine
+Network is always mocked at ``notifications._client_for``; the in-memory test engine
 (see conftest) backs both the ``db_session`` fixture and the dispatcher's own
 sessions, so enqueue and delivery share one DB.
 """
@@ -22,6 +22,7 @@ from app.db.models import (
     Printer,
     PrinterStatus,
 )
+from app.core.url_safety import PinnedTarget, UnsafeUrlError
 from app.services import notifications
 from app.services.printer_hub import PrinterHub
 from app.services.runtime_config import set_notifications_enabled
@@ -54,13 +55,21 @@ def _deliveries(session, channel_id=None):
 
 
 def _http_returning(status_code=200, text="", headers=None):
+    """Fake for ``notifications._client_for``: an async-context-manager client."""
     resp = MagicMock()
     resp.status_code = status_code
     resp.text = text
     resp.headers = headers or {}
     client = MagicMock()
     client.request = AsyncMock(return_value=resp)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
     return client
+
+
+def _client_factory(client):
+    """``_client_for(target)`` stub returning a prepared fake client."""
+    return lambda _target: client
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +78,10 @@ def _allow_public_urls():
 
     Tests that exercise the SSRF guard itself override this with their own patch.
     """
-    with patch.object(notifications, "is_public_url", return_value=True):
+    target = PinnedTarget(
+        url="https://hooks.example/x", host="hooks.example", port=443, ip="93.184.216.34"
+    )
+    with patch.object(notifications, "resolve_public_target", return_value=target):
         yield
 
 
@@ -172,7 +184,7 @@ async def test_dispatch_success_marks_sent_and_channel_status(db_session):
     )
     db_session.commit()
 
-    with patch.object(notifications, "get_http_client", return_value=_http_returning(204)):
+    with patch.object(notifications, "_client_for", new=_client_factory(_http_returning(204))):
         attempted = await notifications.dispatch_due()
     assert attempted == 1
 
@@ -194,7 +206,7 @@ async def test_dispatch_http_error_retries_with_backoff(db_session):
     )
     db_session.commit()
 
-    with patch.object(notifications, "get_http_client", return_value=_http_returning(500, "boom")):
+    with patch.object(notifications, "_client_for", new=_client_factory(_http_returning(500, "boom"))):
         await notifications.dispatch_due()
 
     db_session.expire_all()
@@ -221,7 +233,7 @@ async def test_dispatch_marks_failed_after_exhausting_retries(db_session):
     db_session.add(delivery)
     db_session.commit()
 
-    with patch.object(notifications, "get_http_client", return_value=_http_returning(500)):
+    with patch.object(notifications, "_client_for", new=_client_factory(_http_returning(500))):
         await notifications.dispatch_due()
 
     db_session.expire_all()
@@ -245,7 +257,7 @@ async def test_dispatch_render_error_fails_without_network(db_session):
     db_session.commit()
 
     client = _http_returning(200)
-    with patch.object(notifications, "get_http_client", return_value=client):
+    with patch.object(notifications, "_client_for", new=_client_factory(client)):
         await notifications.dispatch_due()
     client.request.assert_not_called()
 
@@ -265,8 +277,8 @@ async def test_dispatch_blocks_non_public_url(db_session):
 
     client = _http_returning(204)
     # Override the autouse allow-fixture: this URL is "not public".
-    with patch.object(notifications, "get_http_client", return_value=client), patch.object(
-        notifications, "is_public_url", return_value=False
+    with patch.object(notifications, "_client_for", new=_client_factory(client)), patch.object(
+        notifications, "resolve_public_target", side_effect=UnsafeUrlError("url_target_not_public")
     ):
         await notifications.dispatch_due()
     client.request.assert_not_called()  # never left the process
@@ -287,7 +299,7 @@ async def test_dispatch_honors_retry_after_without_spending_attempt(db_session):
     db_session.commit()
 
     client = _http_returning(429, "slow down", headers={"Retry-After": "120"})
-    with patch.object(notifications, "get_http_client", return_value=client):
+    with patch.object(notifications, "_client_for", new=_client_factory(client)):
         await notifications.dispatch_due()
 
     db_session.expire_all()
@@ -308,7 +320,7 @@ async def test_idempotency_key_header_sent(db_session):
     db_session.commit()
 
     client = _http_returning(204)
-    with patch.object(notifications, "get_http_client", return_value=client):
+    with patch.object(notifications, "_client_for", new=_client_factory(client)):
         await notifications.dispatch_due()
 
     headers = client.request.call_args.kwargs["headers"]
@@ -335,7 +347,7 @@ async def test_channel_auto_disabled_after_threshold(db_session):
     db_session.commit()
 
     client = _http_returning(500)
-    with patch.object(notifications, "get_http_client", return_value=client):
+    with patch.object(notifications, "_client_for", new=_client_factory(client)):
         await notifications.dispatch_due()
 
     db_session.refresh(ch)
@@ -356,7 +368,7 @@ async def test_success_resets_consecutive_failures(db_session):
     )
     db_session.commit()
 
-    with patch.object(notifications, "get_http_client", return_value=_http_returning(204)):
+    with patch.object(notifications, "_client_for", new=_client_factory(_http_returning(204))):
         await notifications.dispatch_due()
 
     db_session.refresh(ch)
@@ -384,7 +396,7 @@ async def test_stuck_sending_is_reclaimed(db_session):
     db_session.add(d)
     db_session.commit()
 
-    with patch.object(notifications, "get_http_client", return_value=_http_returning(204)):
+    with patch.object(notifications, "_client_for", new=_client_factory(_http_returning(204))):
         attempted = await notifications.dispatch_due()
 
     assert attempted == 1  # reclaimed and delivered
@@ -443,7 +455,7 @@ async def test_run_dispatcher_loop_delivers_then_cancels(db_session):
     db_session.commit()
 
     with patch.object(notifications, "_POLL_INTERVAL_S", 0.01), patch.object(
-        notifications, "get_http_client", return_value=_http_returning(204)
+        notifications, "_client_for", new=_client_factory(_http_returning(204))
     ):
         task = asyncio.create_task(notifications.run_dispatcher_loop())
         # Poll until the delivery is sent, then cancel the loop.
