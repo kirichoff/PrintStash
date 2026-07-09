@@ -1,0 +1,26 @@
+# Standalone MinIO instance for the S3 storage-backend integration tests
+# (backend/tests/test_storage_s3.py). Not part of the app stack — start it,
+# point PRINTSTASH_TEST_S3_ENDPOINT at it, run the tests, tear it down:
+#
+#   docker compose -f docker-compose.test.yml up -d
+#   PRINTSTASH_TEST_S3_ENDPOINT=http://localhost:9100 \
+#     (cd backend && uv run pytest tests/test_storage_s3.py -v)
+#   docker compose -f docker-compose.test.yml down -v
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: printstash-test-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data
+    ports:
+      # Non-default host port so this can run alongside a dev-stack MinIO
+      # started from the main docker-compose.yml (profile "s3", port 9000).
+      - "9100:9000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
