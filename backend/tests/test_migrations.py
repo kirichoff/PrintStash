@@ -433,3 +433,69 @@ def test_sqlite_pragma_enforces_foreign_keys(tmp_path: Path) -> None:
                 )
     finally:
         engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# print_jobs.cost backfill (175be54ef975)
+# ---------------------------------------------------------------------------
+
+
+def test_backfill_populates_existing_jobs(tmp_path: Path) -> None:
+    """A job completed before the migration gets its cost resolved from its
+    metadata/profile, exactly like a freshly-completed job would today."""
+    db_path = tmp_path / "precost.sqlite"
+    cfg = _upgrade_to(db_path, "b2d8f6a1c94e")  # the revision before this one
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO models (id, name, slug, hash, created_at, updated_at)"
+                " VALUES (1, 'M', 'm', 'h', '2026-01-01', '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO files (id, model_id, path, original_filename,"
+                " file_type, version, size_bytes, sha256, is_recommended,"
+                " is_external, uploaded_at)"
+                " VALUES (1, 1, '/f', 'f.gcode', 'gcode', 1, 1, 'sha',"
+                " 0, 0, '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO metadata (id, file_id, material_type, material_brand,"
+                " created_at)"
+                " VALUES (1, 1, 'PLA', 'Hatchbox', '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO filament_profiles (id, name, material_type,"
+                " material_brand, cost_per_kg, created_at, updated_at)"
+                " VALUES (1, 'Hatchbox PLA', 'PLA', 'Hatchbox', 20.0,"
+                " '2026-01-01', '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO print_jobs (id, file_id, model_id, remote_filename,"
+                " state, progress, source, filament_used_g, created_at, updated_at)"
+                " VALUES (1, 1, 1, 'f.gcode', 'completed', 1.0, 'vault', 100.0,"
+                " '2026-01-01', '2026-01-01')"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT cost, filament_g_effective FROM print_jobs WHERE id = 1")
+        ).one()
+        assert row.filament_g_effective == 100.0
+        # 100g @ 20/kg => 2.00.
+        assert row.cost == 2.0
+    engine.dispose()

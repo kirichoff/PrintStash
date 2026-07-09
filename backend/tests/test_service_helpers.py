@@ -19,7 +19,6 @@ from app.db.models import (
     ExternalLibraryCollectionMode,
     FilamentProfile,
     Metadata,
-    PrintJob,
 )
 from app.services import importer as imp
 from app.services import model_views as mv
@@ -195,33 +194,6 @@ class TestFilamentCostForGrams:
     def test_profile_without_cost_returns_none(self) -> None:
         md = Metadata(file_id=1, material_type="PLA", material_brand="NoCost")
         assert mv.filament_cost_for_grams(_profiles(), md, 100.0) is None
-
-
-class TestEffectivePrintMetrics:
-    def test_measured_values_win(self) -> None:
-        md = Metadata(file_id=1, material_type="PLA", material_brand="Hatchbox")
-        job = PrintJob(
-            file_id=1, model_id=1, remote_filename="x",
-            filament_used_g=50.0, actual_duration_s=600,
-        )
-        grams, cost, duration = mv._effective_print_metrics(_profiles(), md, job)
-        assert (grams, cost, duration) == (50.0, 1.0, 600)
-
-    def test_falls_back_to_slicer_estimate(self) -> None:
-        md = Metadata(
-            file_id=1, material_type="PLA", material_brand="Hatchbox",
-            filament_weight_g=30.0, estimated_time_s=900,
-        )
-        job = PrintJob(file_id=1, model_id=1, remote_filename="x")
-        grams, cost, duration = mv._effective_print_metrics(_profiles(), md, job)
-        assert (grams, cost, duration) == (30.0, 0.6, 900)
-
-    def test_slicer_cost_used_when_no_profile_match(self) -> None:
-        # No matching profile, but the slicer recorded a total cost.
-        md = Metadata(file_id=1, material_type="ABS", filament_weight_g=10.0, filament_cost=3.5)
-        job = PrintJob(file_id=1, model_id=1, remote_filename="x")
-        _, cost, _ = mv._effective_print_metrics(_profiles(), md, job)
-        assert cost == 3.5
 
 
 # --------------------------------------------------------------------------- #

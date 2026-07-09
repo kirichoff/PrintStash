@@ -680,6 +680,13 @@ class PrintJob(SQLModel, table=True):
     filament_used_g: Optional[float] = None
     actual_duration_s: Optional[int] = None
 
+    # Resolved once at completion (`filament_cost_for_job`) and frozen from
+    # then on — editing a filament profile's price afterwards does not
+    # change historical cost. Populated by every write path that marks a job
+    # COMPLETED; backfilled for pre-existing rows by migration 175be54ef975.
+    cost: Optional[float] = None
+    filament_g_effective: Optional[float] = None
+
     # Spoolman spool this print consumed, selected when starting/logging the
     # job. A soft reference (Spoolman owns the spool table) — not an FK. The
     # cached label keeps history readable if the spool is later renamed/archived
