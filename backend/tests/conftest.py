@@ -8,11 +8,16 @@ from typing import Iterator
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.core.config import _overlay
-from app.db.session import SQLiteSessionFactory, override_session_factory
+from app.db.session import (
+    SQLiteSessionFactory,
+    _set_sqlite_pragmas,
+    override_session_factory,
+)
 from app.services.printer_hub import PrinterHub
 
 TEST_DATA_DIR = Path(__file__).parent / "fixtures"
@@ -24,6 +29,10 @@ _test_engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+# Same per-connection pragmas the app installs (notably foreign_keys=ON), so a
+# delete path that violates a constraint fails here rather than in production.
+event.listen(_test_engine, "connect", _set_sqlite_pragmas)
 
 _test_factory = SQLiteSessionFactory(_test_engine)
 
@@ -63,13 +72,21 @@ _TRUNCATE_TABLES_ORDER = [
 
 
 def _truncate_all() -> None:
-    """Truncate all tables between tests (respect FK order)."""
+    """Truncate all tables between tests.
+
+    FK enforcement is off for the wipe: this is a teardown, not a delete path,
+    and the listed order doesn't satisfy every constraint (metadata references
+    files, which go first). Leaving it on made the DELETEs fail silently and
+    leak rows into the next test.
+    """
     with _test_engine.begin() as conn:
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
         for table in _TRUNCATE_TABLES_ORDER:
             try:
                 conn.exec_driver_sql(f"DELETE FROM {table}")
             except Exception:
                 pass
+        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
     # Re-create sentinel rows.
     _ensure_test_sentinels()
 
