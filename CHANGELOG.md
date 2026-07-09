@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.8.4
+
+**Behavior changes on upgrade — read before installing.**
+
+### Security
+
+- **JWT secret can no longer boot with the shipped default.** The app now
+  generates and persists a real secret on first boot; if a `VAULT_JWT_SECRET`
+  was left at the placeholder value, existing sessions are invalidated once on
+  the upgrade boot. Set your own with `openssl rand -hex 32` if you manage it
+  explicitly.
+- **SQLite foreign keys are now enforced.** The upgrade repairs any orphaned
+  rows first (clears a dangling attribution, or drops a row whose required
+  parent no longer exists) so enforcement doesn't turn a later delete into a
+  crash.
+- **Outbound fetches are pinned to the address the SSRF guard validated**,
+  closing a DNS-rebind gap between validation and connection.
+
+### Fixed
+
+- **Printer history re-import could duplicate every past job.** Comparing
+  imported filenames case-sensitively (and, in one path, against only the
+  first character of the stored name) meant a printer that changed filename
+  casing between polls — or any poll at all — could re-import its whole
+  history. Comparison is now a real case-insensitive match on both sides.
+- **Backup restore could race the background jobs.** Restoring while GC, an
+  external library scan, or a live print sync were in flight could leave the
+  database mid-swap under them. Restore now waits briefly for in-flight
+  ingestion to finish and refuses with a 409 if it doesn't; GC and printer sync
+  skip their tick while a restore is in progress.
+
+### Performance
+
+- **Collection permission checks and model-list role resolution** now run as
+  a single SQL query instead of a per-row Python scan.
+- **Print-job ingestion is atomic** — a failed thumbnail no longer leaves a
+  half-built model behind.
+- **The printer WebSocket fan-out no longer blocks on a slow client.** One
+  stalled browser tab used to stall the update for every other subscriber to
+  that printer; sends now run concurrently with a timeout, and a slow or dead
+  socket is dropped instead of blocking the rest.
+- **The dashboard's storage-usage figure is cached for 60 seconds** instead of
+  walking the filesystem on every load.
+- **Print statistics no longer re-hydrate every completed job on every
+  dashboard load.** Cost and effective filament grams are now resolved once,
+  when a print completes, and summed directly.
+  **Behavior change:** a print's cost is frozen at completion time — editing a
+  filament profile's price afterwards no longer revises the cost of prints
+  that already finished.
+
 ## 0.8.3
 
 **Upgrade immediately if you use Documents.**
