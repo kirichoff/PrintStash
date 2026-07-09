@@ -301,7 +301,14 @@ class BambuLanProvider:
     async def query_status(self) -> dict[str, Any]:
         url = f"https://{self.host}:6000/api/v1/status"
         try:
-            async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            # Bambu LAN mode serves a self-signed cert on the printer itself —
+            # there is no CA to verify against, and self.host is a LAN IP the
+            # user configured directly (not a name an attacker could spoof via
+            # DNS). nosec: this is the documented way every Bambu LAN
+            # integration talks to the printer's local API.
+            async with httpx.AsyncClient(
+                timeout=10.0, verify=False  # nosec B501
+            ) as client:
                 resp = await client.get(url)
             if resp.status_code >= 400:
                 raise ProviderError(

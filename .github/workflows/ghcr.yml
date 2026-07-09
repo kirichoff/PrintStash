@@ -15,14 +15,29 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  # The push trigger's tag glob (v*.*.*) also matches non-semver strings like
+  # "vfoo.bar.baz" — this is the strict check. Applies to workflow_dispatch
+  # too, so a manual run against a branch ref can't slip past it either.
+  guard:
+    name: Validate tag is strict semver
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check ${{ github.ref_name }}
+        run: |
+          if [[ ! "${{ github.ref_name }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::ref '${{ github.ref_name }}' is not a strict semver tag (vX.Y.Z)"
+            exit 1
+          fi
+
   # Re-run the full CI suite against the tagged commit. A tag that fails tests
   # must never reach the registry — this gates the publish job below.
   ci:
+    needs: guard
     uses: ./.github/workflows/ci.yml
 
   publish:
     name: Publish ${{ matrix.image }}
-    needs: ci
+    needs: [guard, ci]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
