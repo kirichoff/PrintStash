@@ -700,7 +700,6 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
           <div className="p-4 md:p-6 border-t border-[var(--outline-variant)] bg-[var(--surface-container-low)] shrink-0 space-y-3">
             {printableGcodeFiles.length > 0 && canViewPrinters && (
               <SendToButtons
-                modelId={model.id}
                 gcodeFiles={printableGcodeFiles}
                 printerFiles={printerFiles}
                 open={sendOpen}

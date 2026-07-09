@@ -13,14 +13,12 @@ import { useRequireAuth } from "@/lib/use-require-auth";
 import { FileRead, ModelPrinterFileRead } from "@/types";
 
 export function SendToButtons({
-  modelId,
   gcodeFiles,
   printerFiles,
   open,
   onOpenChange,
   preselectFileId,
 }: {
-  modelId: number;
   gcodeFiles: Pick<FileRead, "id" | "original_filename" | "version" | "gcode_revision_number" | "revision_label" | "is_recommended">[];
   printerFiles: ModelPrinterFileRead[];
   open?: boolean;
@@ -35,8 +33,18 @@ export function SendToButtons({
   const [selectedFile, setSelectedFile] = useState<number>(defaultFile?.id ?? 0);
 
   useEffect(() => {
-    if (showSend && preselectFileId) setSelectedFile(preselectFileId);
-  }, [showSend, preselectFileId]);
+    if (showSend && preselectFileId) {
+      setSelectedFile(preselectFileId);
+      return;
+    }
+    // The selected revision may have been deleted while the panel was open
+    // (or closed and reopened after a revision was trashed elsewhere) — fall
+    // back to the current default instead of sending a stale/removed file id.
+    if (!gcodeFiles.some((f) => f.id === selectedFile)) {
+      setSelectedFile(defaultFile?.id ?? 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSend, preselectFileId, gcodeFiles]);
   const [startPrint, setStartPrint] = useState(false);
   // Spoolman inventory — only surfaced when the integration is enabled.
   const spoolmanEnabled = useSpoolmanStatus().data?.enabled ?? false;
@@ -132,17 +140,25 @@ export function SendToButtons({
       );
 
       const successes = results.filter((result) => result.status === "fulfilled");
-      const failures = results.filter((result) => result.status === "rejected");
+      const failures = results
+        .map((result, index) => ({ result, printer: selectedPrinters[index] }))
+        .filter(
+          (entry): entry is { result: PromiseRejectedResult; printer: (typeof selectedPrinters)[number] } =>
+            entry.result.status === "rejected",
+        );
 
       if (failures.length > 0) {
-        const message = `${successes.length}/${selectedPrinters.length} printers succeeded`;
+        const reasons = failures
+          .map(({ printer, result }) => `${printer.name}: ${result.reason?.message ?? "unknown error"}`)
+          .join("; ");
+        const message = `${successes.length}/${selectedPrinters.length} printers succeeded — ${reasons}`;
         setError(message);
         updateTask(taskId, {
           detail: message,
           status: successes.length > 0 ? "completed" : "failed",
           progress: 100,
         });
-        toast.warning("Some sends failed", message);
+        toast.warning("Some sends failed", reasons);
       } else {
         updateTask(taskId, {
           detail: startPrint ? "Print started on selected printers" : "Sent to selected printers",
