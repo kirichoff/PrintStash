@@ -339,3 +339,44 @@ def test_deleting_a_child_does_not_block_deleting_the_parent(
     # After the child is trashed, the parent deletes cleanly.
     assert client.delete(f"/api/v1/collections/{child['id']}", headers=h).status_code == 204
     assert client.delete(f"/api/v1/collections/{parent['id']}", headers=h).status_code == 204
+
+
+def test_role_revocation_takes_effect_immediately(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    """Revoking a grant must lock the user out on the very next request.
+
+    Access is resolved per request, so nothing may cache a stale grant — a
+    revoked collaborator who can still read is the whole point of the feature.
+    """
+    user = _user(db_session, "revoked")
+    collection = taxonomy.resolve_or_create_collection(db_session, "Secrets")
+    assert collection is not None
+    child = taxonomy.resolve_or_create_collection(db_session, "Secrets/Inner")
+    assert child is not None
+    _grant(db_session, user, collection.id, CollectionRole.VIEW)
+    model = _model(db_session, "Inner Model", child.id)
+
+    before = client.get(f"/api/v1/models/{model.id}", headers=_headers(user))
+    assert before.status_code == 200
+
+    permission = db_session.exec(
+        select(CollectionPermission).where(
+            CollectionPermission.user_id == user.id,
+            CollectionPermission.collection_id == collection.id,
+        )
+    ).one()
+    db_session.delete(permission)
+    db_session.commit()
+
+    after = client.get(f"/api/v1/models/{model.id}", headers=_headers(user))
+    # 404, not 403: the model is filtered out before the role check, so a revoked
+    # user cannot even confirm it exists.
+    assert after.status_code == 404, "revoked user still reads an inherited model"
+
+    listed = client.get("/api/v1/models", headers=_headers(user))
+    assert listed.status_code == 200
+    body = listed.json()
+    rows = body["items"] if isinstance(body, dict) else body
+    assert all(row["id"] != model.id for row in rows)

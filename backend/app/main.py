@@ -30,11 +30,12 @@ from app.services.audit import (
     install_audit_listeners,
     set_audit_context,
 )
+from app.services.backup import restore_in_progress
 from app.services.trash import gc_soft_deleted
 from app.services.library_watcher import LibraryWatcher
 from app.services.notifications import run_dispatcher_loop
 from app.services.printer_hub import PrinterHub
-from app.services.runtime_config import apply_overlay, is_configured
+from app.services.runtime_config import apply_overlay, ensure_jwt_secret, is_configured
 from app.services.storage_backend import init_backend
 
 logger = get_logger(__name__)
@@ -55,6 +56,8 @@ async def lifespan(app: FastAPI):
     init_db()
     with get_session_factory().scoped_session() as session:
         apply_overlay(session)
+        # Must run after apply_overlay: that call clears the overlay dict.
+        ensure_jwt_secret(session)
         configured = is_configured(session)
         # Clear any NAS scans stranded RUNNING by a previous unclean shutdown,
         # otherwise the scheduler would skip them forever.
@@ -131,6 +134,8 @@ async def _external_scan_loop() -> None:
     """
     while True:
         await asyncio.sleep(60)
+        if restore_in_progress():
+            continue
         try:
             await asyncio.to_thread(_run_due_external_scans)
         except Exception:

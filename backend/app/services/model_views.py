@@ -10,6 +10,8 @@ per facet) — N+1 regressions are bugs in this module, testable without HTTP.
 
 from __future__ import annotations
 
+from time import monotonic
+
 from collections import defaultdict
 from datetime import datetime, timedelta
 import csv
@@ -512,6 +514,11 @@ def list_items(
                 slicer_name=md.slicer_name,
             )
 
+    # One resolution for the whole page: per-row lookups cost two queries each.
+    roles = rbac.effective_roles_for_collections(
+        session, user, (m.collection_id for m in rows)
+    )
+
     out: List[ModelListItem] = []
     for m in rows:
         assert m.id is not None
@@ -524,7 +531,7 @@ def list_items(
                 collection=collection_name_for(m),
                 collection_id=m.collection_id,
                 source_url=m.source_url,
-                effective_role=_effective_model_role(session, user, m),
+                effective_role=roles.get(m.collection_id),
                 tags=sorted(t.name for t in m.tags),
                 thumbnail_url=thumb_url(m),
                 file_count=int(file_counts.get(m.id, 0)),
@@ -837,6 +844,29 @@ def list_trashed(
 # ---------------------------------------------------------------------------
 
 
+# ``backend.usage()`` walks the whole storage tree (or lists the bucket). The
+# dashboard calls it on every load, where a slightly stale total is fine.
+_USAGE_TTL_S = 60.0
+_usage_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+
+
+def _cached_storage_usage() -> dict:
+    """Storage usage, recomputed at most once per minute per configured backend.
+
+    Keyed on the effective backend + data dir so a runtime reconfiguration (and
+    each test's tmp_path) gets its own entry. Failures are not cached: a
+    transient S3 error should not pin an error state for a minute.
+    """
+    key = (str(settings.storage_backend), str(settings.data_dir))
+    now = monotonic()
+    hit = _usage_cache.get(key)
+    if hit is not None and now - hit[0] < _USAGE_TTL_S:
+        return hit[1]
+    usage = get_backend().usage()
+    _usage_cache[key] = (now, usage)
+    return usage
+
+
 def vault_stats(session: Session, user: User) -> VaultStatsRead:
     live_model_ids = select(Model.id).where(
         live(Model),
@@ -879,7 +909,7 @@ def vault_stats(session: Session, user: User) -> VaultStatsRead:
     ).one()
 
     try:
-        storage_usage = StorageUsageRead(**get_backend().usage())
+        storage_usage = StorageUsageRead(**_cached_storage_usage())
     except Exception as exc:
         storage_usage = StorageUsageRead(
             backend=settings.storage_backend,
@@ -910,44 +940,15 @@ _STATS_PERIODS: dict[str, Optional[int]] = {
 }
 
 
-def _effective_print_metrics(
-    profiles: list[FilamentProfile],
-    md: Metadata | None,
-    job: PrintJob,
-) -> tuple[Optional[float], Optional[float], Optional[int]]:
-    """Filament grams, cost and duration for a completed print.
-
-    Prefers the values the printer actually measured; falls back to the slicer
-    estimate from :class:`Metadata` when the printer reported nothing (Bambu
-    does not report live consumption, and manual logs often omit it). Without
-    this fallback the cost/filament totals read as "—" for whole fleets.
-    """
-    if job.filament_used_g is not None:
-        grams: Optional[float] = job.filament_used_g
-        cost = filament_cost_for_grams(profiles, md, grams)
-    elif md is not None:
-        grams = md.filament_weight_g
-        cost = filament_cost_for_grams(profiles, md, grams)
-        if cost is None:
-            cost = md.filament_cost
-    else:
-        grams = None
-        cost = None
-
-    duration = job.actual_duration_s
-    if duration is None and md is not None:
-        duration = md.estimated_time_s
-
-    return grams, cost, duration
-
-
 def print_statistics(session: Session, period: str) -> PrintStatisticsRead:
     """Aggregate *completed* print jobs over a preset time window.
 
-    Counts cost, filament and duration totals plus the collections and
-    filaments with the most prints. Per-print cost reuses the same
-    profile-matching helper that drives the model detail view, so the numbers
-    here are consistent with what users see per model.
+    Reads the cost and effective filament grams that were resolved and
+    frozen once, at completion time (see
+    ``print_results.resolve_completion_cost``), rather than re-hydrating
+    every job row and re-matching a filament profile on every dashboard
+    load. A profile's price edited after a print completed does not change
+    that print's historical cost.
     """
     if period not in _STATS_PERIODS:
         period = "30d"
@@ -962,7 +963,19 @@ def print_statistics(session: Session, period: str) -> PrintStatisticsRead:
     anchor = func.coalesce(PrintJob.finished_at, PrintJob.created_at)
 
     query = (
-        select(PrintJob, Metadata, Model, Collection)
+        select(
+            PrintJob.cost,
+            PrintJob.filament_g_effective,
+            PrintJob.actual_duration_s,
+            PrintJob.finished_at,
+            PrintJob.created_at,
+            Model.collection_id,
+            Collection.name,
+            Collection.path,
+            Metadata.material_type,
+            Metadata.material_brand,
+            Metadata.estimated_time_s,
+        )
         .join(File, File.id == PrintJob.file_id)
         .outerjoin(Metadata, Metadata.file_id == File.id)
         .join(Model, Model.id == PrintJob.model_id)
@@ -976,7 +989,6 @@ def print_statistics(session: Session, period: str) -> PrintStatisticsRead:
         query = query.where(anchor >= start_at)  # type: ignore[operator]
 
     rows = session.exec(query).all()
-    profiles = _load_filament_profiles(session)
 
     total_cost = 0.0
     has_cost = False
@@ -992,8 +1004,21 @@ def print_statistics(session: Session, period: str) -> PrintStatisticsRead:
     filament_acc: dict[tuple, dict] = {}
     time_acc: dict[str, dict] = {}
 
-    for job, md, model, collection in rows:
-        grams, cost, duration = _effective_print_metrics(profiles, md, job)
+    for (
+        cost,
+        grams,
+        duration,
+        finished_at,
+        created_at,
+        cid,
+        cname,
+        cpath,
+        mtype,
+        mbrand,
+        estimated_time_s,
+    ) in rows:
+        if duration is None:
+            duration = estimated_time_s
         if cost is not None:
             total_cost += cost
             has_cost = True
@@ -1006,12 +1031,11 @@ def print_statistics(session: Session, period: str) -> PrintStatisticsRead:
             total_duration_s += duration
 
         # Top collections (Uncategorized bucket when the model has no collection).
-        cid = collection.id if collection is not None else None
         c = collection_acc.setdefault(
             cid,
             {
-                "name": collection.name if collection is not None else "Uncategorized",
-                "path": collection.path if collection is not None else None,
+                "name": cname if cid is not None else "Uncategorized",
+                "path": cpath if cid is not None else None,
                 "print_count": 0,
                 "total_cost": 0.0,
                 "has_cost": False,
@@ -1023,8 +1047,6 @@ def print_statistics(session: Session, period: str) -> PrintStatisticsRead:
             c["has_cost"] = True
 
         # Top filaments grouped by (material_type, material_brand).
-        mtype = md.material_type if md is not None else None
-        mbrand = md.material_brand if md is not None else None
         f = filament_acc.setdefault(
             (mtype, mbrand),
             {
@@ -1046,7 +1068,7 @@ def print_statistics(session: Session, period: str) -> PrintStatisticsRead:
             f["has_cost"] = True
 
         # Cost-over-time buckets keyed by day (≤90d) or month (longer/all).
-        when = ensure_utc(job.finished_at or job.created_at)
+        when = ensure_utc(finished_at or created_at)
         key = when.strftime("%Y-%m") if bucket_monthly else when.strftime("%Y-%m-%d")
         b = time_acc.setdefault(
             key,

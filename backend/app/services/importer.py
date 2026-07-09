@@ -16,20 +16,25 @@ count + per-entry + total uncompressed size caps).
 
 from __future__ import annotations
 
-import socket
 import threading
 import time
 import uuid
 import zipfile
+
+import httpx
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Optional
-from urllib.parse import unquote, urlparse, urlsplit
+from urllib.parse import unquote, urlparse
 
 from app.core.config import settings
-from app.core.http_client import get_http_client
 from app.core.logging import get_logger
-from app.core.url_safety import is_public_ip as _is_public_ip
+from app.core.url_safety import (
+    PinnedTarget,
+    UnsafeUrlError,
+    pinned_transport,
+    resolve_public_target,
+)
 from app.db.models import SUFFIX_TO_FILE_TYPE
 from app.db.session import SessionFactory
 from app.services import storage
@@ -53,27 +58,22 @@ class ImportError_(Exception):
 # ---------------------------------------------------------------------------
 
 
+def _resolve_or_raise(url: str) -> PinnedTarget:
+    """Resolve *url* once, or raise the importer's error type."""
+    try:
+        return resolve_public_target(url)
+    except UnsafeUrlError as exc:
+        raise ImportError_(exc.reason) from exc
+
+
 def validate_public_url(url: str) -> None:
     """Reject non-HTTP(S) schemes and hosts that resolve to non-public IPs.
 
-    Raises ``ImportError_`` if the URL is unsafe to fetch server-side.
+    Raises ``ImportError_`` if the URL is unsafe to fetch server-side. Callers
+    that go on to *fetch* the URL must use the address this resolution returned
+    (see ``download_to_staging``); re-resolving reopens a DNS-rebind window.
     """
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https"):
-        raise ImportError_("url_scheme_not_allowed")
-    host = parts.hostname
-    if not host:
-        raise ImportError_("url_host_missing")
-    try:
-        infos = socket.getaddrinfo(host, parts.port or None, proto=socket.IPPROTO_TCP)
-    except socket.gaierror as exc:
-        raise ImportError_("url_dns_resolution_failed") from exc
-    addrs = {info[4][0] for info in infos}
-    if not addrs:
-        raise ImportError_("url_dns_resolution_failed")
-    for addr in addrs:
-        if not _is_public_ip(addr):
-            raise ImportError_("url_target_not_public")
+    _resolve_or_raise(url)
 
 
 def _filename_from_url(url: str, fallback: str = "download") -> str:
@@ -91,37 +91,43 @@ async def download_to_staging(url: str) -> tuple[Path, str]:
 
     Returns ``(staged_path, original_filename)``. Enforces ``max_upload_bytes``.
     """
-    client = get_http_client()
     current = url
     for _ in range(settings.url_import_max_redirects + 1):
-        validate_public_url(current)
-        async with client.stream(
-            "GET", current, follow_redirects=False, timeout=60.0
-        ) as resp:
-            if resp.is_redirect:
-                location = resp.headers.get("location")
-                if not location:
-                    raise ImportError_("url_redirect_without_location")
-                current = str(resp.url.join(location))
-                continue
-            resp.raise_for_status()
-            original_filename = _content_disposition_name(resp) or _filename_from_url(
-                current
-            )
-            suffix = Path(original_filename).suffix.lower() or ".bin"
-            staged = settings.incoming_dir / f"{uuid.uuid4().hex}{suffix}"
-            staged.parent.mkdir(parents=True, exist_ok=True)
-            written = 0
-            limit = settings.max_upload_bytes
-            with staged.open("wb") as out:
-                async for chunk in resp.aiter_bytes(1024 * 1024):
-                    written += len(chunk)
-                    if written > limit:
-                        out.close()
-                        staged.unlink(missing_ok=True)
-                        raise ImportError_("download_too_large")
-                    out.write(chunk)
-            return staged, original_filename
+        # Resolve once and dial exactly that address: validating the hostname and
+        # then letting httpx resolve it again would let a hostile DNS server
+        # answer 127.0.0.1 the second time. Each redirect hop is a fresh URL, so
+        # each gets its own validation and its own pinned connection.
+        target = _resolve_or_raise(current)
+        async with httpx.AsyncClient(
+            transport=pinned_transport(target), timeout=60.0
+        ) as client:
+            async with client.stream(
+                "GET", current, follow_redirects=False
+            ) as resp:
+                if resp.is_redirect:
+                    location = resp.headers.get("location")
+                    if not location:
+                        raise ImportError_("url_redirect_without_location")
+                    current = str(resp.url.join(location))
+                    continue
+                resp.raise_for_status()
+                original_filename = _content_disposition_name(
+                    resp
+                ) or _filename_from_url(current)
+                suffix = Path(original_filename).suffix.lower() or ".bin"
+                staged = settings.incoming_dir / f"{uuid.uuid4().hex}{suffix}"
+                staged.parent.mkdir(parents=True, exist_ok=True)
+                written = 0
+                limit = settings.max_upload_bytes
+                with staged.open("wb") as out:
+                    async for chunk in resp.aiter_bytes(1024 * 1024):
+                        written += len(chunk)
+                        if written > limit:
+                            out.close()
+                            staged.unlink(missing_ok=True)
+                            raise ImportError_("download_too_large")
+                        out.write(chunk)
+                return staged, original_filename
     raise ImportError_("url_too_many_redirects")
 
 

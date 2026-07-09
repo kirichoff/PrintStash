@@ -303,3 +303,199 @@ def test_upgrade_from_pre_0_8_0_release_preserves_data(tmp_path: Path) -> None:
     finally:
         engine.dispose()
     assert _current(url) == _head_revision()
+
+
+# ---------------------------------------------------------------------------
+# Orphan-row repair before foreign key enforcement (b2d8f6a1c94e)
+# ---------------------------------------------------------------------------
+
+
+def _upgrade_to(db_path: Path, revision: str) -> Config:
+    cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    command.upgrade(cfg, revision)
+    return cfg
+
+
+def test_fk_repair_clears_dangling_nullable_reference(tmp_path: Path) -> None:
+    """A document whose creator was purged keeps the document, loses the attribution.
+
+    ``documents.created_by`` is one of the columns the migration chain actually
+    constrains — the ORM declares more foreign keys than the shipped schema has.
+    """
+    db_path = tmp_path / "dirty.sqlite"
+    cfg = _upgrade_to(db_path, "a1c7e4f9b23d")  # the revision before the repair
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO documents (name, kind, created_by, created_at,"
+                " updated_at) VALUES ('orphaned', 'markdown', 999,"
+                " '2026-01-01', '2026-01-01')"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT name, created_by FROM documents WHERE name = 'orphaned'")
+        ).one()
+        assert row.name == "orphaned", "the document itself must survive"
+        assert row.created_by is None
+        assert conn.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+    engine.dispose()
+
+
+def test_fk_repair_deletes_row_with_dangling_required_reference(
+    tmp_path: Path,
+) -> None:
+    """A permission grant for a purged user cannot be loaded — drop it."""
+    db_path = tmp_path / "dirty.sqlite"
+    cfg = _upgrade_to(db_path, "a1c7e4f9b23d")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO collections (name, slug, path, created_at)"
+                " VALUES ('c', 'c', 'c', '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO collection_permissions (user_id, collection_id, role,"
+                " created_at, updated_at)"
+                " VALUES (999, 1, 'view', '2026-01-01', '2026-01-01')"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        count = conn.execute(
+            text("SELECT count(*) FROM collection_permissions")
+        ).scalar()
+        assert count == 0
+        assert conn.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+    engine.dispose()
+
+
+def test_fk_repair_leaves_clean_database_untouched(tmp_path: Path) -> None:
+    db_path = tmp_path / "clean.sqlite"
+    cfg = _upgrade_to(db_path, "a1c7e4f9b23d")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO models (name, slug, hash, created_at, updated_at)"
+                " VALUES ('kept', 'kept', 'h1', '2026-01-01', '2026-01-01')"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM models")).scalar() == 1
+    engine.dispose()
+
+
+def test_sqlite_pragma_enforces_foreign_keys(tmp_path: Path) -> None:
+    """The pragma is what makes the repair worth doing: without it SQLite happily
+    writes a child row pointing at a parent that was never there."""
+    import pytest
+    from sqlalchemy import event
+    from sqlalchemy.exc import IntegrityError
+
+    from app.db.session import _set_sqlite_pragmas
+
+    db_path = tmp_path / "vault.sqlite"
+    _upgrade_to(db_path, "head")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    event.listen(engine, "connect", _set_sqlite_pragmas)
+    try:
+        with pytest.raises(IntegrityError):
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO api_keys (user_id, name, prefix, key_hash,"
+                        " created_at) VALUES (999, 'k', 'p', 'h', '2026-01-01')"
+                    )
+                )
+    finally:
+        engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# print_jobs.cost backfill (175be54ef975)
+# ---------------------------------------------------------------------------
+
+
+def test_backfill_populates_existing_jobs(tmp_path: Path) -> None:
+    """A job completed before the migration gets its cost resolved from its
+    metadata/profile, exactly like a freshly-completed job would today."""
+    db_path = tmp_path / "precost.sqlite"
+    cfg = _upgrade_to(db_path, "b2d8f6a1c94e")  # the revision before this one
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO models (id, name, slug, hash, created_at, updated_at)"
+                " VALUES (1, 'M', 'm', 'h', '2026-01-01', '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO files (id, model_id, path, original_filename,"
+                " file_type, version, size_bytes, sha256, is_recommended,"
+                " is_external, uploaded_at)"
+                " VALUES (1, 1, '/f', 'f.gcode', 'gcode', 1, 1, 'sha',"
+                " 0, 0, '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO metadata (id, file_id, material_type, material_brand,"
+                " created_at)"
+                " VALUES (1, 1, 'PLA', 'Hatchbox', '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO filament_profiles (id, name, material_type,"
+                " material_brand, cost_per_kg, created_at, updated_at)"
+                " VALUES (1, 'Hatchbox PLA', 'PLA', 'Hatchbox', 20.0,"
+                " '2026-01-01', '2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO print_jobs (id, file_id, model_id, remote_filename,"
+                " state, progress, source, filament_used_g, created_at, updated_at)"
+                " VALUES (1, 1, 1, 'f.gcode', 'completed', 1.0, 'vault', 100.0,"
+                " '2026-01-01', '2026-01-01')"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT cost, filament_g_effective FROM print_jobs WHERE id = 1")
+        ).one()
+        assert row.filament_g_effective == 100.0
+        # 100g @ 20/kg => 2.00.
+        assert row.cost == 2.0
+    engine.dispose()

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Dict, Set
+from typing import Any, Dict
 
 from fastapi import Request, WebSocket
 from sqlmodel import Session, select
@@ -27,10 +27,12 @@ from app.db.models import (
     PrinterStatus,
 )
 from app.db.session import get_session_factory
+from app.services.backup import restore_in_progress
 from app.services import filament as filament_svc
 from app.services import notifications
 from app.services import print_results
 from app.services.printer_provider import ProviderError, get_provider_client
+from app.services.realtime import InProcessBus, RealtimeBus
 from app.services.runtime_config import auto_mark_known_good_enabled
 from app.db.scopes import live
 
@@ -99,20 +101,23 @@ _STATUS_WRITE_INTERVAL_S = 30.0
 
 
 class PrinterHub:
-    def __init__(self) -> None:
+    def __init__(self, bus: RealtimeBus | None = None) -> None:
         self.snapshots: Dict[int, Dict[str, Any]] = {}
-        self.subscribers: Dict[int, Set[WebSocket]] = {}
+        self.bus: RealtimeBus = bus if bus is not None else InProcessBus()
         self.tasks: Dict[int, asyncio.Task] = {}
         self.stop_events: Dict[int, asyncio.Event] = {}
         self._lock = asyncio.Lock()
         # printer_id -> (status, error, monotonic time of last DB write)
         self._last_status_write: Dict[int, tuple[PrinterStatus, str | None, float]] = {}
 
+    @staticmethod
+    def _channel(printer_id: int) -> str:
+        return f"printer:{printer_id}"
+
     # -- WS subscriber registry --
 
     async def attach(self, printer_id: int, ws: WebSocket) -> None:
-        async with self._lock:
-            self.subscribers.setdefault(printer_id, set()).add(ws)
+        await self.bus.subscribe(self._channel(printer_id), ws)
         snap = self.snapshots.get(printer_id)
         if snap is not None:
             try:
@@ -123,24 +128,10 @@ class PrinterHub:
                 pass
 
     async def detach(self, printer_id: int, ws: WebSocket) -> None:
-        async with self._lock:
-            subs = self.subscribers.get(printer_id)
-            if subs and ws in subs:
-                subs.remove(ws)
+        await self.bus.unsubscribe(self._channel(printer_id), ws)
 
     async def _broadcast(self, printer_id: int, payload: Dict[str, Any]) -> None:
-        async with self._lock:
-            subs = list(self.subscribers.get(printer_id, ()))
-        dead: list[WebSocket] = []
-        for ws in subs:
-            try:
-                await ws.send_json(payload)
-            except Exception:
-                dead.append(ws)
-        if dead:
-            async with self._lock:
-                for ws in dead:
-                    self.subscribers.get(printer_id, set()).discard(ws)
+        await self.bus.publish(self._channel(printer_id), payload)
 
     # -- printer lifecycle --
 
@@ -344,6 +335,8 @@ class PrinterHub:
         """
         if not filename:
             return
+        if restore_in_progress():
+            return
         try:
             await asyncio.to_thread(
                 self._sync_active_job_db,
@@ -482,6 +475,11 @@ class PrinterHub:
                         ),
                         density_g_cm3=linked.density_g_cm3 if linked else None,
                     )
+                if new_state == PrintJobState.COMPLETED:
+                    (
+                        job.filament_g_effective,
+                        job.cost,
+                    ) = print_results.resolve_completion_cost(session, job)
             if changed:
                 job.updated_at = utcnow()
                 if new_state == PrintJobState.FAILED:

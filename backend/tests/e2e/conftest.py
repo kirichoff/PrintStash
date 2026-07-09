@@ -32,7 +32,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.core.config import _overlay
 from app.db.session import SQLiteSessionFactory, override_session_factory
 from app.services import notification_renderers as renderers
-from app.services import notifications as notifications_service
+from app.core import url_safety
 
 from .fakes.provider_targets import build_provider_app
 from .fakes.recorder import Recorder
@@ -106,7 +106,9 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> Iterator[Fakes]:
     # Point the Telegram renderer at the fake Bot API (host is otherwise fixed).
     monkeypatch.setattr(renderers, "TELEGRAM_API_BASE", server.base_url)
     # Allow loopback targets — real providers are public, the fake is on 127.0.0.1.
-    monkeypatch.setattr(notifications_service, "is_public_url", lambda _url: True)
+    # Only the IP classification is relaxed: resolution and the pinned transport
+    # still run for real, so the dispatcher's egress path is the shipped one.
+    monkeypatch.setattr(url_safety, "is_public_ip", lambda _ip: True)
 
     try:
         yield Fakes(recorder=recorder, base_url=server.base_url)

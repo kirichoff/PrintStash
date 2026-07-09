@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.logging import get_logger
@@ -128,9 +129,21 @@ def resolve_or_create_model(
             name=model_name, slug=slug, hash=dedup_hash, source_url=source_url
         )
         session.add(model)
-        session.commit()
-        session.refresh(model)
-        return model, True
+        try:
+            session.commit()
+        except IntegrityError:
+            # Another upload of the same bytes won the race between the SELECT
+            # above and this INSERT (Model.hash is unique). Dedup onto theirs
+            # rather than failing the second uploader's request.
+            session.rollback()
+            existing = session.exec(
+                select(Model).where(Model.hash == dedup_hash)
+            ).first()
+            if existing is None:
+                raise
+        else:
+            session.refresh(model)
+            return model, True
 
     if actor is not None:
         rbac.require_model_collection_role(
@@ -239,25 +252,34 @@ def persist_artifact(
         external_library_id=external_library_id,
         source_mtime=source_mtime,
     )
-    session.add(file_row)
-    session.commit()
-    session.refresh(file_row)
-    assert file_row.id is not None
+    # One transaction for the whole artifact: a File row committed before its
+    # Metadata is a model that renders with no print time, filament or cost and
+    # no error to explain it. flush() allocates the id the thumbnail key needs
+    # without ending the transaction.
+    try:
+        session.add(file_row)
+        session.flush()
+        assert file_row.id is not None
 
-    if thumb_bytes:
-        thumb_key = backend.thumbnail_key(file_row.id)
-        backend.write_bytes(thumbnail.to_webp(thumb_bytes), thumb_key)
-        if overwrite_thumbnail or not model.thumbnail_path:
-            model.thumbnail_path = thumb_key
-            model.thumbnail_file_id = file_row.id
-            session.add(model)
+        if thumb_bytes:
+            thumb_key = backend.thumbnail_key(file_row.id)
+            backend.write_bytes(thumbnail.to_webp(thumb_bytes), thumb_key)
+            if overwrite_thumbnail or not model.thumbnail_path:
+                model.thumbnail_path = thumb_key
+                model.thumbnail_file_id = file_row.id
+                session.add(model)
 
-    # The parser may carry detection-only keys (e.g. printer_preset_name)
-    # that have no Metadata column.
-    md_fields = {k: v for k, v in meta.items() if k in Metadata.model_fields}
-    md = Metadata(file_id=file_row.id, **md_fields)
-    session.add(md)
-    session.commit()
+        # The parser may carry detection-only keys (e.g. printer_preset_name)
+        # that have no Metadata column.
+        md_fields = {k: v for k, v in meta.items() if k in Metadata.model_fields}
+        session.add(Metadata(file_id=file_row.id, **md_fields))
+        session.commit()
+    except Exception:
+        session.rollback()
+        # The blob was already moved into place. Leaving it is safe: no row
+        # claims it, so the orphan sweep collects it (see storage_utils).
+        raise
+
     session.refresh(file_row)
     return file_row
 

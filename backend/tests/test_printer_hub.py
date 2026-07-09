@@ -12,7 +12,7 @@ from app.db.models import PrintJob, PrintJobState, Printer, PrinterStatus
 class TestPrinterHubLifecycle:
     def test_init_creates_empty_collections(self, hub):
         assert hub.snapshots == {}
-        assert hub.subscribers == {}
+        assert hub.bus is not None
         assert hub.tasks == {}
         assert hub.stop_events == {}
 

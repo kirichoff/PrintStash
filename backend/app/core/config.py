@@ -21,6 +21,11 @@ from sqlalchemy.engine.url import make_url
 _overlay: dict[str, Any] = {}
 _overlay_lock = asyncio.Lock()
 
+# The secret shipped in .env.example and the compose defaults. Public knowledge,
+# therefore never usable: ``runtime_config.ensure_jwt_secret`` replaces it with a
+# generated one on first boot.
+DEFAULT_JWT_SECRET = "changeme_jwt_secret_please_change"
+
 
 class Settings(BaseSettings):
     """Frozen env-only settings. Never mutated after import.
@@ -54,7 +59,7 @@ class Settings(BaseSettings):
 
     db_url: str = "sqlite:////data/db/printstash.sqlite"
 
-    jwt_secret: str = "changeme_jwt_secret_please_change"
+    jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     # "Remember me" login lifetime. Kept short because the access token is a
@@ -164,7 +169,7 @@ class Settings(BaseSettings):
     backup_s3_secret_key: str = ""
 
     app_name: str = "PrintStash"
-    app_version: str = "0.8.3"
+    app_version: str = "0.8.4"
 
     @property
     def incoming_dir(self) -> Path:

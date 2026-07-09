@@ -52,10 +52,17 @@ def test_update_preserves_secret_when_blank(client: TestClient, auth_headers):
     # Verify by sending a test: a preserved URL renders/sends (mock the network).
     from unittest.mock import AsyncMock, MagicMock, patch
 
+    from app.core.url_safety import PinnedTarget
+
     resp = MagicMock(status_code=204, text="")
     fake = MagicMock(request=AsyncMock(return_value=resp))
-    with patch("app.services.notifications.get_http_client", return_value=fake), patch(
-        "app.services.notifications.is_public_url", return_value=True
+    fake.__aenter__ = AsyncMock(return_value=fake)
+    fake.__aexit__ = AsyncMock(return_value=False)
+    target = PinnedTarget(
+        url="https://hooks.example/x", host="hooks.example", port=443, ip="93.184.216.34"
+    )
+    with patch("app.services.notifications._client_for", return_value=fake), patch(
+        "app.services.notifications.resolve_public_target", return_value=target
     ):
         out = client.post(
             f"/api/v1/notifications/channels/{cid}/test", headers=auth_headers

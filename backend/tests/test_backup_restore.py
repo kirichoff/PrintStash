@@ -73,6 +73,9 @@ def backup_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Back
     # Reset cached singletons so they pick up our overlay.
     monkeypatch.setattr(storage_backend, "_backend", None, raising=False)
     monkeypatch.setattr(backup, "_backup_s3", None, raising=False)
+    # Real restores wait a grace period for in-flight jobs to finish; tests
+    # don't need to pay that wall-clock cost.
+    monkeypatch.setattr(backup, "_RESTORE_GRACE_PERIOD_S", 0)
 
     try:
         yield BackupEnv(
@@ -334,6 +337,71 @@ def test_download_then_restore_endpoint_round_trip(
 def test_restore_unknown_backup_raises(backup_env: BackupEnv):
     with pytest.raises(FileNotFoundError):
         backup.restore_backup("does-not-exist")
+
+
+# ---------------------------------------------------------------------------
+# Restore gate (item 11: quiesce background loops during restore)
+# ---------------------------------------------------------------------------
+
+
+def test_restore_rejected_while_job_running(backup_env: BackupEnv):
+    from app.services.jobs import registry
+
+    _seed_model_with_blob(backup_env, name="Widget", content=b"x")
+    meta = backup.create_backup()
+    db_bytes_before = backup_env.db_file.read_bytes()
+
+    job_id = registry.create()
+    registry.update(job_id, state="running")
+    try:
+        with pytest.raises(backup.RestoreConflictError):
+            backup.restore_backup(meta.id)
+    finally:
+        registry.update(job_id, state="completed")
+
+    assert backup_env.db_file.read_bytes() == db_bytes_before
+    assert not backup.restore_in_progress()
+
+
+def test_gc_skips_during_restore(backup_env: BackupEnv):
+    from app.services import trash
+
+    # A trashed row past retention would normally be purged.
+    with backup_env.new_session() as session:
+        from app.core.time import utcnow
+        from datetime import timedelta
+
+        from app.db.models import Tag
+
+        session.add(Tag(name="stale", slug="stale", deleted_at=utcnow() - timedelta(days=999)))
+        session.commit()
+
+    backup._restore_gate.set()
+    try:
+        result = trash.gc_soft_deleted()
+    finally:
+        backup._restore_gate.clear()
+
+    assert result == {"rows": 0, "orphan_blobs": 0}
+    with backup_env.new_session() as session:
+        assert session.exec(select(Tag)).first() is not None
+
+
+def test_gate_is_cleared_when_restore_raises(
+    backup_env: BackupEnv, monkeypatch: pytest.MonkeyPatch
+):
+    _seed_model_with_blob(backup_env, name="Widget", content=b"x")
+    meta = backup.create_backup()
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated failure mid-restore")
+
+    monkeypatch.setattr(backup, "_download_backup_to_local", _boom)
+
+    with pytest.raises(RuntimeError):
+        backup.restore_backup(meta.id)
+
+    assert not backup.restore_in_progress()
 
 
 def test_delete_backup_removes_archive(backup_env: BackupEnv):

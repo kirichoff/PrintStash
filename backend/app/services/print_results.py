@@ -27,6 +27,36 @@ def material_type_for_file(session: Session, file_id: int) -> str | None:
     return meta.material_type if meta else None
 
 
+def resolve_completion_cost(
+    session: Session, job: PrintJob
+) -> tuple[float | None, float | None]:
+    """Effective filament grams and frozen cost for a job reaching COMPLETED.
+
+    Called once, at the moment a job is marked completed, from every path
+    that can do that (live printer sync, manual log, history import) so
+    ``print_statistics`` can sum a persisted column instead of re-deriving
+    cost per row on every dashboard load. The result is frozen — a later
+    change to a filament profile's price does not revise it.
+    """
+    from app.services import model_views
+
+    md = session.exec(
+        select(Metadata).where(Metadata.file_id == job.file_id)
+    ).first()
+    if job.filament_used_g is not None:
+        grams = job.filament_used_g
+    elif md is not None:
+        grams = md.filament_weight_g
+    else:
+        grams = None
+
+    profiles = model_views._load_filament_profiles(session)
+    cost = model_views.filament_cost_for_job(profiles, md, grams, job.spool_filament_id)
+    if cost is None and job.filament_used_g is None and md is not None:
+        cost = md.filament_cost
+    return grams, cost
+
+
 def linked_profile_for_spool(
     session: Session, spool_filament_id: int | None
 ) -> FilamentProfile | None:

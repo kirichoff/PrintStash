@@ -493,6 +493,11 @@ class SystemConfig(SQLModel, table=True):
     # Storage backend: "local" or "s3"
     storage_backend: Optional[str] = Field(default=None, max_length=64)
 
+    # Generated on first boot when no VAULT_JWT_SECRET is supplied, so an install
+    # never signs tokens with the public default. Stays None when the operator
+    # sets the env var — theirs wins and we don't copy it into the DB.
+    jwt_secret: Optional[str] = Field(default=None, max_length=128)
+
     # S3 / R2 settings
     s3_bucket: Optional[str] = Field(default=None, max_length=256)
     s3_endpoint_url: Optional[str] = Field(default=None, max_length=512)
@@ -674,6 +679,13 @@ class PrintJob(SQLModel, table=True):
     filament_used_mm: Optional[float] = None
     filament_used_g: Optional[float] = None
     actual_duration_s: Optional[int] = None
+
+    # Resolved once at completion (`filament_cost_for_job`) and frozen from
+    # then on — editing a filament profile's price afterwards does not
+    # change historical cost. Populated by every write path that marks a job
+    # COMPLETED; backfilled for pre-existing rows by migration 175be54ef975.
+    cost: Optional[float] = None
+    filament_g_effective: Optional[float] = None
 
     # Spoolman spool this print consumed, selected when starting/logging the
     # job. A soft reference (Spoolman owns the spool table) — not an FK. The

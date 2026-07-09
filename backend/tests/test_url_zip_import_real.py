@@ -38,6 +38,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 import app.core.http_client as http_client
+from app.core import url_safety
 from app.core.config import _overlay, settings
 from app.db.models import Collection, File, FileType, Model
 from app.services import import_resolvers, importer
@@ -211,8 +212,9 @@ async def test_download_to_staging_fetches_real_file(
     }
 
     # Only the SSRF guard's IP classification is relaxed; the rest of the
-    # download (real httpx stream, header parsing, disk write) runs for real.
-    with patch.object(importer, "_is_public_ip", return_value=True):
+    # download (real httpx stream against the pinned peer, header parsing,
+    # disk write) runs for real.
+    with patch.object(url_safety, "is_public_ip", return_value=True):
         staged, filename = await importer.download_to_staging(f"{base}/download")
 
     assert filename == "3dbenchy.stl"
@@ -231,7 +233,7 @@ async def test_download_to_staging_follows_redirect(
     routes["/start"] = {"status": 302, "headers": {"Location": "/final.stl"}}
     routes["/final.stl"] = {"headers": {"Content-Type": "model/stl"}, "body": b"solid x\nendsolid x\n"}
 
-    with patch.object(importer, "_is_public_ip", return_value=True):
+    with patch.object(url_safety, "is_public_ip", return_value=True):
         staged, filename = await importer.download_to_staging(f"{base}/start")
 
     # Filename falls back to the final URL's path component.
@@ -249,7 +251,7 @@ async def test_download_to_staging_enforces_size_limit(
     routes["/big.stl"] = {"body": b"\0" * (2 * 1024 * 1024)}  # 2 MiB
 
     incoming_before = set(settings.incoming_dir.iterdir())
-    with patch.object(importer, "_is_public_ip", return_value=True):
+    with patch.object(url_safety, "is_public_ip", return_value=True):
         with pytest.raises(importer.ImportError_) as exc:
             await importer.download_to_staging(f"{base}/big.stl")
 
@@ -291,7 +293,7 @@ def test_ingest_url_downloads_and_ingests_for_real(
     }
     url = f"{base}/3dbenchy.stl"
 
-    with patch.object(importer, "_is_public_ip", return_value=True):
+    with patch.object(url_safety, "is_public_ip", return_value=True):
         payload = _job(
             client,
             client.post(
