@@ -101,4 +101,4 @@ Because dedup is by content hash, re-uploading the identical file is a no-op
 rather than a duplicate, handy when a hook fires twice.
 
 For automated pushes after every slice, use the OrcaSlicer hook described in the
-[user guide](/PrintStash/guides/user-guide/#skip-the-manual-upload-the-orcaslicer-hook).
+[user guide](/guides/user-guide/#skip-the-manual-upload-the-orcaslicer-hook).

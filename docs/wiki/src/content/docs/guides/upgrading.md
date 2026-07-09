@@ -10,7 +10,7 @@ the old image around** until the new one has proven itself.
 ## Before you upgrade
 
 - Know where your data lives: the Docker volumes or local data directories.
-- Take a fresh backup. See [Backup & restore](/PrintStash/guides/backup-and-restore/).
+- Take a fresh backup. See [Backup & restore](/guides/backup-and-restore/).
 - Briefly stop slicer hooks and scheduled jobs so no uploads land during the
   migration window.
 - Keep the previous image tag available so rollback is a real option, not a
@@ -141,7 +141,7 @@ If an upgrade goes wrong:
 
 1. Stop the upgraded containers.
 2. Restore the backup you took before upgrading (see
-   [Backup & restore](/PrintStash/guides/backup-and-restore/)).
+   [Backup & restore](/guides/backup-and-restore/)).
 3. Start the *previous* application tag against the restored database and files.
 
 This is the whole reason for taking a backup and keeping the old tag: rollback is

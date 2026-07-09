@@ -6,7 +6,7 @@ description: "The everyday loop: add files, check them, mark what worked, find t
 This is the normal PrintStash loop: add files, understand what you have, and find
 the right one later. It describes what the app does today. If terms like
 *model*, *artifact*, or *recommended revision* are new, skim
-[Core concepts](/PrintStash/concepts/core-concepts/) first.
+[Core concepts](/concepts/core-concepts/) first.
 
 The questions this loop answers:
 
@@ -91,7 +91,7 @@ file inventory, and import its print history onto the matching models.
 Open the **Diagnostics** tab to see the provider's support level, capability
 checks, and which actions aren't supported. PrintStash is Moonraker-first; Bambu
 LAN is beta and limited to status plus pause/resume/cancel. The full breakdown is
-in [Printers & providers](/PrintStash/guides/printers/).
+in [Printers & providers](/guides/printers/).
 
 ## 6. See what you've printed
 
@@ -114,7 +114,7 @@ They deliberately **exclude** the raw STL/G-code blobs, secrets, and printer
 credentials, and they require auth, because filenames, materials, and print
 history can leak more about a job than you'd expect. For moving or recovering an
 entire install (blobs and all), use full
-[backup & restore](/PrintStash/guides/backup-and-restore/) instead.
+[backup & restore](/guides/backup-and-restore/) instead.
 
 ## Skip the manual upload: the OrcaSlicer hook
 

@@ -12,7 +12,7 @@ PrintStash.
 - **Docker + Docker Compose** on a `linux/amd64` or `linux/arm64` host (Raspberry
   Pi 4/5, ARM NAS, and Apple-silicon VMs all work; on ARM, STEP/STP files store
   but don't get a 3D preview; see
-  [Known limitations](/PrintStash/reference/known-limitations/)).
+  [Known limitations](/reference/known-limitations/)).
 - **~1 GB RAM minimum, 2 GB comfortable.** Thumbnailing large meshes is the
   heaviest step; give it 2 GB if you upload big STLs.
 - **1–2 CPU cores.**
@@ -96,7 +96,7 @@ docker compose --profile s3 up -d minio
 
 Postgres listens on `5432`, and MinIO on `9000` (API) / `9001` (console). You
 only need these for larger or multi-user installs; see
-[Configuration](/PrintStash/getting-started/configuration/).
+[Configuration](/getting-started/configuration/).
 
 ## Before you expose it
 
@@ -109,7 +109,7 @@ reachable from outside your LAN, settle these:
 - Decide on storage. SQLite + local disk is the default and the best-tested path;
   switch to Postgres and/or S3 only if you actually need them.
 - Plan backups *before* you need them. See
-  [Backup & restore](/PrintStash/guides/backup-and-restore/).
+  [Backup & restore](/guides/backup-and-restore/).
 
 ### Reverse proxy with TLS
 
@@ -178,4 +178,4 @@ proxy too (Caddy and Traefik don't cap by default; nginx does, via
   obvious.
 
 For upgrading an existing install, see
-[Upgrading](/PrintStash/guides/upgrading/).
+[Upgrading](/guides/upgrading/).

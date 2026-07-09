@@ -58,7 +58,7 @@ PrintStash is early open-source software. The current build is useful for a home
 library and a Moonraker/Klipper workflow, and the backup, upgrade, and migration
 paths are real. It is **not** a slicer, firmware replacement, or print-farm
 scheduler. See
-[Known limitations](/PrintStash/reference/known-limitations/) for the honest
+[Known limitations](/reference/known-limitations/) for the honest
 list of rough edges and explicit non-goals.
 
 The thing that helps most right now is real-world feedback: which slicer profiles
@@ -77,6 +77,6 @@ issue.
 | Storage   | Local disk by default; S3/R2-compatible optional           |
 | Printers  | Moonraker/Klipper (stable), Bambu LAN (beta)               |
 
-New here? Go to [Installation](/PrintStash/getting-started/installation/). Want
-the vocabulary first? [Core concepts](/PrintStash/concepts/core-concepts/)
+New here? Go to [Installation](/getting-started/installation/). Want
+the vocabulary first? [Core concepts](/concepts/core-concepts/)
 explains how models, artifacts, and revisions relate.

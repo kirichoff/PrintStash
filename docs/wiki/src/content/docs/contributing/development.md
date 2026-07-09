@@ -32,7 +32,7 @@ uv run pytest            # tests
 The backend keeps a one-directional dependency: routers (`api/`) call services
 (`services/`), and **services never import from `api/` or `fastapi`**. Use
 `get_config()` for settings rather than importing the settings object directly.
-See [Architecture](/PrintStash/reference/architecture/).
+See [Architecture](/reference/architecture/).
 
 ## Frontend
 

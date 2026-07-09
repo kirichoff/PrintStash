@@ -7,7 +7,7 @@ PrintStash backs up the *whole* install, not just metadata. This is the path you
 use to move an install to new hardware, or to recover after a bad upgrade or a
 disk going sideways. (If you only need the metadata out, for analysis or
 migrating between tools, use the JSON/CSV export in
-[the user guide](/PrintStash/guides/user-guide/#6-get-your-data-back-out)
+[the user guide](/guides/user-guide/#6-get-your-data-back-out)
 instead.)
 
 ## What's in a backup
@@ -112,4 +112,4 @@ If the app is too broken to drive the restore through the API:
   new jobs; don't queue work onto a printer you haven't re-confirmed.
 
 The matching upgrade steps and rollback expectations live in
-[Upgrading](/PrintStash/guides/upgrading/).
+[Upgrading](/guides/upgrading/).
