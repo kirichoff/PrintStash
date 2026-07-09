@@ -78,6 +78,11 @@ services:
       VAULT_MAX_UPLOAD_MB: ${VAULT_MAX_UPLOAD_MB:-512}
       VAULT_LOG_LEVEL: ${VAULT_LOG_LEVEL:-INFO}
       TZ: UTC
+      # Trust X-Forwarded-For only from your reverse proxy's address (uvicorn
+      # --proxy-headers is already on). Set this to the proxy's IP/CIDR —
+      # otherwise the real client IP used for rate limiting and audit logs
+      # collapses to the proxy's address for every request.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
     volumes:
       - printstash_data:/data/files
       - printstash_thumbs:/data/thumbs
