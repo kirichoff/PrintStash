@@ -8,12 +8,13 @@ value without code changes. See ADR-0002.
 
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 from typing import Any, Optional
 
 from sqlmodel import Session, select
 
-from app.core.config import _overlay, ensure_dirs, settings
+from app.core.config import DEFAULT_JWT_SECRET, _overlay, ensure_dirs, settings
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.models import SystemConfig, User
@@ -92,6 +93,37 @@ def apply_overlay(session: Session) -> None:
     # the importer's existing cookie path picks it up (see makerworld_auth).
     if config.makerworld_token:
         _overlay["makerworld_cookie"] = f"token={config.makerworld_token}"
+
+
+def ensure_jwt_secret(session: Session) -> None:
+    """Guarantee this install does not sign tokens with the published default.
+
+    Env wins and is never copied into the DB. Otherwise the persisted secret is
+    applied, or a fresh one is generated and stored so it survives restarts —
+    regenerating on every boot would log everyone out on every restart.
+
+    Refusing to boot instead would brick every existing install, since the
+    compose files default ``VAULT_JWT_SECRET`` to the shipped value.
+    """
+    if settings.jwt_secret != DEFAULT_JWT_SECRET:
+        return
+
+    config = get_or_create(session)
+    if config.jwt_secret:
+        _overlay["jwt_secret"] = config.jwt_secret
+        return
+
+    generated = secrets.token_hex(32)
+    config.jwt_secret = generated
+    config.updated_at = utcnow()
+    session.add(config)
+    session.commit()
+    _overlay["jwt_secret"] = generated
+    logger.warning(
+        "no VAULT_JWT_SECRET set — generated one and stored it in the database. "
+        "Existing login sessions are now invalid. Set VAULT_JWT_SECRET "
+        "(openssl rand -hex 32) to manage it yourself."
+    )
 
 
 def update_storage(

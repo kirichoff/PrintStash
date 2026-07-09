@@ -493,6 +493,11 @@ class SystemConfig(SQLModel, table=True):
     # Storage backend: "local" or "s3"
     storage_backend: Optional[str] = Field(default=None, max_length=64)
 
+    # Generated on first boot when no VAULT_JWT_SECRET is supplied, so an install
+    # never signs tokens with the public default. Stays None when the operator
+    # sets the env var — theirs wins and we don't copy it into the DB.
+    jwt_secret: Optional[str] = Field(default=None, max_length=128)
+
     # S3 / R2 settings
     s3_bucket: Optional[str] = Field(default=None, max_length=256)
     s3_endpoint_url: Optional[str] = Field(default=None, max_length=512)
