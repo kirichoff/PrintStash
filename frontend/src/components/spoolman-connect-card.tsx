@@ -12,7 +12,7 @@ import { userMessage } from "@/lib/errors";
 import type { SpoolmanStatus } from "@/types";
 
 const INPUT_CLASS =
-  "w-full px-2.5 py-1.5 text-sm rounded border border-[var(--outline-variant)] bg-[var(--surface-container-lowest)] text-[var(--on-surface)] placeholder:text-[var(--on-surface-variant)]/40 disabled:opacity-50";
+  "w-full px-2.5 py-1.5 text-sm rounded border border-border bg-background text-foreground placeholder:text-muted-foreground/40 disabled:opacity-50";
 
 const SECRET_MASK = "********";
 
@@ -103,11 +103,11 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
   }, [baseUrl, apiKey]);
 
   return (
-    <div className="bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded overflow-hidden">
-      <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-5 border-b border-[var(--outline-variant)] flex items-center justify-between gap-2">
+    <div className="bg-card border border-border rounded overflow-hidden">
+      <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-5 border-b border-border flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-[var(--on-surface)]">Spoolman</h3>
-          <p className="text-xs text-[var(--on-surface-variant)] mt-0.5">
+          <h3 className="text-sm font-semibold text-foreground">Spoolman</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
             Track filament inventory and per-print consumption with a self-hosted
             Spoolman instance. Off by default.
           </p>
@@ -116,7 +116,7 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
           className={`font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded border flex-shrink-0 ${
             enabled && connected
               ? "text-green-600 dark:text-green-400 border-green-600/40"
-              : "text-[var(--on-surface-variant)] border-[var(--outline-variant)]"
+              : "text-muted-foreground border-border"
           }`}
         >
           {!enabled ? "Disabled" : connected ? "Connected" : "Not connected"}
@@ -125,16 +125,16 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
 
       <div className="p-3 sm:p-4 lg:p-6 space-y-4">
         {isLoading ? (
-          <p className="text-sm text-[var(--on-surface-variant)]">Loading…</p>
+          <p className="text-sm text-muted-foreground">Loading…</p>
         ) : !canEdit ? (
-          <p className="text-xs text-[var(--on-surface-variant)] italic">
+          <p className="text-xs text-muted-foreground italic">
             Only an administrator can configure Spoolman.
           </p>
         ) : (
           <>
             {/* Master switch */}
             <label className="flex items-center justify-between gap-3 cursor-pointer">
-              <span className="text-sm text-[var(--on-surface)]">
+              <span className="text-sm text-foreground">
                 Enable Spoolman integration
               </span>
               <input
@@ -155,7 +155,7 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
               }}
             >
               <div>
-                <label className="block text-[11px] text-[var(--on-surface-variant)] mb-1">
+                <label className="block text-[11px] text-muted-foreground mb-1">
                   Base URL
                 </label>
                 <input
@@ -167,7 +167,7 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
                 />
               </div>
               <div>
-                <label className="block text-[11px] text-[var(--on-surface-variant)] mb-1">
+                <label className="block text-[11px] text-muted-foreground mb-1">
                   API key <span className="opacity-60">(optional)</span>
                 </label>
                 <input
@@ -183,7 +183,7 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
                 <button
                   type="submit"
                   disabled={busy || !baseUrl.trim()}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] font-mono text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-primary text-primary-foreground font-mono text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
                 >
                   {busy ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -196,7 +196,7 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
                   type="button"
                   onClick={runTest}
                   disabled={busy || !baseUrl.trim()}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--outline-variant)] text-[var(--on-surface-variant)] font-mono text-xs uppercase tracking-wider hover:bg-[var(--surface-container)] disabled:opacity-50 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-border text-muted-foreground font-mono text-xs uppercase tracking-wider hover:bg-muted disabled:opacity-50 transition-colors"
                 >
                   <PlugZap className="h-3.5 w-3.5" />
                   Test connection
@@ -206,11 +206,11 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
 
             {/* Write-back + double-count warning */}
             {enabled && (
-              <div className="space-y-2 pt-1 border-t border-[var(--outline-variant)]">
+              <div className="space-y-2 pt-1 border-t border-border">
                 <label className="flex items-center justify-between gap-3 cursor-pointer pt-3">
-                  <span className="text-sm text-[var(--on-surface)]">
+                  <span className="text-sm text-foreground">
                     Write consumption back to Spoolman
-                    <span className="block text-[11px] text-[var(--on-surface-variant)]">
+                    <span className="block text-[11px] text-muted-foreground">
                       Decrements the selected spool by measured filament when a
                       print completes (Moonraker-measured prints only).
                     </span>
@@ -255,8 +255,8 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
 
             {/* Inventory */}
             {enabled && connected && spools && spools.length > 0 && (
-              <div className="pt-1 border-t border-[var(--outline-variant)]">
-                <h4 className="text-[11px] uppercase tracking-wider text-[var(--on-surface-variant)] pt-3 pb-2">
+              <div className="pt-1 border-t border-border">
+                <h4 className="text-[11px] uppercase tracking-wider text-muted-foreground pt-3 pb-2">
                   Inventory
                 </h4>
                 <ul className="space-y-1">
@@ -267,24 +267,24 @@ export function SpoolmanConnectCard({ canEdit }: { canEdit: boolean }) {
                     >
                       <span className="flex items-center gap-2 min-w-0">
                         <span
-                          className="h-2.5 w-2.5 rounded-full flex-shrink-0 border border-[var(--outline-variant)]"
+                          className="h-2.5 w-2.5 rounded-full flex-shrink-0 border border-border"
                           style={{
                             backgroundColor: s.color_hex
                               ? `#${s.color_hex.replace(/^#/, "")}`
                               : "transparent",
                           }}
                         />
-                        <span className="truncate text-[var(--on-surface)]">
+                        <span className="truncate text-foreground">
                           {s.filament_name || s.name || `Spool ${s.id}`}
                           {s.vendor_name ? (
-                            <span className="text-[var(--on-surface-variant)]">
+                            <span className="text-muted-foreground">
                               {" "}
                               · {s.vendor_name}
                             </span>
                           ) : null}
                         </span>
                       </span>
-                      <span className="font-mono text-xs text-[var(--on-surface-variant)] flex-shrink-0">
+                      <span className="font-mono text-xs text-muted-foreground flex-shrink-0">
                         {formatGrams(s.remaining_weight)} left
                       </span>
                     </li>
