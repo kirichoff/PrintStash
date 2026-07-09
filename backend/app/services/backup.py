@@ -14,6 +14,8 @@ import gzip
 import io
 import json
 import tarfile
+import threading
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -23,10 +25,25 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.db.session import get_engine, get_session_factory
+from app.services.jobs import registry
 from app.services.storage_backend import get_backend
 from app.services.storage_utils import all_owned_blob_keys
 
 logger = get_logger(__name__)
+
+# ponytail: process-wide gate, single-process/single-worker only. A
+# multi-worker deployment needs a DB-backed lock instead of this in-memory
+# Event — not built here.
+_restore_gate = threading.Event()
+_RESTORE_GRACE_PERIOD_S = 2.0
+
+
+class RestoreConflictError(Exception):
+    """Raised when a restore is refused because ingestion work is in flight."""
+
+
+def restore_in_progress() -> bool:
+    return _restore_gate.is_set()
 
 MANIFEST_VERSION = "1"
 _BACKUP_S3_PREFIX = "printstash-backups/"
@@ -500,34 +517,52 @@ def restore_backup(backup_id: str) -> dict:
 
     Downloads from S3 if the backup is only in cloud storage.
     WARNING: This replaces the current database and all files.
+
+    Sets a process-wide gate so background loops (GC, external scans, printer
+    sync) skip their tick instead of racing the DB file swap. Refuses with
+    ``RestoreConflictError`` if ingestion work is still running after a short
+    grace period, rather than restoring underneath it.
     """
     meta = get_backup(backup_id)
     if meta is None:
         raise FileNotFoundError(f"backup {backup_id} not found")
 
-    archive_path = _download_backup_to_local(meta)
-    restored_files = 0
+    _restore_gate.set()
+    try:
+        time.sleep(_RESTORE_GRACE_PERIOD_S)
+        running = registry.snapshot_counts()["running"]
+        if running:
+            raise RestoreConflictError(
+                f"{running} ingestion job(s) still running; retry once they finish"
+            )
 
-    # Seekable read so the manifest (written last) can be consulted before the
-    # file members are written, regardless of their order in the archive.
-    with tarfile.open(archive_path, mode="r:gz") as tar:
-        arc_to_key = _restore_key_map(tar)
+        archive_path = _download_backup_to_local(meta)
+        restored_files = 0
 
-        db_member = tar.extractfile("db.sqlite3") if _has_member(tar, "db.sqlite3") else None
-        if db_member is not None:
-            _restore_database(db_member.read())
+        # Seekable read so the manifest (written last) can be consulted before the
+        # file members are written, regardless of their order in the archive.
+        with tarfile.open(archive_path, mode="r:gz") as tar:
+            arc_to_key = _restore_key_map(tar)
 
-        for member in tar.getmembers():
-            if not member.name.startswith("files/") or member.name == "files/":
-                continue
-            f = tar.extractfile(member)
-            if f is None:
-                continue
-            # Prefer the exact key the manifest recorded; fall back to the legacy
-            # arcname transform for archives created before the map existed.
-            key = arc_to_key.get(member.name, member.name[len("files/") :])
-            get_backend().write_bytes(f.read(), key)
-            restored_files += 1
+            db_member = (
+                tar.extractfile("db.sqlite3") if _has_member(tar, "db.sqlite3") else None
+            )
+            if db_member is not None:
+                _restore_database(db_member.read())
+
+            for member in tar.getmembers():
+                if not member.name.startswith("files/") or member.name == "files/":
+                    continue
+                f = tar.extractfile(member)
+                if f is None:
+                    continue
+                # Prefer the exact key the manifest recorded; fall back to the legacy
+                # arcname transform for archives created before the map existed.
+                key = arc_to_key.get(member.name, member.name[len("files/") :])
+                get_backend().write_bytes(f.read(), key)
+                restored_files += 1
+    finally:
+        _restore_gate.clear()
 
     logger.info("backup %s restored: %d files", backup_id, restored_files)
 

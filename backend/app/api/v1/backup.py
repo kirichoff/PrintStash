@@ -131,6 +131,8 @@ def restore_backup(backup_id: str) -> dict:
         result = backup.restore_backup(backup_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="backup_not_found")
+    except backup.RestoreConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         logger.exception("restore %s failed", backup_id)
         raise HTTPException(status_code=500, detail=str(exc))

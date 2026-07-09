@@ -30,6 +30,7 @@ from app.services.audit import (
     install_audit_listeners,
     set_audit_context,
 )
+from app.services.backup import restore_in_progress
 from app.services.trash import gc_soft_deleted
 from app.services.library_watcher import LibraryWatcher
 from app.services.notifications import run_dispatcher_loop
@@ -133,6 +134,8 @@ async def _external_scan_loop() -> None:
     """
     while True:
         await asyncio.sleep(60)
+        if restore_in_progress():
+            continue
         try:
             await asyncio.to_thread(_run_due_external_scans)
         except Exception:

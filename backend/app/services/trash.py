@@ -144,7 +144,17 @@ def _cleanup_orphan_blobs(session: Session) -> int:
 
 def gc_soft_deleted(retention_days: int | None = None) -> dict[str, int]:
     """Hourly GC: purge expired trash rows across all soft-deletable tables,
-    then sweep orphaned blobs."""
+    then sweep orphaned blobs.
+
+    No-ops while a backup restore is in progress — restore replaces the DB
+    file and disposes the engine, so a GC pass racing it would run queries
+    against a database that no longer matches its connection.
+    """
+    from app.services.backup import restore_in_progress
+
+    if restore_in_progress():
+        logger.info("gc skipped: backup restore in progress")
+        return {"rows": 0, "orphan_blobs": 0}
     effective_retention = (
         int(settings.trash_retention_days) if retention_days is None else retention_days
     )
