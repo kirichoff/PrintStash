@@ -390,6 +390,35 @@ class TestPrinterHubSyncActiveJob:
         assert jobs[0].finished_at is not None
         assert jobs[1].state == PrintJobState.PRINTING  # new run
 
+    def test_active_job_cache_is_used_on_repeat_tick(self, hub, db_session):
+        """After the first tick, a same-filename tick hits the cache: the
+        expensive filtered-select lookup runs at most once, not per tick."""
+        import app.services.printer_hub as printer_hub_mod
+
+        pid, job = self._setup_job(db_session)
+
+        select_calls = 0
+        real_select = printer_hub_mod.select
+
+        def _counting_select(*args, **kwargs):
+            nonlocal select_calls
+            select_calls += 1
+            return real_select(*args, **kwargs)
+
+        async def _tick(state, stats):
+            await hub._sync_active_job(pid, state, "sync.gcode", 0.1, stats)
+
+        asyncio.run(_tick("printing", {"state": "printing"}))
+        assert hub._active_job_cache[pid] == ("sync.gcode", job.id)
+
+        printer_hub_mod.select = _counting_select
+        try:
+            asyncio.run(_tick("printing", {"state": "printing"}))
+        finally:
+            printer_hub_mod.select = real_select
+
+        assert select_calls == 0, "cache hit should skip the PrintJob select"
+
     def test_repeated_complete_tick_does_not_duplicate(self, hub):
         """A second 'complete' tick after a print finishes is idempotent — it
         must match the existing finished row, not create a duplicate."""

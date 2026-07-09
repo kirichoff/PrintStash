@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -63,11 +64,10 @@ def _model_exists_with_slug(session: Session, slug: str) -> bool:
 
 
 def _next_version_for_model(session: Session, model_id: int) -> int:
-    stmt = select(File).where(File.model_id == model_id)
-    files = session.exec(stmt).all()
-    if not files:
-        return 1
-    return max(f.version for f in files) + 1
+    max_version = session.exec(
+        select(func.max(File.version)).where(File.model_id == model_id)
+    ).one()
+    return (max_version or 0) + 1
 
 
 def _apply_taxonomy(
