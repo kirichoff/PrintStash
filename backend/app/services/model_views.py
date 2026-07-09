@@ -10,6 +10,8 @@ per facet) — N+1 regressions are bugs in this module, testable without HTTP.
 
 from __future__ import annotations
 
+from time import monotonic
+
 from collections import defaultdict
 from datetime import datetime, timedelta
 import csv
@@ -842,6 +844,29 @@ def list_trashed(
 # ---------------------------------------------------------------------------
 
 
+# ``backend.usage()`` walks the whole storage tree (or lists the bucket). The
+# dashboard calls it on every load, where a slightly stale total is fine.
+_USAGE_TTL_S = 60.0
+_usage_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+
+
+def _cached_storage_usage() -> dict:
+    """Storage usage, recomputed at most once per minute per configured backend.
+
+    Keyed on the effective backend + data dir so a runtime reconfiguration (and
+    each test's tmp_path) gets its own entry. Failures are not cached: a
+    transient S3 error should not pin an error state for a minute.
+    """
+    key = (str(settings.storage_backend), str(settings.data_dir))
+    now = monotonic()
+    hit = _usage_cache.get(key)
+    if hit is not None and now - hit[0] < _USAGE_TTL_S:
+        return hit[1]
+    usage = get_backend().usage()
+    _usage_cache[key] = (now, usage)
+    return usage
+
+
 def vault_stats(session: Session, user: User) -> VaultStatsRead:
     live_model_ids = select(Model.id).where(
         live(Model),
@@ -884,7 +909,7 @@ def vault_stats(session: Session, user: User) -> VaultStatsRead:
     ).one()
 
     try:
-        storage_usage = StorageUsageRead(**get_backend().usage())
+        storage_usage = StorageUsageRead(**_cached_storage_usage())
     except Exception as exc:
         storage_usage = StorageUsageRead(
             backend=settings.storage_backend,
