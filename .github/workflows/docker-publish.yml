@@ -14,6 +14,7 @@ jobs:
   publish:
     name: Build and publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         include:
@@ -29,6 +30,10 @@ jobs:
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        with:
+          # Newer binfmt images crash with "illegal instruction" on arm64
+          # emulation of Node's JIT output. Pin to the last known-good build.
+          image: tonistiigi/binfmt:qemu-v7.0.0-28
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4

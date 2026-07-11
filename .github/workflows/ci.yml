@@ -223,6 +223,7 @@ jobs:
   docker-build:
     name: Docker build (${{ matrix.image }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Catch arm64 build breakage before it reaches a release tag. Builds both
     # published platforms but never pushes — the release workflows publish.
     strategy:
@@ -241,6 +242,12 @@ jobs:
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        with:
+          # Newer binfmt images crash with "illegal instruction" on arm64
+          # emulation of Node's JIT output (hung the 0.8.5 release job for
+          # 6h before GitHub's job cap force-cancelled it). Pin to the last
+          # known-good QEMU build.
+          image: tonistiigi/binfmt:qemu-v7.0.0-28
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
