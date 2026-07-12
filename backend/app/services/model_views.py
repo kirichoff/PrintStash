@@ -33,6 +33,7 @@ from app.db.models import (
     FileType,
     Metadata,
     Model,
+    ModelStar,
     ModelTagLink,
     Printer,
     PrinterFile,
@@ -380,6 +381,7 @@ def list_items(
     q: Optional[str] = None,
     printer_id: Optional[int] = None,
     printer_presence: Optional[Literal["any", "none"]] = None,
+    favorites: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> List[ModelListItem]:
@@ -390,6 +392,10 @@ def list_items(
     # header count and the grid would otherwise disagree).
     stmt = select(Model).where(live(Model), Model.hash != SENTINEL_MODEL_HASH)
     stmt = _apply_model_access(stmt, session, user)
+
+    starred_model_ids = select(ModelStar.model_id).where(ModelStar.user_id == user.id)
+    if favorites:
+        stmt = stmt.where(Model.id.in_(starred_model_ids))  # type: ignore[union-attr]
 
     present_model_ids = (
         select(File.model_id)
@@ -457,6 +463,14 @@ def list_items(
     model_ids = [m.id for m in rows if m.id is not None]
     if not model_ids:
         return []
+    starred_ids = set(
+        session.exec(
+            select(ModelStar.model_id).where(
+                ModelStar.user_id == user.id,
+                ModelStar.model_id.in_(model_ids),  # type: ignore[union-attr]
+            )
+        ).all()
+    )
 
     # Batch the per-model lookups: one grouped/IN query per facet instead of
     # five queries per row (tags + collection already arrive via selectin).
@@ -568,6 +582,7 @@ def list_items(
                 print_summary=summaries.get(m.id),
                 recommended_revision_status=rec_status,
                 recommended_revision_label=rec_label,
+                starred=m.id in starred_ids,
             )
         )
     return out
@@ -594,6 +609,11 @@ def detail(session: Session, model_id: int, user: User) -> ModelRead | None:
         .outerjoin(Metadata, Metadata.file_id == File.id)
         .order_by(File.version.asc())  # type: ignore[attr-defined]
     ).all()
+    starred = session.exec(
+        select(ModelStar.id).where(
+            ModelStar.user_id == user.id, ModelStar.model_id == model_id
+        )
+    ).first() is not None
 
     return ModelRead(
         id=m.id,  # type: ignore[arg-type]
@@ -611,6 +631,7 @@ def detail(session: Session, model_id: int, user: User) -> ModelRead | None:
         created_at=m.created_at,
         updated_at=m.updated_at,
         files=_file_reads_with_revisions(session, files_with_meta),
+        starred=starred,
     )
 
 

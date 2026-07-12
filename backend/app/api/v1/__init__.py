@@ -17,6 +17,7 @@ from app.api.v1 import (
     notifications,
     printer_profiles,
     printers,
+    saved_views,
     setup,
     share,
     spoolman,
@@ -30,6 +31,7 @@ api_router.include_router(auth.router)
 api_router.include_router(admin.router)
 api_router.include_router(ingest.router)
 api_router.include_router(models.router)
+api_router.include_router(saved_views.router)
 api_router.include_router(files.router)
 api_router.include_router(filaments.router)
 api_router.include_router(printer_profiles.router)

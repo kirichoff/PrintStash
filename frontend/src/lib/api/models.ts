@@ -23,6 +23,7 @@ import {
   ModelPrinterFileRead,
   ModelPrintJobRead,
   ModelRead,
+  ModelStarRead,
   ModelUpdate,
   RevisionBatchResult,
   TrashPurgeRead,
@@ -41,12 +42,24 @@ export async function listModels(
   if (params?.offset) search.set("offset", String(params.offset));
   if (params?.printer_id) search.set("printer_id", String(params.printer_id));
   if (params?.printer_presence) search.set("printer_presence", params.printer_presence);
+  if (params?.favorites) search.set("favorites", "true");
   for (const tag of params?.tag ?? []) {
     search.append("tag", tag);
   }
 
   const query = search.toString();
   return getJson<ModelListItem[]>(`/api/v1/models${query ? `?${query}` : ""}`);
+}
+
+export function starModel(id: number): Promise<ModelStarRead> {
+  return sendJson<ModelStarRead>(`/api/v1/models/${id}/star`, "PUT", {});
+}
+
+export async function unstarModel(id: number): Promise<ModelStarRead> {
+  const path = `/api/v1/models/${id}/star`;
+  const res = await fetch(getUrl(path), { method: "DELETE", headers: authHeaders() });
+  invalidateApiCache(path);
+  return handleResponse<ModelStarRead>(res);
 }
 
 export function getModel(id: number): Promise<ModelRead> {

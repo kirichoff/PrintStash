@@ -47,6 +47,8 @@ _init_test_db()
 
 
 _TRUNCATE_TABLES_ORDER = [
+    "model_stars",
+    "saved_views",
     "notification_deliveries",
     "notification_channels",
     "printer_files",

@@ -80,6 +80,7 @@ class ModelRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     files: List[FileRead] = []
+    starred: bool = False
 
 
 class ModelPrinterFileRead(BaseModel):
@@ -149,6 +150,7 @@ class ModelListItem(BaseModel):
     print_summary: Optional[PrintSummaryRead] = None
     recommended_revision_status: Optional[FileRevisionStatus] = None
     recommended_revision_label: Optional[str] = None
+    starred: bool = False
 
 
 class TrashedModelRead(BaseModel):

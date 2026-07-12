@@ -4,9 +4,10 @@ import { Link } from "@/lib/navigation";
 import { useRouter } from "@/lib/navigation";
 import { memo, useEffect, useState } from "react";
 import { ModelListItem, FileRevisionStatus } from "@/types";
-import { FileText } from "lucide-react";
+import { FileText, Star } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { getAssetUrl } from "@/lib/api";
+import { getAssetUrl, starModel, unstarModel } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { timeAgoShort } from "@/lib/format";
 import { useAuthenticatedAssetUrl } from "@/lib/use-authenticated-asset-url";
 
@@ -112,6 +113,8 @@ function ModelCardInner({
 }) {
   const router = useRouter();
   const [dragging, setDragging] = useState(false);
+  const [starred, setStarred] = useState(model.starred);
+  const [starBusy, setStarBusy] = useState(false);
   const thumb = useAuthenticatedAssetUrl(model.thumbnail_url);
   // Lazy thumbnails used to snap in at full opacity the instant their bytes
   // arrived. Fade each one in on load so scrolling/searching settles smoothly
@@ -120,6 +123,23 @@ function ModelCardInner({
   const printerPresence = model.printer_presence ?? [];
   const hasPrinter = printerPresence.length > 0;
   const ps = model.print_summary;
+
+  useEffect(() => setStarred(model.starred), [model.starred]);
+
+  async function toggleStar() {
+    if (starBusy) return;
+    const next = !starred;
+    setStarred(next);
+    setStarBusy(true);
+    try {
+      await (next ? starModel(model.id) : unstarModel(model.id));
+    } catch (error) {
+      setStarred(!next);
+      toast.error(error);
+    } finally {
+      setStarBusy(false);
+    }
+  }
 
   // Hover intent: prefetch the detail route (server-rendered payload) and warm
   // the STL into the browser cache so the 3D viewer opens without a spinner.
@@ -160,6 +180,15 @@ function ModelCardInner({
           />
         </div>
       )}
+      <button
+        type="button"
+        onClick={(event) => { event.preventDefault(); event.stopPropagation(); void toggleStar(); }}
+        disabled={starBusy}
+        aria-label={starred ? `Remove ${model.name} from favorites` : `Add ${model.name} to favorites`}
+        className="absolute right-2 top-2 z-10 rounded bg-card/90 p-2 text-muted-foreground shadow-sm transition-[color,background-color,transform] duration-press ease-out hover:bg-card hover:text-primary active:scale-[0.98] disabled:opacity-50"
+      >
+        <Star className={`h-4 w-4 ${starred ? "fill-current text-primary" : ""}`} />
+      </button>
       <Link
         href={`/models/${model.id}`}
         draggable={false}

@@ -28,6 +28,8 @@ import {
   getAssetUrl,
   getModelPrinterFiles,
   getModelPrintJobs,
+  starModel,
+  unstarModel,
   updateModel,
 } from "@/lib/api";
 import { useCollections, useTags } from "@/lib/queries";
@@ -110,6 +112,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
   const [editing, setEditing] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [starBusy, setStarBusy] = useState(false);
   const [editName, setEditName] = useState(model.name);
   const [editDescription, setEditDescription] = useState(model.description || "");
   const [editSourceUrl, setEditSourceUrl] = useState(model.source_url || "");
@@ -147,6 +150,16 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
 
   // Quick actions on the Overview card (mark failed / recommend).
   const revisionUpdater = useRevisionUpdater(model.id, setModel);
+
+  async function toggleFavorite() {
+    if (!auth.isAuthenticated || starBusy) { auth.showAuthRequiredToast(); return; }
+    const starred = !model.starred;
+    setModel((current) => ({ ...current, starred }));
+    setStarBusy(true);
+    try { await (starred ? starModel(model.id) : unstarModel(model.id)); }
+    catch (error) { setModel((current) => ({ ...current, starred: !starred })); toast.error(error); }
+    finally { setStarBusy(false); }
+  }
 
   useEffect(() => {
     if (!canViewPrinters) {
@@ -466,6 +479,15 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
             </>
           ) : (
             <>
+              <button
+                type="button"
+                onClick={() => void toggleFavorite()}
+                disabled={starBusy || !auth.isAuthenticated}
+                className="px-4 py-2 rounded border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Star className={`h-4 w-4 ${model.starred ? "fill-current text-primary" : ""}`} />
+                {model.starred ? "Favorited" : "Favorite"}
+              </button>
               <button
                 onClick={auth.isAuthenticated && canEditModel ? () => setShareOpen(true) : auth.showAuthRequiredToast}
                 disabled={!auth.isAuthenticated || !canEditModel}

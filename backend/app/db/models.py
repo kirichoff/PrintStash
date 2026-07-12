@@ -318,6 +318,36 @@ class ModelTagLink(SQLModel, table=True):
     tag_id: Optional[int] = Field(default=None, foreign_key="tags.id", primary_key=True)
 
 
+class ModelStar(SQLModel, table=True):
+    """Per-user favorite marker for a live Model."""
+
+    __tablename__ = "model_stars"
+    __table_args__ = (
+        UniqueConstraint("user_id", "model_id", name="uq_model_stars_user_model"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True, ondelete="CASCADE")
+    model_id: int = Field(foreign_key="models.id", index=True, ondelete="CASCADE")
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class SavedView(SQLModel, table=True):
+    """Named model-list filters owned by one user."""
+
+    __tablename__ = "saved_views"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_saved_views_user_name"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True, ondelete="CASCADE")
+    name: str = Field(max_length=128)
+    filters_json: str = Field(default="{}", sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class Model(SQLModel, table=True):
     """Logical asset, deduplicated by `hash` (source mesh sha256, gcode fallback)."""
 

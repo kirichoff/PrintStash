@@ -75,6 +75,7 @@ export interface ModelRead {
   created_at: string;
   updated_at: string;
   files: FileRead[];
+  starred: boolean;
 }
 
 export interface ModelPrinterFileRead {
@@ -139,6 +140,7 @@ export interface ModelListItem {
   print_summary: PrintSummaryRead | null;
   recommended_revision_status?: FileRevisionStatus | null;
   recommended_revision_label?: string | null;
+  starred: boolean;
 }
 
 export interface TrashedModelRead {
@@ -415,9 +417,30 @@ export interface ListModelsParams {
   q?: string;
   printer_id?: number;
   printer_presence?: "any" | "none";
+  favorites?: boolean;
   limit?: number;
   offset?: number;
 }
+
+export interface SavedViewFilters {
+  collection?: string | null;
+  direct: boolean;
+  tag: string[];
+  q?: string | null;
+  printer_id?: number | null;
+  printer_presence?: "any" | "none" | null;
+  favorites: boolean;
+}
+
+export interface SavedViewRead {
+  id: number;
+  name: string;
+  filters: SavedViewFilters;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelStarRead { model_id: number; starred: boolean }
 
 export interface CollectionCreate {
   name: string;

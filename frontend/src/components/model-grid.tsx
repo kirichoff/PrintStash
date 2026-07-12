@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "@/lib/navigation";
-import { CollectionRead, ModelListItem, PrinterRead, TagRead } from "@/types";
+import { CollectionRead, ModelListItem, PrinterRead, SavedViewRead, TagRead } from "@/types";
 import { ModelCard, MODEL_DND_MIME } from "@/components/model-card";
 import { BatchToolbar } from "@/components/batch-toolbar";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -28,8 +28,10 @@ import {
   ChevronRight,
   Plus,
   CheckSquare,
+  Star,
+  BookmarkPlus,
 } from "lucide-react";
-import { createCollection, updateModel, moveCollection, deleteCollection, batchMoveModels, batchTagModels, batchDeleteModels, } from "@/lib/api";
+import { createCollection, updateModel, moveCollection, deleteCollection, batchMoveModels, batchTagModels, batchDeleteModels, createSavedView, listSavedViews } from "@/lib/api";
 import { isMeshFile, isGcodeFile, extensionOf, walkEntries, entriesFromDataTransfer, BulkItem } from "@/lib/bulk-upload";
 import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, type ModelListFilters, } from "@/lib/queries";
 import { queryKeys, refreshVaultAfterIngest } from "@/lib/query-client";
@@ -137,9 +139,15 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   // and send-to dialog; gated so non-admins don't fetch a list they can't use.
   const printers =
     usePrinters({ enabled: !!user?.is_superuser }).data ?? initial?.printers ?? [];
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(null);
-  const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
+  const [selectedTags, setSelectedTags] = useState<string[]>(() => searchParams.getAll("tag"));
+  const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(() => {
+    const value = searchParams.get("printer_id"); return value ? Number(value) : null;
+  });
+  const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(() => {
+    const value = searchParams.get("printer_presence"); return value === "any" || value === "none" ? value : null;
+  });
+  const [favoritesOnly, setFavoritesOnly] = useState(searchParams.get("favorites") === "true");
+  const [savedViews, setSavedViews] = useState<SavedViewRead[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   // Seed from the URL (`?v=docs`), falling back to the remembered tab, so
   // returning from a document (Back or the logo) lands on the Documents tab
@@ -214,6 +222,11 @@ async function onMainDrop(e: React.DragEvent) {
   const [newCollectionName, setNewCollectionName] = useState("");
   const { open: filterDrawerOpen, openDrawer, closeDrawer } = useMobileFilterDrawer();
 
+  useEffect(() => {
+    if (!auth.isAuthenticated) { setSavedViews([]); return; }
+    listSavedViews().then(setSavedViews).catch(() => setSavedViews([]));
+  }, [auth.isAuthenticated]);
+
   // Collection selection lives in the URL (`?c=<path>`) so it resets when the
   // user navigates away (e.g. to Settings) and clicks "Vault" again — that link
   // points at "/" with no param. Deriving it straight from the param (instead of
@@ -266,7 +279,46 @@ async function onMainDrop(e: React.DragEvent) {
       canViewPrinters && selectedPrinterId === null
         ? selectedPrinterPresence ?? undefined
         : undefined,
+    favorites: favoritesOnly || undefined,
   };
+
+  function writeFilterUrl(filters: SavedViewRead["filters"]) {
+    const params = new URLSearchParams();
+    if (filters.collection) params.set("c", filters.collection);
+    if (filters.q) params.set("q", filters.q);
+    filters.tag.forEach((tag) => params.append("tag", tag));
+    if (filters.printer_id) params.set("printer_id", String(filters.printer_id));
+    if (filters.printer_presence) params.set("printer_presence", filters.printer_presence);
+    if (filters.favorites) params.set("favorites", "true");
+    router.replace(params.size ? `/?${params}` : "/", { scroll: false });
+  }
+
+  function applySavedView(view: SavedViewRead) {
+    setSelectedTags(view.filters.tag);
+    setSelectedPrinterId(view.filters.printer_id ?? null);
+    setSelectedPrinterPresence(view.filters.printer_presence ?? null);
+    setFavoritesOnly(view.filters.favorites);
+    setSelectedIds(new Set());
+    writeFilterUrl(view.filters);
+  }
+
+  async function saveCurrentView() {
+    const name = window.prompt("Saved view name")?.trim();
+    if (!name) return;
+    try {
+      const created = await createSavedView(name, {
+        collection: selectedCollection,
+        direct: !searchQuery,
+        tag: selectedTags,
+        q: searchQuery ?? null,
+        printer_id: selectedPrinterId,
+        printer_presence: selectedPrinterPresence,
+        favorites: favoritesOnly,
+      });
+      setSavedViews((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
+      toast.success("View saved");
+    } catch (error) { toast.error(error); }
+  }
   // The paginated grid. `keepPreviousData` (in the hook) holds the current page
   // on screen while a new search/folder loads, and results are cached per filter
   // set so backspacing a query or re-entering a folder is instant.
@@ -482,10 +534,15 @@ async function onMainDrop(e: React.DragEvent) {
     setSelectedTags([]);
     setSelectedPrinterId(null);
     setSelectedPrinterPresence(null);
+    setFavoritesOnly(false);
     setSelectedIds(new Set());
     const params = new URLSearchParams(searchParams.toString());
     params.delete("q");
     params.delete("c");
+    params.delete("tag");
+    params.delete("printer_id");
+    params.delete("printer_presence");
+    params.delete("favorites");
     const qs = params.toString();
     router.replace(qs ? `/?${qs}` : "/", { scroll: false });
   }
@@ -650,17 +707,48 @@ async function onMainDrop(e: React.DragEvent) {
                 </Button>
               </div>
               {auth.isAuthenticated && (
-                <Button
-                  variant={selectMode ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => {
-                    if (selectMode) clearSelection();
-                    else setSelectMode(true);
-                  }}
-                >
-                  <CheckSquare className="w-4 h-4" />
-                  {selectMode ? "Done" : "Select"}
-                </Button>
+                <>
+                  <Button
+                    variant={favoritesOnly ? "default" : "outline"}
+                    size="xs"
+                    onClick={() => {
+                      const next = !favoritesOnly;
+                      setFavoritesOnly(next);
+                      const params = new URLSearchParams(searchParams.toString());
+                      if (next) params.set("favorites", "true"); else params.delete("favorites");
+                      router.replace(params.size ? `/?${params}` : "/", { scroll: false });
+                    }}
+                  >
+                    <Star className={`h-4 w-4 ${favoritesOnly ? "fill-current" : ""}`} /> Favorites
+                  </Button>
+                  <select
+                    aria-label="Saved views"
+                    defaultValue=""
+                    onChange={(event) => {
+                      const view = savedViews.find((item) => item.id === Number(event.target.value));
+                      if (view) applySavedView(view);
+                      event.target.value = "";
+                    }}
+                    className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">Saved views</option>
+                    {savedViews.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}
+                  </select>
+                  <Button variant="outline" size="xs" onClick={() => void saveCurrentView()}>
+                    <BookmarkPlus className="h-4 w-4" /> Save view
+                  </Button>
+                  <Button
+                    variant={selectMode ? "default" : "outline"}
+                    size="xs"
+                    onClick={() => {
+                      if (selectMode) clearSelection();
+                      else setSelectMode(true);
+                    }}
+                  >
+                    <CheckSquare className="w-4 h-4" />
+                    {selectMode ? "Done" : "Select"}
+                  </Button>
+                </>
               )}
               <div className="h-6 w-px bg-muted mx-1 hidden md:block" />
               <div className="flex items-center bg-muted p-1 rounded">

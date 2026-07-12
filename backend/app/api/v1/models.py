@@ -38,6 +38,7 @@ from app.db.models import (
     FileType,
     Metadata,
     Model,
+    ModelStar,
     ModelTagLink,
     Printer,
     PrinterFile,
@@ -69,6 +70,7 @@ from app.schemas.models import (
     TrashPurgeRead,
     VaultStatsRead,
 )
+from app.schemas.saved_views import ModelStarRead
 from app.services import job_import, model_views, print_results, rbac, storage, taxonomy
 from app.services.ingestion import add_gcode_revision_to_model
 from app.services.moonraker import MoonrakerError
@@ -101,8 +103,8 @@ def _stage_gcode_upload(upload: UploadFile, suffix: str) -> Path:
 
 def _live_model(session: Session, model_id: int) -> Model:
     """Like ``get_or_404`` but also rejects soft-deleted rows."""
-    m = session.get(Model, model_id)
-    if m is None or m.deleted_at is not None:
+    m = session.exec(select(Model).where(Model.id == model_id, live(Model))).first()
+    if m is None:
         raise HTTPException(status_code=404, detail="model_not_found")
     return m
 
@@ -158,6 +160,7 @@ def list_models(
     printer_presence: Optional[Literal["any", "none"]] = Query(
         None, description="Filter models by whether they exist on any printer"
     ),
+    favorites: bool = Query(False, description="Only models starred by current user"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(require_user),
@@ -176,9 +179,52 @@ def list_models(
         q=q,
         printer_id=printer_id,
         printer_presence=printer_presence,
+        favorites=favorites,
         limit=limit,
         offset=offset,
     )
+
+
+@router.put(
+    "/{model_id}/star",
+    response_model=ModelStarRead,
+    dependencies=[Depends(require_auth)],
+)
+def star_model(
+    model_id: int,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> ModelStarRead:
+    _require_model_role(session, current_user, model_id, CollectionRole.VIEW)
+    existing = session.exec(
+        select(ModelStar).where(
+            ModelStar.user_id == current_user.id, ModelStar.model_id == model_id
+        )
+    ).first()
+    if existing is None:
+        session.add(ModelStar(user_id=current_user.id, model_id=model_id))
+        session.commit()
+    return ModelStarRead(model_id=model_id, starred=True)
+
+
+@router.delete(
+    "/{model_id}/star",
+    response_model=ModelStarRead,
+    dependencies=[Depends(require_auth)],
+)
+def unstar_model(
+    model_id: int,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> ModelStarRead:
+    _require_model_role(session, current_user, model_id, CollectionRole.VIEW)
+    session.exec(
+        delete(ModelStar).where(
+            ModelStar.user_id == current_user.id, ModelStar.model_id == model_id
+        )
+    )
+    session.commit()
+    return ModelStarRead(model_id=model_id, starred=False)
 
 
 @router.get(
