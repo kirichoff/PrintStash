@@ -12,9 +12,8 @@ Redis/queues/cloud. `AGENTS.md` (layout, commands, hard rules) is binding.
 ## Where we are
 
 <!-- Update this block when a release ships. -->
-0.9.0 (Provider Maturity — PrusaLink, Elegoo, OctoPrint, conformance suite) is
-in flight on branch `0.9.0`: triple bumped, changelog written, not yet tagged.
-Latest shipped: v0.8.5. Next: 0.10 — Library Workflow Polish
+Latest shipped: v0.9.0 (Provider Maturity — PrusaLink, Elegoo, OctoPrint,
+conformance suite), merged to `main` and tagged. Next: 0.10 — Library Workflow Polish
 (`docs/roadmap.md`). Private plans live in gitignored `reports/` — start with
 `reports/14-implementation-plan-to-1.0.0.md` (OSS) and
 `reports/15-cloud-implementation-plan.md` (cloud); never commit or quote them.
