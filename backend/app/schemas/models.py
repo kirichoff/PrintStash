@@ -197,6 +197,18 @@ class ModelBatchTags(BaseModel):
     remove: List[str] = Field(default_factory=list, max_length=100)
 
 
+class RevisionBatchLabels(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_ids: List[int] = Field(min_length=1, max_length=500)
+    revision_label: Optional[str] = Field(default=None, max_length=128)
+
+
+class RevisionBatchResult(BaseModel):
+    succeeded_ids: List[int]
+    succeeded_count: int
+
+
 class ModelBatchDelete(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

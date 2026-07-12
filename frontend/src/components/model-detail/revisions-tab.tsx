@@ -13,7 +13,7 @@ import {
   Wifi,
 } from "lucide-react";
 
-import { downloadAuthenticatedFile } from "@/lib/api";
+import { batchSetRevisionLabels, downloadAuthenticatedFile, getModel } from "@/lib/api";
 import { formatBytes, formatDuration, timeAgo } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import {
@@ -28,6 +28,9 @@ import { RevisionCompare } from "./revision-compare";
 import { useRevisionUpdater } from "./use-revision-updater";
 import { SlicerOpenButton } from "@/components/slicer-open-button";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 
 export function RevisionsTab({
   modelId,
@@ -52,6 +55,10 @@ export function RevisionsTab({
   const [revisionRecommended, setRevisionRecommended] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FileRead | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedRevisionIds, setSelectedRevisionIds] = useState<Set<number>>(new Set());
+  const [batchLabel, setBatchLabel] = useState("");
+  const [batchBusy, setBatchBusy] = useState(false);
 
   // Compare selection — local to this tab.
   const [compareLeftId, setCompareLeftId] = useState<number>(gcodeFiles.at(-1)?.id ?? 0);
@@ -106,6 +113,23 @@ export function RevisionsTab({
     }
   }
 
+  async function applyBatchLabel() {
+    if (selectedRevisionIds.size === 0) return;
+    setBatchBusy(true);
+    try {
+      await batchSetRevisionLabels(Array.from(selectedRevisionIds), batchLabel);
+      onModel(await getModel(modelId));
+      toast.success(`Updated ${selectedRevisionIds.size} revision labels`);
+      setSelectedRevisionIds(new Set());
+      setSelecting(false);
+      setBatchLabel("");
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
   return (
     <>
       <ConfirmModal
@@ -123,16 +147,56 @@ export function RevisionsTab({
           <h2 className="text-lg font-semibold text-on-surface">
             G-code Revisions
           </h2>
-          <button
-            onClick={onAddRevision}
-            disabled={!auth.isAuthenticated}
-            title={auth.blockReason ?? "Add G-code revision"}
-            className="inline-flex items-center gap-1.5 rounded border border-outline-variant px-2 py-1 font-mono text-3xs uppercase tracking-wider text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add
-          </button>
+          <div className="flex items-center gap-2">
+            {gcodeFiles.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => {
+                  setSelecting((value) => !value);
+                  setSelectedRevisionIds(new Set());
+                }}
+                disabled={!auth.isAuthenticated}
+              >
+                {selecting ? "Cancel selection" : "Edit labels"}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={onAddRevision}
+              disabled={!auth.isAuthenticated}
+              title={auth.blockReason ?? "Add G-code revision"}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add
+            </Button>
+          </div>
         </div>
+        {selecting && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-outline-variant bg-surface-container-low p-2">
+            <span className="font-mono text-xs text-on-surface-variant">
+              {selectedRevisionIds.size} selected
+            </span>
+            <Input
+              value={batchLabel}
+              onChange={(event) => setBatchLabel(event.target.value)}
+              maxLength={128}
+              placeholder="Label (blank clears)"
+              className="min-w-48 flex-1"
+            />
+            <Button
+              type="button"
+              size="xs"
+              loading={batchBusy}
+              disabled={selectedRevisionIds.size === 0}
+              onClick={applyBatchLabel}
+            >
+              Apply label
+            </Button>
+          </div>
+        )}
         <div className="space-y-3">
           {gcodeFiles.length === 0 && (
             <p className="font-mono text-xs text-on-surface-variant">
@@ -146,6 +210,20 @@ export function RevisionsTab({
             return (
               <div key={f.id} className="p-3 border border-primary/30 bg-primary-fixed/15 rounded space-y-3">
                 <div className="flex items-start justify-between gap-3">
+                  {selecting && (
+                    <Checkbox
+                      checked={selectedRevisionIds.has(f.id)}
+                      onChange={(checked) => {
+                        setSelectedRevisionIds((current) => {
+                          const next = new Set(current);
+                          if (checked) next.add(f.id);
+                          else next.delete(f.id);
+                          return next;
+                        });
+                      }}
+                      ariaLabel={`Select revision ${f.gcode_revision_number ?? f.version}`}
+                    />
+                  )}
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 mb-1">
                       <span className="font-mono text-2xs text-primary font-bold uppercase tracking-wider">

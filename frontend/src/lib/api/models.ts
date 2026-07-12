@@ -24,6 +24,7 @@ import {
   ModelPrintJobRead,
   ModelRead,
   ModelUpdate,
+  RevisionBatchResult,
   TrashPurgeRead,
   TrashedModelRead,
   VaultStatsRead,
@@ -135,6 +136,17 @@ export function batchTagModels(
     add,
     remove,
   });
+}
+
+export function batchSetRevisionLabels(
+  fileIds: number[],
+  revisionLabel: string | null,
+): Promise<RevisionBatchResult> {
+  return sendJson<RevisionBatchResult>(
+    "/api/v1/models/batch/revision-labels",
+    "PATCH",
+    { file_ids: fileIds, revision_label: revisionLabel },
+  );
 }
 
 export function batchDeleteModels(

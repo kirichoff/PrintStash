@@ -171,6 +171,11 @@ export interface ModelBatchResult {
   failed_count: number;
 }
 
+export interface RevisionBatchResult {
+  succeeded_ids: number[];
+  succeeded_count: number;
+}
+
 export interface StorageUsageRead {
   backend: string;
   prefix: string | null;
