@@ -713,6 +713,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
               <RevisionsTab
                 modelId={model.id}
                 gcodeFiles={gcodeFiles}
+                allFiles={model.files}
                 printerFilesByFileId={printerFilesByFileId}
                 onModel={setModel}
                 onAddRevision={requestAddRevision}

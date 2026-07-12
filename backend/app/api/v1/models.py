@@ -50,6 +50,7 @@ from app.db.models import (
 from app.db.scopes import live
 from app.db.session import get_session
 from app.schemas.models import (
+    ArtifactOutcomeRead,
     FileRevisionUpdate,
     ImportedPrintJobRead,
     ManualPrintJobCreate,
@@ -506,6 +507,24 @@ def get_model_print_jobs(
         )
         for job, printer, file, md in rows
     ]
+
+
+@router.get(
+    "/{model_id}/artifact-outcomes",
+    response_model=List[ArtifactOutcomeRead],
+    summary="Compare actual print outcomes for Model Artifacts",
+)
+def get_artifact_outcomes(
+    model_id: int,
+    file_id: List[int] = Query(..., min_length=1, max_length=2),
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> List[ArtifactOutcomeRead]:
+    _require_model_role(session, current_user, model_id, CollectionRole.VIEW)
+    rows = model_views.artifact_outcomes(session, model_id, file_id)
+    if len(rows) != len(set(file_id)):
+        raise HTTPException(status_code=404, detail="file_not_found")
+    return [ArtifactOutcomeRead.model_validate(row) for row in rows]
 
 
 @router.post(

@@ -635,6 +635,47 @@ def detail(session: Session, model_id: int, user: User) -> ModelRead | None:
     )
 
 
+def artifact_outcomes(
+    session: Session, model_id: int, file_ids: list[int]
+) -> list[dict[str, object]]:
+    """Aggregate measured print outcomes for selected live Artifacts."""
+    ids = list(dict.fromkeys(file_ids))
+    files = session.exec(
+        select(File.id).where(File.model_id == model_id, File.id.in_(ids), live(File))
+    ).all()
+    if len(files) != len(ids):
+        return []
+    jobs = session.exec(
+        select(PrintJob).where(
+            PrintJob.model_id == model_id,
+            PrintJob.file_id.in_(ids),
+            live(PrintJob),
+        )
+    ).all()
+    result: list[dict[str, object]] = []
+    for file_id in ids:
+        rows = [job for job in jobs if job.file_id == file_id]
+        completed = [job for job in rows if job.state == PrintJobState.COMPLETED]
+        failed = [job for job in rows if job.state == PrintJobState.FAILED]
+        cancelled = [job for job in rows if job.state == PrintJobState.CANCELLED]
+        decided = len(completed) + len(failed)
+        durations = [job.actual_duration_s for job in rows if job.actual_duration_s is not None]
+        filament = [job.filament_g_effective for job in rows if job.filament_g_effective is not None]
+        costs = [job.cost for job in rows if job.cost is not None]
+        result.append({
+            "file_id": file_id,
+            "print_count": len(rows),
+            "completed_count": len(completed),
+            "failed_count": len(failed),
+            "cancelled_count": len(cancelled),
+            "success_rate": len(completed) / decided if decided else None,
+            "average_duration_s": sum(durations) / len(durations) if durations else None,
+            "total_filament_g": sum(filament) if filament else None,
+            "total_cost": sum(costs) if costs else None,
+        })
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------

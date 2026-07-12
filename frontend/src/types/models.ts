@@ -114,6 +114,18 @@ export interface ModelPrintJobRead {
   created_at: string;
 }
 
+export interface ArtifactOutcomeRead {
+  file_id: number;
+  print_count: number;
+  completed_count: number;
+  failed_count: number;
+  cancelled_count: number;
+  success_rate: number | null;
+  average_duration_s: number | null;
+  total_filament_g: number | null;
+  total_cost: number | null;
+}
+
 export interface PrintSummaryRead {
   layer_height_mm: number | null;
   estimated_time_s: number | null;

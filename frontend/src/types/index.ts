@@ -10,6 +10,7 @@ export type {
   ModelPrinterFileRead,
   ModelPrinterPresenceRead,
   ModelPrintJobRead,
+  ArtifactOutcomeRead,
   ModelListItem,
   TrashedModelRead,
   TrashPurgeRead,

@@ -122,6 +122,18 @@ class ModelPrintJobRead(BaseModel):
     created_at: datetime
 
 
+class ArtifactOutcomeRead(BaseModel):
+    file_id: int
+    print_count: int = 0
+    completed_count: int = 0
+    failed_count: int = 0
+    cancelled_count: int = 0
+    success_rate: Optional[float] = None
+    average_duration_s: Optional[float] = None
+    total_filament_g: Optional[float] = None
+    total_cost: Optional[float] = None
+
+
 class PrintSummaryRead(BaseModel):
     """Aggregated print metadata for a model's most recent G-code file."""
 

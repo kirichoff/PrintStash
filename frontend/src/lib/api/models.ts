@@ -12,6 +12,7 @@ import {
 } from "@/lib/api/request";
 import {
   ArchiveManifest,
+  ArtifactOutcomeRead,
   FileRevisionUpdate,
   ImportedPrintJobRead,
   IngestJobStatus,
@@ -98,6 +99,12 @@ export function getModelPrinterFiles(id: number): Promise<ModelPrinterFileRead[]
 
 export function getModelPrintJobs(id: number): Promise<ModelPrintJobRead[]> {
   return getJson<ModelPrintJobRead[]>(`/api/v1/models/${id}/print-jobs`);
+}
+
+export function getArtifactOutcomes(modelId: number, fileIds: number[]): Promise<ArtifactOutcomeRead[]> {
+  const search = new URLSearchParams();
+  fileIds.forEach((id) => search.append("file_id", String(id)));
+  return getJson<ArtifactOutcomeRead[]>(`/api/v1/models/${modelId}/artifact-outcomes?${search}`);
 }
 
 export function createManualPrintJob(

@@ -64,6 +64,31 @@ def _large_gcode(min_bytes: int = 1_200_000) -> bytes:
     return payload
 
 
+def test_artifact_outcomes_compare_mixed_files(
+    client: TestClient, db_session: Session, auth_headers: dict[str, str]
+) -> None:
+    model = _model(db_session, slug="outcomes")
+    mesh = _file(db_session, model, file_type=FileType.STL, version=1, sha="c")
+    gcode = _file(db_session, model, version=2, sha="d")
+    db_session.add_all([
+        PrintJob(model_id=model.id, file_id=gcode.id, remote_filename=gcode.original_filename, state=PrintJobState.COMPLETED, source="manual", actual_duration_s=100, filament_g_effective=12.5, cost=1.25),
+        PrintJob(model_id=model.id, file_id=gcode.id, remote_filename=gcode.original_filename, state=PrintJobState.FAILED, source="manual", actual_duration_s=50),
+    ])
+    db_session.commit()
+
+    response = client.get(
+        f"/api/v1/models/{model.id}/artifact-outcomes?file_id={mesh.id}&file_id={gcode.id}",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    by_id = {row["file_id"]: row for row in response.json()}
+    assert by_id[mesh.id]["print_count"] == 0
+    assert by_id[gcode.id]["completed_count"] == 1
+    assert by_id[gcode.id]["failed_count"] == 1
+    assert by_id[gcode.id]["success_rate"] == 0.5
+    assert by_id[gcode.id]["average_duration_s"] == 75
+
+
 def test_update_revision_status_notes_and_recommended(
     client: TestClient, auth_headers: dict[str, str], db_session: Session
 ) -> None:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   Download,
@@ -13,11 +13,12 @@ import {
   Wifi,
 } from "lucide-react";
 
-import { batchSetRevisionLabels, downloadAuthenticatedFile, getModel } from "@/lib/api";
+import { batchSetRevisionLabels, downloadAuthenticatedFile, getArtifactOutcomes, getModel } from "@/lib/api";
 import { formatBytes, formatDuration, timeAgo } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import {
   FileRead,
+  ArtifactOutcomeRead,
   FileRevisionStatus,
   ModelPrinterFileRead,
   ModelRead,
@@ -35,12 +36,14 @@ import { Input } from "@/components/ui/input";
 export function RevisionsTab({
   modelId,
   gcodeFiles,
+  allFiles,
   printerFilesByFileId,
   onModel,
   onAddRevision,
 }: {
   modelId: number;
   gcodeFiles: FileRead[];
+  allFiles: FileRead[];
   printerFilesByFileId: Map<number, ModelPrinterFileRead[]>;
   onModel: (model: ModelRead) => void;
   onAddRevision: () => void;
@@ -59,14 +62,20 @@ export function RevisionsTab({
   const [selectedRevisionIds, setSelectedRevisionIds] = useState<Set<number>>(new Set());
   const [batchLabel, setBatchLabel] = useState("");
   const [batchBusy, setBatchBusy] = useState(false);
+  const [outcomes, setOutcomes] = useState<ArtifactOutcomeRead[]>([]);
 
   // Compare selection — local to this tab.
-  const [compareLeftId, setCompareLeftId] = useState<number>(gcodeFiles.at(-1)?.id ?? 0);
+  const [compareLeftId, setCompareLeftId] = useState<number>(allFiles.at(-1)?.id ?? 0);
   const [compareRightId, setCompareRightId] = useState<number>(
-    gcodeFiles.at(-2)?.id ?? gcodeFiles.at(-1)?.id ?? 0,
+    allFiles.at(-2)?.id ?? allFiles.at(-1)?.id ?? 0,
   );
-  const compareLeft = gcodeFiles.find((f) => f.id === compareLeftId) ?? gcodeFiles[gcodeFiles.length - 1] ?? null;
-  const compareRight = gcodeFiles.find((f) => f.id === compareRightId) ?? gcodeFiles[gcodeFiles.length - 2] ?? null;
+  const compareLeft = allFiles.find((f) => f.id === compareLeftId) ?? allFiles[allFiles.length - 1] ?? null;
+  const compareRight = allFiles.find((f) => f.id === compareRightId) ?? allFiles[allFiles.length - 2] ?? null;
+
+  useEffect(() => {
+    if (!compareLeft || !compareRight) { setOutcomes([]); return; }
+    getArtifactOutcomes(modelId, [compareLeft.id, compareRight.id]).then(setOutcomes).catch(() => setOutcomes([]));
+  }, [modelId, compareLeft?.id, compareRight?.id]);
 
   function startRevisionEdit(file: FileRead) {
     if (!auth.isAuthenticated) {
@@ -373,10 +382,10 @@ export function RevisionsTab({
         </div>
       </section>
 
-      {gcodeFiles.length >= 2 && compareLeft && compareRight && (
+      {allFiles.length >= 2 && compareLeft && compareRight && (
         <section>
           <h2 className="text-lg font-semibold text-on-surface mb-4 pb-1 border-b border-outline-variant flex items-center gap-2">
-            <GitCompare className="h-4 w-4" /> Compare Revisions
+            <GitCompare className="h-4 w-4" /> Compare Artifacts
           </h2>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
@@ -385,8 +394,8 @@ export function RevisionsTab({
                 onChange={(e) => setCompareLeftId(Number(e.target.value))}
                 className="bg-surface border border-outline-variant rounded px-2 py-2 font-mono text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                {gcodeFiles.map((f) => (
-                  <option key={f.id} value={f.id}>Rev {f.gcode_revision_number ?? f.version}</option>
+                {allFiles.map((f) => (
+                  <option key={f.id} value={f.id}>{f.file_type.toUpperCase()} v{f.version} — {f.original_filename}</option>
                 ))}
               </select>
               <select
@@ -394,12 +403,12 @@ export function RevisionsTab({
                 onChange={(e) => setCompareRightId(Number(e.target.value))}
                 className="bg-surface border border-outline-variant rounded px-2 py-2 font-mono text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                {gcodeFiles.map((f) => (
-                  <option key={f.id} value={f.id}>Rev {f.gcode_revision_number ?? f.version}</option>
+                {allFiles.map((f) => (
+                  <option key={f.id} value={f.id}>{f.file_type.toUpperCase()} v{f.version} — {f.original_filename}</option>
                 ))}
               </select>
             </div>
-            <RevisionCompare left={compareLeft} right={compareRight} />
+            <RevisionCompare left={compareLeft} right={compareRight} outcomes={outcomes} />
           </div>
         </section>
       )}
