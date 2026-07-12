@@ -96,6 +96,8 @@ const printer = {
     can_live_status: true,
     can_upload: true,
     can_list_files: true,
+    can_send_gcode: true,
+    can_measure_consumption: true,
     support_level: "stable",
     support_notes: [],
     unsupported_actions: [],
@@ -147,6 +149,8 @@ const printerDiagnostics = {
     can_live_status: true,
     can_upload: true,
     can_list_files: true,
+    can_send_gcode: true,
+    can_measure_consumption: true,
   },
   unsupported_actions: [],
   notes: [],
@@ -437,6 +441,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     return;
   }
   if (url.pathname === "/api/v1/printers/3") {
+    if (req.method === "PATCH") {
+      drainRequest(req, () => sendJson(res, { ...printer, name: "Workshop printer" }));
+      return;
+    }
     sendJson(res, printer);
     return;
   }

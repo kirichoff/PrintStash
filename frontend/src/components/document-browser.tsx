@@ -8,10 +8,11 @@ import { Link, useRouter } from "@/lib/navigation";
 import { timeAgoShort } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import type { DocumentKind, DocumentListItem } from "@/types";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
 
 function KindIcon({ kind }: { kind: DocumentKind }) {
   if (kind === "pdf") return <FileType2 className="w-5 h-5 text-red-500" />;
-  if (kind === "markdown") return <FileText className="w-5 h-5 text-blue-500 dark:text-orange-500" />;
+  if (kind === "markdown") return <FileText className="w-5 h-5 text-primary" />;
   return <FileText className="w-5 h-5 text-muted-foreground" />;
 }
 
@@ -32,6 +33,8 @@ export function DocumentBrowser({
   const [docs, setDocs] = useState<DocumentListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DocumentListItem | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function load() {
@@ -67,23 +70,41 @@ export function DocumentBrowser({
     }
   }
 
-  async function remove(doc: DocumentListItem) {
-    if (!confirm(`Delete "${doc.name}"?`)) return;
+  function remove(doc: DocumentListItem) {
+    setDeleteTarget(doc);
+  }
+
+  async function confirmRemove() {
+    if (!deleteTarget) return;
+    const doc = deleteTarget;
+    setDeleteBusy(true);
     try {
       await deleteDocument(doc.id);
       setDocs((ds) => ds.filter((d) => d.id !== doc.id));
+      setDeleteTarget(null);
     } catch (err) {
       toast.error(err);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
   return (
-    <div className="p-4 sm:p-6">
+    <>
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmRemove}
+        busy={deleteBusy}
+        title="Delete document?"
+        description={deleteTarget ? `"${deleteTarget.name}" will be moved to trash.` : "This document will be moved to trash."}
+      />
+      <div className="p-4 sm:p-6">
       {canCreate && (
         <div className="flex items-center gap-2 mb-4">
           <button
             onClick={newMarkdown}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-blue-600 dark:bg-orange-600 rounded hover:bg-blue-700 dark:hover:bg-orange-700"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-primary-foreground bg-primary rounded hover:bg-primary-hover"
           >
             <Plus className="w-4 h-4" />
             New document
@@ -120,7 +141,7 @@ export function DocumentBrowser({
           {docs.map((doc) => (
             <div
               key={doc.id}
-              className="group relative flex items-start gap-3 rounded-lg border border-border bg-background p-3 hover:border-blue-400 dark:hover:border-orange-500 transition-colors"
+              className="group relative flex items-start gap-3 rounded-lg border border-border bg-background p-3 hover:border-primary transition-colors"
             >
               <Link href={`/documents/${doc.id}`} className="flex items-start gap-3 min-w-0 flex-1">
                 <KindIcon kind={doc.kind} />
@@ -144,6 +165,7 @@ export function DocumentBrowser({
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

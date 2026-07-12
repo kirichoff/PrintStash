@@ -10,6 +10,7 @@ import {
   PrinterRead,
   PrinterSnapshot,
   PrinterStatus,
+  PrinterUpdate,
 } from "@/types";
 import {
   cancelPrinter,
@@ -27,10 +28,17 @@ import {
   setPrinterTemperature,
   startPrinterFile,
   syncPrinterFiles,
+  updatePrinter,
 } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { formatBytes, formatDuration } from "@/lib/format";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { TabBar } from "@/components/ui/tabs";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { cn } from "@/lib/utils";
+import { PRINTER_MODEL_OPTIONS, providerAddress, providerLabel } from "@/lib/printer-providers";
 import {
   ArrowLeft,
   AlertTriangle,
@@ -59,24 +67,21 @@ const PREHEAT_PRESETS: { name: string; hotend: number; bed: number }[] = [
 ];
 
 const STATUS_COLORS: Record<PrinterStatus, string> = {
-  ready: "bg-emerald-500",
-  printing: "bg-blue-600 dark:bg-orange-600",
-  paused: "bg-amber-500",
-  offline: "bg-slate-400",
-  unknown: "bg-slate-400",
-  error: "bg-red-600",
+  ready: "bg-success",
+  printing: "bg-primary",
+  paused: "bg-warning",
+  offline: "bg-muted-foreground",
+  unknown: "bg-muted-foreground",
+  error: "bg-destructive",
 };
 
-const BTN_SECONDARY =
-  "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40";
-const BTN_DANGER =
-  "inline-flex items-center gap-1.5 rounded-md border border-red-300/50 bg-background px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-950/40";
+const BTN_SECONDARY = cn(buttonVariants({ variant: "outline", size: "xs" }), "hover:bg-muted");
+const BTN_DANGER = cn(
+  buttonVariants({ variant: "outline", size: "xs" }),
+  "border-red-300/50 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40",
+);
 const SECTION_CLASS = "overflow-hidden rounded-lg border border-border bg-background";
 const SECTION_HEADER_CLASS = "flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-4";
-
-function providerLabel(provider: PrinterRead["provider"]): string {
-  return provider === "bambu_lan" ? "Bambu LAN" : "Moonraker";
-}
 
 function checkLabel(name: string): string {
   return name.replaceAll("_", " ");
@@ -129,12 +134,14 @@ export function PrinterDetailPage({
   const [machineBusy, setMachineBusy] = useState<string | null>(null);
   const [hotendTarget, setHotendTarget] = useState("");
   const [bedTarget, setBedTarget] = useState("");
-  const [activeTab, setActiveTab] = useState<"status" | "files" | "jobs" | "config" | "diagnostics">("status");
+  const [activeTab, setActiveTab] = useState<"status" | "files" | "jobs" | "config" | "diagnostics" | "settings">("status");
   const [startingFileId, setStartingFileId] = useState<number | null>(null);
   const [deletingFileId, setDeletingFileId] = useState<number | null>(null);
   const [syncingFiles, setSyncingFiles] = useState(false);
   const [checkingDiagnostics, setCheckingDiagnostics] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
+  const [confirmEmergencyStop, setConfirmEmergencyStop] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<PrinterFileRead | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -298,17 +305,17 @@ export function PrinterDetailPage({
   }
 
   function emergencyStop() {
-    if (
-      !window.confirm(
-        "Emergency stop halts the printer immediately and requires a firmware restart. Continue?",
-      )
-    )
-      return;
-    void machineAction(
+    if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
+    setConfirmEmergencyStop(true);
+  }
+
+  async function confirmEmergencyStopAction() {
+    await machineAction(
       "estop",
       () => emergencyStopPrinter(printerId),
       "Emergency stop sent",
     );
+    setConfirmEmergencyStop(false);
   }
 
   async function syncFiles() {
@@ -346,9 +353,14 @@ export function PrinterDetailPage({
     }
   }
 
-  async function deleteRemoteFile(file: PrinterFileRead) {
+  function deleteRemoteFile(file: PrinterFileRead) {
     if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
-    if (!window.confirm(`Delete ${file.remote_filename} from ${printer?.name ?? "printer"}?`)) return;
+    setDeleteTarget(file);
+  }
+
+  async function confirmDeleteRemoteFile() {
+    if (!deleteTarget) return;
+    const file = deleteTarget;
     setDeletingFileId(file.id);
     setError(null);
     try {
@@ -360,6 +372,7 @@ export function PrinterDetailPage({
       await loadPrinter();
     } finally {
       setDeletingFileId(null);
+      setDeleteTarget(null);
     }
   }
 
@@ -370,6 +383,7 @@ export function PrinterDetailPage({
   const toolhead = snapshot.toolhead || {};
   const webhook = snapshot.webhooks || {};
   const progress = typeof vs.progress === "number" ? vs.progress * 100 : null;
+  const hasCurrentPrint = Boolean(ps.filename || ps.state === "printing" || ps.state === "paused");
 
   if (!printer) {
     return (
@@ -381,7 +395,25 @@ export function PrinterDetailPage({
   }
 
   return (
-    <div className="w-full space-y-6">
+    <>
+      <ConfirmModal
+        open={confirmEmergencyStop}
+        onClose={() => { if (machineBusy !== "estop") setConfirmEmergencyStop(false); }}
+        onConfirm={confirmEmergencyStopAction}
+        busy={machineBusy === "estop"}
+        title="Emergency stop printer?"
+        description="This halts the printer immediately and requires a firmware restart."
+        confirmLabel="Emergency stop"
+      />
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => { if (deletingFileId === null) setDeleteTarget(null); }}
+        onConfirm={confirmDeleteRemoteFile}
+        busy={deletingFileId !== null}
+        title="Delete printer file?"
+        description={deleteTarget ? `${deleteTarget.remote_filename} will be deleted from ${printer.name}.` : "This file will be deleted from the printer."}
+      />
+      <div className="w-full space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <Link
@@ -394,14 +426,14 @@ export function PrinterDetailPage({
           {wsConnected ? (
             <>
               <Wifi className="h-3 w-3 text-emerald-500" />
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
+              <span className="font-mono text-3xs font-semibold uppercase tracking-wider text-emerald-600">
                 Live
               </span>
             </>
           ) : (
             <>
               <WifiOff className="h-3 w-3 text-amber-500" />
-              <span className="font-mono text-[10px] uppercase tracking-wider text-amber-500">
+              <span className="font-mono text-3xs uppercase tracking-wider text-amber-500">
                 Reconnecting…
               </span>
             </>
@@ -415,11 +447,11 @@ export function PrinterDetailPage({
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
             {printer.name}
           </h1>
-          <span className="rounded border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-            {providerLabel(printer.provider)}
+          <span className="rounded border border-border px-2 py-1 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
+            {providerLabel(printer)}
           </span>
           {printer.capabilities.support_level === "beta" && (
-            <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-amber-600">
+            <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-mono text-3xs uppercase tracking-wider text-amber-600">
               Beta
             </span>
           )}
@@ -427,15 +459,13 @@ export function PrinterDetailPage({
             <span
               className={`w-2 h-2 rounded-full ${STATUS_COLORS[printer.status] || "bg-slate-400"}`}
             />
-            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
               {printer.status}
             </span>
           </span>
         </div>
         <p className="font-mono text-xs text-muted-foreground break-all">
-          {printer.provider === "moonraker"
-            ? printer.moonraker_url
-            : printer.bambu_host || "Bambu LAN"}
+          {providerAddress(printer)}
         </p>
       </div>
 
@@ -459,32 +489,30 @@ export function PrinterDetailPage({
       </div>
 
       <div className="border-b border-border">
-        <div className="flex gap-1 overflow-x-auto -mb-px">
-        <TabButton active={activeTab === "status"} onClick={() => setActiveTab("status")}>
-          Status
-        </TabButton>
-        <TabButton active={activeTab === "files"} onClick={() => setActiveTab("files")}>
-          Files
-        </TabButton>
-        <TabButton active={activeTab === "jobs"} onClick={() => setActiveTab("jobs")}>
-          Jobs
-        </TabButton>
-        {printer.provider === "moonraker" && (
-          <TabButton active={activeTab === "config"} onClick={() => {
-            setActiveTab("config");
-            if (!moonrakerConfig) loadMoonrakerConfig();
-          }}>
-            Config
-          </TabButton>
-        )}
-        <TabButton active={activeTab === "diagnostics"} onClick={() => setActiveTab("diagnostics")}>
-          Diagnostics
-        </TabButton>
-        </div>
+        <TabBar
+          tabs={[
+            { key: "status" as const, label: "Status" },
+            { key: "files" as const, label: "Files" },
+            { key: "jobs" as const, label: "Jobs" },
+            ...(printer.provider === "moonraker"
+              ? [{ key: "config" as const, label: "Config" }]
+              : []),
+            { key: "diagnostics" as const, label: "Diagnostics" },
+            { key: "settings" as const, label: "Settings" },
+          ]}
+          active={activeTab}
+          onChange={(k) => {
+            setActiveTab(k);
+            if (k === "config" && !moonrakerConfig) loadMoonrakerConfig();
+          }}
+          className="gap-1 overflow-x-auto -mb-px"
+          tabClassName="px-3 py-2 font-mono text-xs uppercase tracking-wider transition-colors text-muted-foreground hover:text-foreground"
+          activeTabClassName="text-primary"
+        />
       </div>
 
       {activeTab === "status" && (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3 animate-panel-in">
         {/* Current print */}
         <section className={`${SECTION_CLASS} lg:col-span-2`}>
           <div className={SECTION_HEADER_CLASS}>
@@ -492,13 +520,14 @@ export function PrinterDetailPage({
               Current print
             </h2>
           </div>
-          <div className="p-6 space-y-5">
+          {hasCurrentPrint ? (
+          <div className="space-y-5 p-6">
             <Row label="FILE" value={ps.filename || "—"} truncate />
             <Row label="STATE" value={ps.state || "—"} capitalize />
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                   Progress
                 </span>
                 <span className="font-mono text-xs text-foreground font-semibold">
@@ -507,8 +536,8 @@ export function PrinterDetailPage({
               </div>
               <div className="h-2 w-full overflow-hidden rounded bg-muted">
                 <div
-                  className="h-full bg-blue-600 transition-all duration-500 dark:bg-orange-600"
-                  style={{ width: `${Math.min(100, progress ?? 0)}%` }}
+                  className="h-full w-full origin-left bg-primary transition-transform duration-slow ease-linear"
+                  style={{ transform: `scaleX(${Math.min(100, progress ?? 0) / 100})` }}
                 />
               </div>
             </div>
@@ -548,13 +577,36 @@ export function PrinterDetailPage({
                   destructive
                 />
               </div>
-              <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              <p className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                 {auth.isAuthenticated
                   ? "Controls use your signed-in user session."
                   : "Sign in to control printers."}
               </p>
             </div>
           </div>
+          ) : (
+            <div className="flex min-h-64 flex-col items-center justify-center px-6 py-10 text-center">
+              <span className="mb-4 inline-flex rounded-full bg-muted p-3 text-muted-foreground">
+                <FileText className="h-5 w-5" />
+              </span>
+              <h3 className="text-sm font-semibold text-foreground">No active print</h3>
+              <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
+                {printer.status === "offline"
+                  ? "Printer is offline. Print details will appear after it reconnects."
+                  : "Start a file from the Files tab to see live progress and controls here."}
+              </p>
+              {printer.status !== "offline" && printer.capabilities.can_list_files && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("files")}
+                  className={cn(BTN_SECONDARY, "mt-5")}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Browse files
+                </button>
+              )}
+            </div>
+          )}
         </section>
 
         {/* Temperatures */}
@@ -567,14 +619,16 @@ export function PrinterDetailPage({
             </h2>
             </div>
           </div>
-          <div className="p-6 space-y-5">
-            <TempRow label="Hotend" cur={ext.temperature} tgt={ext.target} />
-            <TempRow label="Bed" cur={bed.temperature} tgt={bed.target} />
+          <div className="space-y-5 p-5">
+            <div className="grid grid-cols-2 gap-3">
+              <TempRow label="Hotend" cur={ext.temperature} tgt={ext.target} />
+              <TempRow label="Bed" cur={bed.temperature} tgt={bed.target} />
+            </div>
 
             {printer.capabilities.can_send_gcode && (
               <div className="border-t border-border pt-4 space-y-4">
                 <div className="space-y-2">
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                     Preheat
                   </span>
                   <div className="flex flex-wrap gap-2">
@@ -666,14 +720,14 @@ export function PrinterDetailPage({
       )}
 
       {activeTab === "files" && (
-      <section className={SECTION_CLASS}>
+      <section className={`${SECTION_CLASS} animate-panel-in`}>
         <div className={SECTION_HEADER_CLASS}>
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-sm font-semibold text-foreground">
               Printer files
             </h2>
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-3xs font-semibold text-muted-foreground">
               {printerFiles.length}
             </span>
           </div>
@@ -692,7 +746,7 @@ export function PrinterDetailPage({
           </button>
         </div>
         {printer.last_error && printer.status === "offline" && (
-          <div className="border-b border-border bg-red-50/30 px-6 py-3 font-mono text-[11px] text-red-600 break-words dark:bg-red-950/20">
+          <div className="border-b border-border bg-red-50/30 px-6 py-3 font-mono text-2xs text-red-600 break-words dark:bg-red-950/20">
             {printer.last_error}
           </div>
         )}
@@ -706,7 +760,7 @@ export function PrinterDetailPage({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b border-border text-left font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                   <th className="py-3 px-4 font-medium">Remote file</th>
                   <th className="py-3 px-4 font-medium">Vault match</th>
                   <th className="py-3 px-4 font-medium text-right">Size</th>
@@ -728,7 +782,7 @@ export function PrinterDetailPage({
                       {f.model_id ? (
                         <Link
                           href={`/models/${f.model_id}`}
-                          className="font-mono text-xs text-foreground hover:text-blue-600 hover:underline dark:hover:text-orange-500"
+                          className="font-mono text-xs text-foreground hover:text-primary hover:underline"
                         >
                           {f.model_name ?? f.original_filename}
                         </Link>
@@ -742,7 +796,7 @@ export function PrinterDetailPage({
                       {f.size_bytes != null ? formatBytes(f.size_bytes) : "—"}
                     </td>
                     <td className="py-3 px-4">
-                      <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600">
+                      <span className="font-mono text-3xs uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600">
                         {f.matched_by}
                       </span>
                     </td>
@@ -803,15 +857,23 @@ export function PrinterDetailPage({
       </section>
       )}
 
+      {activeTab === "settings" && (
+        <PrinterSettings
+          printer={printer}
+          canEdit={auth.isAuthenticated}
+          onSaved={(updated) => setPrinter(updated)}
+        />
+      )}
+
       {/* History */}
       {activeTab === "jobs" && (
-      <section className={SECTION_CLASS}>
+      <section className={`${SECTION_CLASS} animate-panel-in`}>
         <div className={SECTION_HEADER_CLASS}>
           <h2 className="text-sm font-semibold text-foreground">
             Print history
           </h2>
           {jobs.length > 0 && (
-            <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] font-semibold text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-3xs font-semibold text-muted-foreground">
               {jobs.length} {jobs.length === 1 ? "job" : "jobs"}
             </span>
           )}
@@ -824,7 +886,7 @@ export function PrinterDetailPage({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b border-border text-left font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                   <th className="py-3 px-4 font-medium">When</th>
                   <th className="py-3 px-4 font-medium">File</th>
                   <th className="py-3 px-4 font-medium">State</th>
@@ -845,14 +907,14 @@ export function PrinterDetailPage({
                     <td className="py-3 px-4 max-w-[260px] truncate">
                       <Link
                         href={`/models/${j.model_id}`}
-                        className="font-mono text-xs text-foreground hover:text-blue-600 hover:underline dark:hover:text-orange-500"
+                        className="font-mono text-xs text-foreground hover:text-primary hover:underline"
                         title={j.remote_filename}
                       >
                         {j.remote_filename}
                       </Link>
                     </td>
                     <td className="py-3 px-4">
-                      <span className="rounded bg-muted px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-foreground">
+                      <span className="rounded bg-muted px-2 py-0.5 font-mono text-3xs uppercase tracking-wider text-foreground">
                         {j.state}
                       </span>
                     </td>
@@ -879,7 +941,7 @@ export function PrinterDetailPage({
       )}
 
       {activeTab === "config" && printer.provider === "moonraker" && (
-      <section className={SECTION_CLASS}>
+      <section className={`${SECTION_CLASS} animate-panel-in`}>
         <div className={SECTION_HEADER_CLASS}>
           <div className="flex items-center gap-2">
             <Settings className="h-4 w-4 text-muted-foreground" />
@@ -918,7 +980,7 @@ export function PrinterDetailPage({
       )}
 
       {activeTab === "diagnostics" && (
-      <section className={SECTION_CLASS}>
+      <section className={`${SECTION_CLASS} animate-panel-in`}>
         <div className={SECTION_HEADER_CLASS}>
           <div className="flex items-center gap-2">
             <Info className="h-4 w-4 text-muted-foreground" />
@@ -998,7 +1060,7 @@ export function PrinterDetailPage({
                           {checkLabel(check.name)}
                         </div>
                         {!check.ok && (
-                          <div className="mt-1 font-mono text-[11px] text-red-600 break-words">
+                          <div className="mt-1 font-mono text-2xs text-red-600 break-words">
                             {check.code ?? "provider_error"}
                             {check.detail ? `: ${check.detail}` : ""}
                           </div>
@@ -1018,7 +1080,7 @@ export function PrinterDetailPage({
                 <div className="grid grid-cols-2 gap-px bg-border">
                   {Object.entries(diagnostics.capabilities).map(([name, enabled]) => (
                     <div key={name} className="bg-background px-4 py-3">
-                      <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      <div className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                         {checkLabel(name.replace(/^can_/, ""))}
                       </div>
                       <div className={`mt-1 font-mono text-xs font-semibold ${
@@ -1034,14 +1096,14 @@ export function PrinterDetailPage({
 
             {diagnostics.unsupported_actions.length > 0 && (
               <div className="rounded border border-amber-500/40 bg-amber-500/10 p-4">
-                <div className="font-mono text-[10px] uppercase tracking-wider text-amber-600 font-semibold">
+                <div className="font-mono text-3xs uppercase tracking-wider text-amber-600 font-semibold">
                   Unsupported in this provider
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {diagnostics.unsupported_actions.map((action) => (
                     <span
                       key={action}
-                      className="rounded border border-amber-500/40 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-amber-600"
+                      className="rounded border border-amber-500/40 px-2 py-1 font-mono text-3xs uppercase tracking-wider text-amber-600"
                     >
                       {actionLabel(action)}
                     </span>
@@ -1053,7 +1115,8 @@ export function PrinterDetailPage({
         )}
       </section>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -1081,7 +1144,7 @@ function ConfigSummary({
         ) : (
           rows.map(([key, value]) => (
             <div key={key} className="grid grid-cols-[minmax(120px,0.45fr)_1fr] gap-3 px-4 py-3">
-              <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground truncate">
+              <div className="font-mono text-3xs uppercase tracking-wider text-muted-foreground truncate">
                 {checkLabel(key)}
               </div>
               <div className="font-mono text-xs text-foreground break-words">
@@ -1092,6 +1155,185 @@ function ConfigSummary({
         )}
       </div>
     </div>
+  );
+}
+
+function PrinterSettings({
+  printer,
+  canEdit,
+  onSaved,
+}: {
+  printer: PrinterRead;
+  canEdit: boolean;
+  onSaved: (printer: PrinterRead) => void;
+}) {
+  const [name, setName] = useState(printer.name);
+  const [modelName, setModelName] = useState(printer.model_name ?? "");
+  const [group, setGroup] = useState(printer.group ?? "");
+  const [notes, setNotes] = useState(printer.notes ?? "");
+  const [address, setAddress] = useState(providerAddress(printer));
+  const [serial, setSerial] = useState(printer.bambu_serial ?? "");
+  const [username, setUsername] = useState(printer.prusalink_username ?? "");
+  const [mainboardId, setMainboardId] = useState(printer.elegoo_centauri_mainboard_id ?? "");
+  const [secret, setSecret] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const secretLabel = printer.provider === "bambu_lan"
+    ? "LAN access code"
+    : printer.provider === "prusalink"
+      ? printer.prusalink_auth_mode === "api_key" ? "API key" : "Password"
+      : printer.provider === "elegoo_centauri"
+        ? "Printer access code"
+        : printer.provider === "octoprint"
+          ? "API key"
+          : "Moonraker API key";
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canEdit || saving) return;
+    setSaving(true);
+    setError(null);
+    const payload: PrinterUpdate = {
+      name: name.trim(),
+      model_name: modelName,
+      group,
+      notes,
+    };
+    if (printer.provider === "moonraker") {
+      payload.moonraker_url = address;
+      if (secret) payload.api_key = secret;
+    } else if (printer.provider === "bambu_lan") {
+      payload.bambu_host = address;
+      payload.bambu_serial = serial;
+      if (secret) payload.bambu_access_code = secret;
+    } else if (printer.provider === "prusalink") {
+      payload.prusalink_url = address;
+      payload.prusalink_username = username;
+      if (secret) {
+        if (printer.prusalink_auth_mode === "api_key") payload.prusalink_api_key = secret;
+        else payload.prusalink_password = secret;
+      }
+    } else if (printer.provider === "elegoo_centauri") {
+      payload.elegoo_centauri_host = address;
+      payload.elegoo_centauri_mainboard_id = mainboardId;
+      if (secret) payload.elegoo_centauri_access_code = secret;
+    } else if (printer.provider === "octoprint") {
+      payload.octoprint_url = address;
+      if (secret) payload.octoprint_api_key = secret;
+    }
+    try {
+      const updated = await updatePrinter(printer.id, payload);
+      onSaved(updated);
+      setSecret("");
+      toast.success("Printer settings saved");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not save printer settings";
+      setError(message);
+      toast.error(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={save} className={`${SECTION_CLASS} animate-panel-in`}>
+      <div className={SECTION_HEADER_CLASS}>
+        <div className="flex items-center gap-2">
+          <Settings className="h-4 w-4 text-muted-foreground" />
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Printer settings</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">Connection and display details</p>
+          </div>
+        </div>
+        <Button type="submit" size="sm" loading={saving} disabled={!canEdit || !name.trim()}>
+          Save changes
+        </Button>
+      </div>
+      <div className="grid gap-6 p-5 lg:grid-cols-2 lg:p-6">
+        <div className="space-y-4">
+          <SettingsField label="Name">
+            <Input value={name} onChange={(e) => setName(e.target.value)} required disabled={!canEdit} />
+          </SettingsField>
+          <SettingsField label="Model" hint="Pick a known model or type your own">
+            {/* ponytail: native datalist — suggestions from the catalog, free text still allowed */}
+            <Input
+              list="printer-model-options"
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              placeholder={printer.detected_model ?? "Auto-detected"}
+              disabled={!canEdit}
+            />
+            <datalist id="printer-model-options">
+              {PRINTER_MODEL_OPTIONS.map((model) => (
+                <option key={model} value={model} />
+              ))}
+            </datalist>
+          </SettingsField>
+          <SettingsField label="Group" hint="Optional farm grouping">
+            <Input value={group} onChange={(e) => setGroup(e.target.value)} placeholder="Workshop" disabled={!canEdit} />
+          </SettingsField>
+          <SettingsField label="Notes">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={4}
+              disabled={!canEdit}
+              className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </SettingsField>
+        </div>
+        <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Connection</p>
+            <p className="mt-1 text-xs text-muted-foreground">{providerLabel(printer)} configuration</p>
+          </div>
+          <SettingsField label={printer.provider === "moonraker" || printer.provider === "prusalink" || printer.provider === "octoprint" ? "URL" : "Host or IP"}>
+            <Input value={address} onChange={(e) => setAddress(e.target.value)} required disabled={!canEdit} />
+          </SettingsField>
+          {printer.provider === "bambu_lan" && (
+            <SettingsField label="Printer serial">
+              <Input value={serial} onChange={(e) => setSerial(e.target.value)} required disabled={!canEdit} />
+            </SettingsField>
+          )}
+          {printer.provider === "prusalink" && printer.prusalink_auth_mode !== "api_key" && (
+            <SettingsField label="Username">
+              <Input value={username} onChange={(e) => setUsername(e.target.value)} required disabled={!canEdit} />
+            </SettingsField>
+          )}
+          {printer.provider === "elegoo_centauri" && printer.provider_variant === "elegoo_centauri_carbon" && (
+            <SettingsField label="Mainboard ID" hint="Used for reliable reconnection">
+              <Input value={mainboardId} onChange={(e) => setMainboardId(e.target.value)} disabled={!canEdit} />
+            </SettingsField>
+          )}
+          <SettingsField label={secretLabel} hint="Leave blank to keep current value">
+            <Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Unchanged" disabled={!canEdit} />
+          </SettingsField>
+          {!canEdit && <p className="text-xs text-warning">Sign in to edit printer settings.</p>}
+          {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function SettingsField({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
+        {label}
+        {hint && <span className="font-normal text-muted-foreground">{hint}</span>}
+      </span>
+      {children}
+    </label>
   );
 }
 
@@ -1107,34 +1349,10 @@ function ConfigBlock({
       <div className="border-b border-border px-4 py-3">
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       </div>
-      <pre className="max-h-[420px] overflow-auto bg-muted/40 p-4 font-mono text-[11px] leading-5 text-foreground">
+      <pre className="max-h-[420px] overflow-auto bg-muted/40 p-4 font-mono text-2xs leading-5 text-foreground">
         {JSON.stringify(data, null, 2)}
       </pre>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`border-b-2 px-3 py-2 font-mono text-xs uppercase tracking-wider transition-colors ${
-        active
-          ? "border-blue-600 text-blue-600 dark:border-orange-500 dark:text-orange-500"
-          : "border-transparent text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -1149,7 +1367,7 @@ function StatusMetric({
 }) {
   return (
     <div className="rounded border border-border bg-background p-3">
-      <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
       <div
@@ -1178,7 +1396,7 @@ function Row({
   if (stack) {
     return (
       <div className="space-y-1">
-        <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        <div className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
           {label}
         </div>
         <div className="font-mono text-sm text-foreground font-semibold">
@@ -1189,7 +1407,7 @@ function Row({
   }
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground flex-shrink-0">
+      <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground flex-shrink-0">
         {label}
       </span>
       <span
@@ -1254,7 +1472,7 @@ function SetTempInput({
   return (
     <div className="flex items-end gap-2">
       <label className="flex-1 space-y-1">
-        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
         <input
@@ -1267,7 +1485,7 @@ function SetTempInput({
             if (e.key === "Enter" && !disabled) onApply();
           }}
           placeholder="°C"
-          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-600 dark:focus:ring-orange-500"
+          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
       </label>
       <button
@@ -1295,25 +1513,25 @@ function TempRow({
     ? Math.min(100, Math.max(0, (cur / tgt) * 100))
     : null;
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+    <div className="rounded-md border border-border bg-muted/30 p-3">
+      <div className="flex items-center gap-1.5">
+        <Thermometer className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
-        <span className="font-mono text-xs text-foreground font-semibold">
-          {cur != null ? cur.toFixed(1) : "—"}°C
-          {tgt != null && tgt > 0 && (
-            <span className="ml-1.5 text-muted-foreground font-normal">
-              / {tgt.toFixed(0)}°C
-            </span>
-          )}
-        </span>
+      </div>
+      <div className="mt-2 font-mono text-xl font-semibold leading-none text-foreground">
+        {cur != null ? cur.toFixed(1) : "—"}
+        <span className="ml-0.5 text-xs font-normal text-muted-foreground">°C</span>
+      </div>
+      <div className="mt-1 min-h-4 font-mono text-3xs text-muted-foreground">
+        {tgt != null && tgt > 0 ? `Target ${tgt.toFixed(0)}°C` : "No target"}
       </div>
       {pct != null && (
-        <div className="h-1 w-full overflow-hidden rounded bg-muted">
+        <div className="mt-2 h-1 w-full overflow-hidden rounded bg-muted">
           <div
-            className="h-full bg-blue-500 dark:bg-orange-500 transition-all duration-500"
-            style={{ width: `${pct}%` }}
+            className="h-full w-full origin-left bg-primary transition-transform duration-slow ease-linear"
+            style={{ transform: `scaleX(${pct / 100})` }}
           />
         </div>
       )}

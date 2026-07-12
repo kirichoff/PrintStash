@@ -31,6 +31,11 @@ import {
   Users,
 } from "lucide-react";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { PageHeader } from "@/components/ui/page-header";
+import { buttonVariants } from "@/components/ui/button";
+import { TabBar } from "@/components/ui/tabs";
+import { inputClasses } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { CURRENCY_OPTIONS } from "@/lib/currency";
 import { ExternalLibrariesPanel } from "@/components/external-libraries-panel";
 import { StorageConfigCard } from "@/components/storage-config-card";
@@ -82,6 +87,10 @@ import {
   writeCardMetrics,
 } from "@/lib/card-metrics";
 import { toast } from "@/lib/toast";
+import {
+  readPrinterCardImagePreference,
+  writePrinterCardImagePreference,
+} from "@/lib/printer-card-display";
 import { CHANGELOG, GITHUB_REPO } from "@/lib/changelog";
 import type {
   ApiKeyRead,
@@ -128,14 +137,13 @@ const SETTINGS_SECTIONS: {
 ];
 
 // Shared button styles — keep settings actions visually uniform and theme-aware.
-const BTN_PRIMARY =
-  "inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-medium uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed";
-const BTN_SECONDARY =
-  "inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border border-border text-muted-foreground hover:bg-muted transition-colors text-xs font-medium uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed";
-const BTN_ICON =
-  "inline-flex h-9 w-9 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
-const INPUT =
-  "w-full px-3 py-2 bg-background border border-border rounded text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent disabled:opacity-50";
+const BTN_PRIMARY = cn(buttonVariants({ size: "xs" }), "uppercase tracking-wider");
+const BTN_SECONDARY = cn(
+  buttonVariants({ variant: "outline", size: "xs" }),
+  "uppercase tracking-wider text-muted-foreground",
+);
+const BTN_ICON = buttonVariants({ variant: "outline", size: "icon-sm" });
+const INPUT = cn(inputClasses, "h-auto py-2 rounded");
 
 function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null) return "...";
@@ -176,11 +184,11 @@ function SettingsCard({
   className?: string;
 }) {
   return (
-    <div className={`bg-card border border-border rounded ${className ?? ""}`}>
-      <div className="px-4 sm:px-5 py-3.5 border-b border-border flex items-start justify-between gap-3">
+    <div className={cn("overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-sm", className)}>
+      <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
         <div className="flex items-start gap-3 min-w-0">
           {Icon && (
-            <div className="w-8 h-8 rounded bg-muted flex items-center justify-center text-muted-foreground flex-shrink-0">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
               <Icon className="h-4 w-4" />
             </div>
           )}
@@ -242,6 +250,8 @@ export function SettingsPanel() {
     DEFAULT_METADATA_PREFERENCES,
   );
   const [cardMetrics, setCardMetrics] = useState<CardMetrics>(DEFAULT_CARD_METRICS);
+  const [showPrinterCardImage, setShowPrinterCardImage] = useState(false);
+  const [printerImageWarningOpen, setPrinterImageWarningOpen] = useState(false);
 
   const refreshUsers = useCallback(async () => {
     if (!user?.is_superuser) return;
@@ -272,6 +282,7 @@ export function SettingsPanel() {
       .catch(() => {});
     setMetadataPrefs(readMetadataPreferences());
     setCardMetrics(readCardMetrics());
+    setShowPrinterCardImage(readPrinterCardImagePreference());
   }, []);
 
   useEffect(() => {
@@ -636,6 +647,12 @@ export function SettingsPanel() {
     toast.success("Card metrics reset.");
   }
 
+  function updatePrinterCardImagePreference(next: boolean) {
+    setShowPrinterCardImage(next);
+    writePrinterCardImagePreference(next);
+    toast.success(next ? "Printer card images enabled." : "Printer card images hidden.");
+  }
+
   async function saveTrashRetention() {
     setTrashBusy("settings");
     try {
@@ -748,39 +765,72 @@ export function SettingsPanel() {
         description="This replaces the current database and stored files with the selected backup."
         confirmLabel="Restore"
       />
+      <ConfirmModal
+        open={printerImageWarningOpen}
+        onClose={() => setPrinterImageWarningOpen(false)}
+        onConfirm={() => {
+          updatePrinterCardImagePreference(true);
+          setPrinterImageWarningOpen(false);
+        }}
+        title="Download third-party printer images?"
+        description="Printer artwork will load from OrcaSlicer's GitHub repository. Images may be copyrighted or trademarked by their creators or printer manufacturers and remain subject to their original licenses. PrintStash does not own or redistribute them. Continue only if this use is permitted where you live."
+        confirmLabel="Download & enable"
+      />
 
-      <div>
-        <h2 className="text-2xl font-bold text-foreground tracking-tight">Settings</h2>
-        <p className="text-sm text-muted-foreground">Vault configuration and display preferences</p>
+      <PageHeader title="Settings" description="Vault configuration and display preferences" />
+
+      <div className="border-b border-border pb-3 lg:hidden">
+        <TabBar
+          tabs={SETTINGS_SECTIONS.map((section) => {
+            const Icon = section.icon;
+            return {
+              key: section.id,
+              label: (
+                <>
+                  <Icon className="h-4 w-4" />
+                  {section.label}
+                </>
+              ),
+            };
+          })}
+          active={activeSection}
+          onChange={setActiveSection}
+          className="gap-1 overflow-x-auto"
+          tabClassName="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-[color,background-color,transform] duration-press active:scale-[0.99] hover:bg-popover-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          activeTabClassName="bg-accent text-accent-foreground"
+          showIndicator={false}
+        />
       </div>
 
-      {/* Section tabs — underline indicator, scrolls horizontally on small screens */}
-      <div className="border-b border-border">
-        <div className="flex gap-1 overflow-x-auto -mb-px">
+      <div className="lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start lg:gap-6">
+        <nav aria-label="Settings sections" className="sticky top-0 hidden rounded-lg border border-border bg-card p-2 shadow-sm lg:block">
           {SETTINGS_SECTIONS.map((section) => {
             const Icon = section.icon;
-            const active = activeSection === section.id;
+            const isActive = section.id === activeSection;
             return (
               <button
                 key={section.id}
                 type="button"
+                aria-current={isActive ? "page" : undefined}
                 onClick={() => setActiveSection(section.id)}
-                className={`relative inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors ${
-                  active
-                    ? "border-[var(--primary)] text-[var(--primary)]"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium transition-[color,background-color,transform] duration-press active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                  isActive
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-popover-hover hover:text-foreground",
+                )}
               >
-                <Icon className="h-4 w-4" />
-                {section.label}
+                <Icon className="h-4 w-4 shrink-0" />
+                <span>{section.label}</span>
               </button>
             );
           })}
-        </div>
-      </div>
+        </nav>
+
+        <main className="min-w-0">
 
       {activeSection === "overview" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-panel-in">
           {/* KPI tiles */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {kpiItems.map((item) => {
@@ -788,7 +838,7 @@ export function SettingsPanel() {
               return (
                 <div key={item.label} className="bg-card border border-border rounded p-4 sm:p-5">
                   <div className="flex items-center justify-between">
-                    <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                    <p className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
                       {item.label}
                     </p>
                     <Icon className="h-4 w-4 text-muted-foreground/50" />
@@ -869,7 +919,7 @@ export function SettingsPanel() {
       )}
 
       {activeSection === "access" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-panel-in">
           {user?.is_superuser && (
             <SettingsCard
               icon={Users}
@@ -878,38 +928,56 @@ export function SettingsPanel() {
             >
               <div className="p-4 sm:p-5 space-y-4">
                 <div className="grid gap-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
-                  <input
-                    value={newUsername}
-                    onChange={(event) => setNewUsername(event.target.value)}
-                    className={INPUT}
-                    maxLength={128}
-                    placeholder="Username"
-                  />
-                  <input
-                    value={newUserEmail}
-                    onChange={(event) => setNewUserEmail(event.target.value)}
-                    className={INPUT}
-                    maxLength={255}
-                    placeholder="Email"
-                  />
-                  <input
-                    value={newUserPassword}
-                    onChange={(event) => setNewUserPassword(event.target.value)}
-                    className={INPUT}
-                    type="password"
-                    maxLength={256}
-                    placeholder="Initial password"
-                  />
+                  <label className="block space-y-1">
+                    <span className="block font-mono text-3xs uppercase tracking-wider text-muted-foreground">Username</span>
+                    <input
+                      id="new-user-username"
+                      value={newUsername}
+                      onChange={(event) => setNewUsername(event.target.value)}
+                      className={INPUT}
+                      maxLength={128}
+                      autoComplete="username"
+                    />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="block font-mono text-3xs uppercase tracking-wider text-muted-foreground">Email</span>
+                    <input
+                      id="new-user-email"
+                      value={newUserEmail}
+                      onChange={(event) => setNewUserEmail(event.target.value)}
+                      className={INPUT}
+                      type="email"
+                      maxLength={255}
+                      autoComplete="email"
+                    />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="block font-mono text-3xs uppercase tracking-wider text-muted-foreground">Initial password</span>
+                    <input
+                      id="new-user-password"
+                      value={newUserPassword}
+                      onChange={(event) => setNewUserPassword(event.target.value)}
+                      className={INPUT}
+                      type="password"
+                      minLength={8}
+                      maxLength={256}
+                      autoComplete="new-password"
+                      aria-describedby="new-user-password-help"
+                    />
+                  </label>
                   <button
                     type="button"
                     onClick={createUser}
                     disabled={usersBusy === "create" || !newUsername.trim() || newUserPassword.trim().length < 8}
-                    className={BTN_PRIMARY}
+                    className={`${BTN_PRIMARY} self-end`}
                   >
                     <UserPlus className="h-3.5 w-3.5" />
                     Create
                   </button>
                 </div>
+                <p id="new-user-password-help" className="text-xs text-muted-foreground">
+                  Initial password: at least 8 characters.
+                </p>
 
                 <div className="space-y-2">
                   {users.length === 0 ? (
@@ -927,13 +995,13 @@ export function SettingsPanel() {
                                 {row.username}
                               </p>
                               {row.is_superuser && (
-                                <span className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+                                <span className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 font-mono text-3xs uppercase text-muted-foreground">
                                   <ShieldCheck className="h-3 w-3" />
                                   Admin
                                 </span>
                               )}
                               {!row.is_active && (
-                                <span className="rounded bg-red-500/10 px-2 py-0.5 font-mono text-[10px] uppercase text-red-600">
+                                <span className="rounded bg-red-500/10 px-2 py-0.5 font-mono text-3xs uppercase text-red-600">
                                   Disabled
                                 </span>
                               )}
@@ -1014,50 +1082,59 @@ export function SettingsPanel() {
             >
               <div className="p-4 sm:p-5 space-y-4">
                 <div className="grid gap-2 lg:grid-cols-[1fr_1.4fr_auto_auto]">
-                  <select
-                    value={accessUserId}
-                    onChange={(event) => {
-                      setAccessUserId(event.target.value ? Number(event.target.value) : "");
-                      setAccessCollectionId("");
-                    }}
-                    className={INPUT}
-                    disabled={accessBusy === "load"}
-                  >
-                    <option value="">Select user</option>
-                    {nonSuperUsers.map((row) => (
-                      <option key={row.id} value={row.id}>
-                        {row.username}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={accessCollectionId}
-                    onChange={(event) => setAccessCollectionId(event.target.value ? Number(event.target.value) : "")}
-                    className={INPUT}
-                    disabled={!accessUserId || accessBusy === "load"}
-                  >
-                    <option value="">Select collection</option>
-                    {grantableCollections.map((row) => (
-                      <option key={row.id} value={row.id}>
-                        {row.path}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={accessRole}
-                    onChange={(event) => setAccessRole(event.target.value as CollectionRole)}
-                    className={INPUT}
-                    disabled={!accessUserId || !accessCollectionId || accessBusy === "load"}
-                  >
-                    <option value="view">View</option>
-                    <option value="edit">Edit</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  <label className="block space-y-1">
+                    <span className="block font-mono text-3xs uppercase tracking-wider text-muted-foreground">User</span>
+                    <select
+                      value={accessUserId}
+                      onChange={(event) => {
+                        setAccessUserId(event.target.value ? Number(event.target.value) : "");
+                        setAccessCollectionId("");
+                      }}
+                      className={INPUT}
+                      disabled={accessBusy === "load"}
+                    >
+                      <option value="">Select user</option>
+                      {nonSuperUsers.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {row.username}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="block font-mono text-3xs uppercase tracking-wider text-muted-foreground">Collection</span>
+                    <select
+                      value={accessCollectionId}
+                      onChange={(event) => setAccessCollectionId(event.target.value ? Number(event.target.value) : "")}
+                      className={INPUT}
+                      disabled={!accessUserId || accessBusy === "load"}
+                    >
+                      <option value="">Select collection</option>
+                      {grantableCollections.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {row.path}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="block font-mono text-3xs uppercase tracking-wider text-muted-foreground">Role</span>
+                    <select
+                      value={accessRole}
+                      onChange={(event) => setAccessRole(event.target.value as CollectionRole)}
+                      className={INPUT}
+                      disabled={!accessUserId || !accessCollectionId || accessBusy === "load"}
+                    >
+                      <option value="view">View</option>
+                      <option value="edit">Edit</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </label>
                   <button
                     type="button"
                     onClick={saveCollectionAccess}
                     disabled={!accessUserId || !accessCollectionId || accessBusy === "save"}
-                    className={BTN_PRIMARY}
+                    className={`${BTN_PRIMARY} self-end`}
                   >
                     {accessBusy === "save" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
                     Grant
@@ -1065,7 +1142,7 @@ export function SettingsPanel() {
                 </div>
 
                 <div className="rounded border border-border overflow-hidden">
-                  <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-b border-border bg-muted/40 px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-b border-border bg-muted/40 px-3 py-2 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                     <span>Collection</span>
                     <span>Role</span>
                     <span>Remove</span>
@@ -1095,7 +1172,7 @@ export function SettingsPanel() {
                               {collection?.model_count ?? 0} models
                             </p>
                           </div>
-                          <span className="rounded bg-muted px-2 py-1 font-mono text-[10px] uppercase text-muted-foreground">
+                          <span className="rounded bg-muted px-2 py-1 font-mono text-3xs uppercase text-muted-foreground">
                             {row.role}
                           </span>
                           <button
@@ -1129,12 +1206,16 @@ export function SettingsPanel() {
               ) : (
                 <>
                   <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                    <input
-                      value={keyName}
-                      onChange={(event) => setKeyName(event.target.value)}
-                      className={INPUT}
-                      maxLength={128}
-                    />
+                    <label className="block space-y-1">
+                      <span className="block font-mono text-3xs uppercase tracking-wider text-muted-foreground">Key name</span>
+                      <input
+                        id="api-key-name"
+                        value={keyName}
+                        onChange={(event) => setKeyName(event.target.value)}
+                        className={INPUT}
+                        maxLength={128}
+                      />
+                    </label>
                     <button
                       type="button"
                       onClick={generateApiKey}
@@ -1147,7 +1228,7 @@ export function SettingsPanel() {
                   </div>
 
                   {newApiKey && (
-                    <div className="border border-[var(--primary)]/40 bg-[var(--primary)]/10 rounded p-3 space-y-2">
+                    <div className="border border-primary/40 bg-primary/10 rounded p-3 space-y-2">
                       <p className="text-xs text-muted-foreground">
                         Copy this key now. It will only be shown once.
                       </p>
@@ -1191,7 +1272,7 @@ export function SettingsPanel() {
                             <p className="truncate text-sm text-foreground">
                               {key.name}
                             </p>
-                            <p className="font-mono text-[11px] text-muted-foreground">
+                            <p className="font-mono text-2xs text-muted-foreground">
                               {key.prefix}... · {key.last_used_at ? "Used" : "Never used"}
                             </p>
                           </div>
@@ -1222,7 +1303,7 @@ export function SettingsPanel() {
       )}
 
       {activeSection === "storage" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-panel-in">
           <StorageConfigCard />
           <SettingsCard
             icon={HardDrive}
@@ -1283,14 +1364,14 @@ export function SettingsPanel() {
                         <p className="truncate text-sm font-medium text-foreground">
                           {formatDate(backup.created_at)}
                         </p>
-                        <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border border-border text-muted-foreground">
+                        <span className="font-mono text-3xs uppercase tracking-wider px-2 py-0.5 rounded border border-border text-muted-foreground">
                           {backup.location}
                         </span>
-                        <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border border-border text-muted-foreground">
+                        <span className="font-mono text-3xs uppercase tracking-wider px-2 py-0.5 rounded border border-border text-muted-foreground">
                           v{backup.app_version}
                         </span>
                       </div>
-                      <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                      <p className="mt-1 truncate font-mono text-2xs text-muted-foreground">
                         {backup.backup_id}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -1338,31 +1419,74 @@ export function SettingsPanel() {
       )}
 
       {activeSection === "imports" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-panel-in">
           <MakerWorldConnectCard />
         </div>
       )}
 
       {activeSection === "libraries" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-panel-in">
           <ExternalLibrariesPanel canEdit={!!user?.is_superuser} />
         </div>
       )}
 
       {activeSection === "notifications" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-panel-in">
           <NotificationsPanel canEdit={!!user?.is_superuser} />
         </div>
       )}
 
       {activeSection === "spoolman" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-panel-in">
           <SpoolmanConnectCard canEdit={!!user?.is_superuser} />
         </div>
       )}
 
       {activeSection === "design" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-panel-in">
+          <SettingsCard
+            icon={Printer}
+            title="Printer cards"
+            description="Choose whether printer cards include a visual. Plain cards remain more compact and information-dense."
+          >
+            <div className="flex items-center justify-between gap-4 p-4 sm:p-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="hidden h-14 w-14 shrink-0 items-center justify-center rounded-md bg-muted sm:flex">
+                  <img
+                    src="/images/printers/generic-fdm.png"
+                    alt=""
+                    className="h-12 w-12 object-contain"
+                  />
+                </div>
+                <div>
+                  <p className="text-[13px] font-medium text-foreground">Show printer image</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Adds a brand-neutral printer visual above each card.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-label="Show printer image on printer cards"
+                aria-checked={showPrinterCardImage}
+                onClick={() => {
+                  if (showPrinterCardImage) updatePrinterCardImagePreference(false);
+                  else setPrinterImageWarningOpen(true);
+                }}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                  showPrinterCardImage ? "bg-primary" : "bg-outline-variant"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 rounded-full bg-primary-foreground transition-transform ${
+                    showPrinterCardImage ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+          </SettingsCard>
+
           {/* Print tracking behaviour */}
           <SettingsCard
             icon={Printer}
@@ -1376,13 +1500,14 @@ export function SettingsPanel() {
               <button
                 type="button"
                 role="switch"
+                aria-label="Auto-mark known good on successful print"
                 aria-checked={autoMarkKnownGood}
                 disabled={!user || autoMarkBusy}
                 onClick={() => saveAutoMarkKnownGood(!autoMarkKnownGood)}
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
                   autoMarkKnownGood
-                    ? "bg-[var(--primary)]"
-                    : "bg-[var(--outline-variant)]"
+                    ? "bg-primary"
+                    : "bg-outline-variant"
                 }`}
               >
                 <span
@@ -1401,8 +1526,9 @@ export function SettingsPanel() {
             description="Currency used to display cost figures in statistics and filament pricing."
           >
             <div className="p-4 sm:p-5 flex items-center justify-between gap-4">
-              <span className="text-[13px] text-foreground">Display currency</span>
+              <label htmlFor="display-currency" className="text-[13px] text-foreground">Display currency</label>
               <select
+                id="display-currency"
                 value={currency}
                 onChange={(event) => saveCurrency(event.target.value)}
                 disabled={!user || currencyBusy}
@@ -1432,7 +1558,7 @@ export function SettingsPanel() {
             <div className="p-4 sm:p-5 grid gap-4 sm:grid-cols-3">
               {([0, 1, 2] as const).map((slot) => (
                 <div key={slot} className="space-y-2">
-                  <p className="text-[11px] font-mono uppercase tracking-wider text-[var(--primary)]">
+                  <p className="text-2xs font-mono uppercase tracking-wider text-primary">
                     Slot {slot + 1}
                   </p>
                   <div className="grid grid-cols-1 gap-1">
@@ -1451,16 +1577,16 @@ export function SettingsPanel() {
                           onClick={() => updateCardMetric(slot, opt.id as CardMetricId)}
                           className={`group flex items-center gap-2 px-3 py-2 rounded border text-sm transition-colors ${
                             isSelected
-                              ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm"
+                              ? "border-transparent bg-accent text-accent-foreground"
                               : usedInOther
                               ? "border-dashed border-border bg-transparent text-muted-foreground/50 cursor-not-allowed"
-                              : "border-border bg-background text-foreground hover:border-[var(--primary)]/50 hover:bg-muted"
+                              : "border-border bg-background text-foreground hover:border-primary/50 hover:bg-muted"
                           }`}
                         >
                           <span
                             className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
                               isSelected
-                                ? "border-[var(--primary-foreground)] bg-[var(--primary-foreground)] text-[var(--primary)]"
+                                ? "border-accent-foreground bg-accent-foreground text-accent"
                                 : "border-border text-transparent"
                             }`}
                           >
@@ -1468,14 +1594,14 @@ export function SettingsPanel() {
                           </span>
                           <span className="flex-1 text-left">{opt.label}</span>
                           {usedInOther ? (
-                            <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground/60">
+                            <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground/60">
                               Slot {otherSlot + 1}
                             </span>
                           ) : (
                             <span
-                              className={`font-mono text-[10px] uppercase tracking-wider ${
+                              className={`font-mono text-3xs uppercase tracking-wider ${
                                 isSelected
-                                  ? "text-[var(--primary-foreground)]/80"
+                                  ? "text-accent-foreground/80"
                                   : "text-muted-foreground"
                               }`}
                             >
@@ -1504,7 +1630,7 @@ export function SettingsPanel() {
           >
             <div className="p-4 sm:p-5 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                <p className="text-2xs font-mono uppercase tracking-wider text-muted-foreground">
                   {METADATA_FIELDS.filter((f) => metadataPrefs[f.id]).length} of{" "}
                   {METADATA_FIELDS.length} shown
                 </p>
@@ -1512,7 +1638,7 @@ export function SettingsPanel() {
                   <button
                     type="button"
                     onClick={() => setAllMetadataPreferences(true)}
-                    className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-[var(--primary)] transition-colors"
+                    className="font-mono text-3xs uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors"
                   >
                     Show all
                   </button>
@@ -1520,7 +1646,7 @@ export function SettingsPanel() {
                   <button
                     type="button"
                     onClick={() => setAllMetadataPreferences(false)}
-                    className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-[var(--primary)] transition-colors"
+                    className="font-mono text-3xs uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors"
                   >
                     Hide all
                   </button>
@@ -1537,7 +1663,7 @@ export function SettingsPanel() {
                       onClick={() => updateMetadataPreference(field.id, !visible)}
                       className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors ${
                         visible
-                          ? "border-[var(--primary)]/40 bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)]/15"
+                          ? "border-transparent bg-accent text-accent-foreground hover:bg-accent"
                           : "border-dashed border-border bg-transparent text-muted-foreground/60 hover:border-border hover:text-foreground"
                       }`}
                     >
@@ -1557,7 +1683,7 @@ export function SettingsPanel() {
       )}
 
       {activeSection === "trash" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-panel-in">
           <SettingsCard
             icon={Trash2}
             title="Trash retention"
@@ -1576,7 +1702,7 @@ export function SettingsPanel() {
           >
             <div className="p-4 sm:p-5 grid gap-3 sm:grid-cols-[160px_auto_auto] sm:items-end">
               <label className="block">
-                <span className="block text-[11px] text-muted-foreground mb-1">
+                <span className="block text-2xs text-muted-foreground mb-1">
                   Days
                 </span>
                 <input
@@ -1638,10 +1764,10 @@ export function SettingsPanel() {
                         <p className="truncate text-sm font-medium text-foreground">
                           {item.name}
                         </p>
-                        <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border border-border text-muted-foreground">
+                        <span className="font-mono text-3xs uppercase tracking-wider px-2 py-0.5 rounded border border-border text-muted-foreground">
                           {item.file_count} files
                         </span>
-                        <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border border-border text-muted-foreground">
+                        <span className="font-mono text-3xs uppercase tracking-wider px-2 py-0.5 rounded border border-border text-muted-foreground">
                           {formatBytes(item.size_bytes)}
                         </span>
                       </div>
@@ -1678,17 +1804,17 @@ export function SettingsPanel() {
       )}
 
       {activeSection === "about" && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-panel-in">
           {/* App identity */}
           <div className="bg-card border border-border rounded">
             <div className="px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--primary)] text-white">
+              <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
                 <BrandMark className="h-10 w-10" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <h3 className="text-lg font-bold text-foreground tracking-tight">PrintStash</h3>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-3xs font-semibold text-muted-foreground">
                     v{health?.version ?? "0.2.0"}
                   </span>
                 </div>
@@ -1722,15 +1848,15 @@ export function SettingsPanel() {
               {latestRelease && (
                 <div className="px-4 sm:px-6 py-5 grid grid-cols-1 sm:grid-cols-[8rem_1fr] gap-3">
                   <div className="flex items-start gap-2">
-                    <span className="rounded bg-[var(--primary)]/10 px-2 py-0.5 text-xs font-semibold text-[var(--primary)]">
+                    <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
                       v{latestRelease.version}
                     </span>
-                    <span className="text-[11px] text-muted-foreground pt-0.5">{latestRelease.date}</span>
+                    <span className="text-2xs text-muted-foreground pt-0.5">{latestRelease.date}</span>
                   </div>
                   <ul className="space-y-1.5">
                     {latestRelease.changes.map((change, i) => (
                       <li key={i} className="flex gap-2 text-xs text-muted-foreground">
-                        <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-[var(--primary)]" />
+                        <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-primary" />
                         <span>{change}</span>
                       </li>
                     ))}
@@ -1741,6 +1867,8 @@ export function SettingsPanel() {
           </SettingsCard>
         </div>
       )}
+        </main>
+      </div>
     </div>
   );
 }

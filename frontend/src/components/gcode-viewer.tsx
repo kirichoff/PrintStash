@@ -415,9 +415,9 @@ export function GcodeViewer({ url, printerBedMm = null }: GcodeViewerProps) {
 
       {/* Layer controls overlay */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 w-[min(90%,440px)]">
-        <div className="bg-[var(--surface-container-lowest)]/90 backdrop-blur border border-[var(--outline-variant)] rounded px-3 py-2 flex flex-col gap-1.5">
+        <div className="bg-surface-container-lowest/90 backdrop-blur border border-outline-variant rounded px-3 py-2 flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
               Layer {currentLayer + 1} / {data.totalLayers}
               {data.layerRanges[currentLayer] && (
                 <> · Z {data.layerRanges[currentLayer].z.toFixed(2)} mm</>
@@ -426,10 +426,10 @@ export function GcodeViewer({ url, printerBedMm = null }: GcodeViewerProps) {
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setShowTravel((v) => !v)}
-                className={`font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors ${
+                className={`font-mono text-3xs uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors ${
                   showTravel
-                    ? "border-[var(--primary)] text-[var(--primary)] bg-[var(--secondary-container)]"
-                    : "border-[var(--outline-variant)] text-muted-foreground hover:text-foreground"
+                    ? "border-primary text-primary bg-secondary-container"
+                    : "border-outline-variant text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Travel
@@ -437,10 +437,10 @@ export function GcodeViewer({ url, printerBedMm = null }: GcodeViewerProps) {
               {printerBedMm && (
                 <button
                   onClick={() => setShowBed((v) => !v)}
-                  className={`font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors ${
+                  className={`font-mono text-3xs uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors ${
                     showBed
                       ? "border-blue-500 dark:border-blue-400 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30"
-                      : "border-[var(--outline-variant)] text-muted-foreground hover:text-foreground"
+                      : "border-outline-variant text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   Bed {printerBedMm.x}×{printerBedMm.y}
@@ -454,7 +454,7 @@ export function GcodeViewer({ url, printerBedMm = null }: GcodeViewerProps) {
             max={data.totalLayers - 1}
             value={currentLayer}
             onChange={(e) => setCurrentLayer(Number(e.target.value))}
-            className="w-full h-1.5 accent-[var(--primary)] cursor-pointer"
+            className="w-full h-1.5 accent-primary cursor-pointer"
           />
         </div>
       </div>

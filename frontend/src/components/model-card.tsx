@@ -79,7 +79,7 @@ function RevisionBadge({ status, label }: { status: FileRevisionStatus | null | 
   if (!status) return null;
   const cfg = REVISION_CONFIG[status];
   return (
-    <span className={`text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded border uppercase tracking-tight shrink-0 ${cfg.classes}`}>
+    <span className={`text-3xs font-mono font-semibold px-1.5 py-0.5 rounded border uppercase tracking-tight shrink-0 ${cfg.classes}`}>
       {label ?? cfg.label}
     </span>
   );
@@ -89,8 +89,8 @@ function MetricCell({ id, model, isLast }: { id: CardMetricId; model: ModelListI
   const cfg = METRIC_CONFIG[id];
   return (
     <div className={`py-2 px-1 text-center bg-muted/50 ${isLast ? "" : "border-r border-border"}`}>
-      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-0.5">{cfg.abbr}</p>
-      <p className="text-[11px] font-bold text-foreground font-mono truncate">{cfg.getValue(model)}</p>
+      <p className="text-3xs font-bold text-muted-foreground uppercase tracking-wider mb-0.5">{cfg.abbr}</p>
+      <p className="text-2xs font-bold text-foreground font-mono truncate">{cfg.getValue(model)}</p>
     </div>
   );
 }
@@ -141,12 +141,12 @@ function ModelCardInner({
           : undefined
       }
       onDragEnd={() => setDragging(false)}
-      className={`animate-card-in group relative flex h-full flex-col bg-card border rounded transition-all duration-200 overflow-hidden ${
+      className={`animate-card-in group relative flex h-full flex-col bg-card border rounded transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-fast active:scale-[0.99] overflow-hidden ${
         draggable ? "cursor-grab active:cursor-grabbing" : ""
       } ${dragging ? "opacity-40" : ""} ${
         selected
-          ? "border-blue-600 ring-2 ring-blue-600/40 dark:border-orange-600 dark:ring-orange-600/40"
-          : "border-border hover:border-blue-500 dark:hover:border-orange-500"
+          ? "border-primary ring-2 ring-primary-soft"
+          : "border-border hover:border-primary"
       }`}
       onMouseEnter={handleHover}
       onTouchStart={handleHover}
@@ -178,7 +178,7 @@ function ModelCardInner({
             <img
               alt={model.name}
               draggable={false}
-              className={`w-full h-full object-cover transition-opacity duration-300 ease-out ${
+              className={`w-full h-full object-cover transition-opacity duration-slow ease-out ${
                 thumbLoaded ? "opacity-90 group-hover:opacity-100" : "opacity-0"
               }`}
               src={thumb}
@@ -198,7 +198,7 @@ function ModelCardInner({
           )}
           {hasPrinter && (
             <div className="absolute bottom-2 right-2">
-              <span className="text-[9px] font-bold text-green-700 bg-green-50 dark:bg-green-950/60 px-1.5 py-0.5 border border-green-200 dark:border-green-800 rounded-sm uppercase">
+              <span className="text-3xs font-bold text-green-700 bg-green-50 dark:bg-green-950/60 px-1.5 py-0.5 border border-green-200 dark:border-green-800 rounded-sm uppercase">
                 On printer
               </span>
             </div>
@@ -207,9 +207,9 @@ function ModelCardInner({
 
         {/* Title + revision */}
         <div className="px-3 pt-3 pb-1 flex items-start justify-between gap-2">
-          <h4 className="text-sm font-bold text-foreground uppercase tracking-tight truncate leading-tight">
+          <h2 title={model.name} className="text-sm font-bold text-foreground uppercase tracking-tight line-clamp-2 leading-tight">
             {model.name}
-          </h4>
+          </h2>
           <RevisionBadge
             status={model.recommended_revision_status}
             label={model.recommended_revision_label}
@@ -256,7 +256,7 @@ function ModelCardInner({
               </span>
             )}
             {model.tags.slice(0, 2).map((tag) => (
-              <span key={tag} className="px-2 py-0.5 bg-blue-50 dark:bg-orange-950/40 border border-blue-200 dark:border-orange-800 rounded text-xs font-mono font-semibold text-blue-700 dark:text-orange-400 uppercase tracking-tight">
+              <span key={tag} className="px-2 py-0.5 bg-accent border border-primary-soft rounded text-xs font-mono font-semibold text-accent-foreground uppercase tracking-tight">
                 {tag}
               </span>
             ))}
@@ -266,7 +266,7 @@ function ModelCardInner({
               </span>
             )}
           </div>
-          <p className="text-[11px] text-muted-foreground font-mono uppercase shrink-0">
+          <p className="text-2xs text-muted-foreground font-mono uppercase shrink-0">
             {timeAgoShort(model.updated_at)}
           </p>
         </div>

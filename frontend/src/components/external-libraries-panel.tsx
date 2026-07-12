@@ -26,7 +26,7 @@ import type {
 } from "@/types";
 
 const BTN_PRIMARY =
-  "inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-medium uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed";
+  "inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-primary text-primary-foreground text-xs font-medium uppercase tracking-wider hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed";
 const BTN_SECONDARY =
   "inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border border-border text-muted-foreground hover:bg-muted transition-colors text-xs font-medium uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed";
 const INPUT =
@@ -283,7 +283,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
   if (!loaded) return null;
 
   return (
-    <div className="bg-card border border-border rounded">
+    <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
       <div className="px-4 sm:px-5 py-3.5 border-b border-border flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
           <div className="w-8 h-8 rounded bg-muted flex items-center justify-center text-muted-foreground flex-shrink-0">
@@ -307,7 +307,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
           disabled={!canEdit || enableBusy}
           onClick={() => toggleFeature(!enabled)}
           className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
-            enabled ? "bg-[var(--primary)]" : "bg-[var(--outline-variant)]"
+            enabled ? "bg-primary" : "bg-outline-variant"
           }`}
         >
           <span
@@ -322,9 +322,11 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
         <div className="p-4 sm:p-5 space-y-5">
           {/* Existing libraries */}
           {libraries.length === 0 ? (
-            <p className="text-[13px] text-muted-foreground">
-              No libraries yet. Add a folder below to start mirroring.
-            </p>
+            <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-muted/20 px-6 py-8 text-center">
+              <FolderSync className="h-7 w-7 text-muted-foreground/50" />
+              <p className="text-sm font-medium text-foreground">No shared volumes yet</p>
+              <p className="text-xs text-muted-foreground">Add a folder below to start mirroring it into your vault.</p>
+            </div>
           ) : (
             <ul className="space-y-3">
               {libraries.map((lib) => {
@@ -343,7 +345,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                             {lib.name}
                           </span>
                           {!lib.enabled && (
-                            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70 border border-border rounded px-1.5 py-0.5">
+                            <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground/70 border border-border rounded px-1.5 py-0.5">
                               paused
                             </span>
                           )}
@@ -351,14 +353,14 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                         <p className="text-xs text-muted-foreground font-mono mt-1 truncate">
                           {lib.root_path}
                         </p>
-                        <p className="text-[11px] text-muted-foreground mt-1">
+                        <p className="text-2xs text-muted-foreground mt-1">
                           {lib.collection_mode === "mirror"
                             ? "Mirrors subfolders → collections"
                             : "Single collection"}{" "}
                           · {describeSchedule(lib.scan_schedule)} · last scan{" "}
                           {formatDate(lib.last_scanned_at)}
                         </p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                        <p className="text-2xs text-muted-foreground mt-0.5">
                           {watchStatus(lib)}
                         </p>
                         {canEdit && (
@@ -391,7 +393,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                           </div>
                         )}
                         {lib.last_scan_status === "error" && (
-                          <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--destructive,#dc2626)]">
+                          <p className="mt-1 inline-flex items-center gap-1 text-2xs text-destructive">
                             <AlertTriangle className="h-3 w-3" />
                             {s?.error || "Last scan failed"}
                           </p>
@@ -399,7 +401,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                         {(lib.last_scan_status === "ok" ||
                           lib.last_scan_status === "partial") &&
                           s && (
-                            <p className="text-[11px] text-muted-foreground mt-1">
+                            <p className="text-2xs text-muted-foreground mt-1">
                               +{s.added} added · {s.updated} updated · {s.removed}{" "}
                               removed
                               {s.errors.length > 0
@@ -408,7 +410,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                             </p>
                           )}
                         {lib.last_scan_status === "partial" && (
-                          <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--destructive,#dc2626)]">
+                          <p className="mt-1 inline-flex items-center gap-1 text-2xs text-destructive">
                             <AlertTriangle className="h-3 w-3" />
                             Some files could not be indexed
                           </p>
@@ -435,8 +437,8 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                           onClick={() => handleToggleEnabled(lib)}
                           className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
                             lib.enabled
-                              ? "bg-[var(--primary)]"
-                              : "bg-[var(--outline-variant)]"
+                              ? "bg-primary"
+                              : "bg-outline-variant"
                           }`}
                         >
                           <span
@@ -449,7 +451,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                           type="button"
                           disabled={!canEdit || busy}
                           onClick={() => setDeleteTarget(lib)}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted hover:text-[var(--destructive,#dc2626)] transition-colors disabled:opacity-50"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted hover:text-destructive transition-colors disabled:opacity-50"
                           aria-label="Remove library"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -464,7 +466,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
 
           {/* Add a library */}
           <div className="rounded border border-dashed border-border p-3 sm:p-4 space-y-3">
-            <p className="text-[11px] font-mono uppercase tracking-wider text-[var(--primary)]">
+            <p className="text-2xs font-mono uppercase tracking-wider text-primary">
               Add a folder
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -520,7 +522,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
                 <option value="single">Single collection (flat)</option>
               </select>
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Watching gives near-real-time updates on local folders. Network
               folders (NAS over NFS/SMB) don't deliver file events, so they fall
               back to the schedule above.

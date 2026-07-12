@@ -13,7 +13,9 @@ function applyTheme(theme: Theme) {
   if (theme === "dark") root.classList.add("dark");
   else root.classList.remove("dark");
   const favicon = document.getElementById("app-favicon") as HTMLLinkElement | null;
-  if (favicon) favicon.href = theme === "dark" ? "/icon-dark.svg" : "/icon-light.svg";
+  if (favicon) {
+    favicon.href = theme === "dark" ? "/icon-dark.svg?v=2" : "/icon-light.svg?v=2";
+  }
   const id = window.setTimeout(() => root.classList.remove("theme-transitioning"), 350);
   return () => window.clearTimeout(id);
 }
@@ -46,7 +48,7 @@ export function ThemeToggle() {
       onClick={toggle}
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
       aria-label="Toggle theme"
-      className="text-muted-foreground hover:text-blue-600 dark:text-orange-500 transition-all flex items-center justify-center font-mono"
+      className="text-muted-foreground hover:text-primary transition-colors flex items-center justify-center font-mono"
     >
       <span key={theme} className="animate-theme-icon inline-flex">
         {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}

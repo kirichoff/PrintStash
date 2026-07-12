@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { Drawer } from "@/components/ui/drawer";
 
 type NavItem = {
   href: string;
@@ -70,13 +71,6 @@ export function BottomNavBar() {
     setMoreOpen(false);
   }, [pathname]);
 
-  useEffect(() => {
-    document.body.style.overflow = moreOpen ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [moreOpen]);
-
   const tabs = visibleItems.slice(0, MAX_TABS);
   const overflow = visibleItems.slice(MAX_TABS);
   const moreActive = overflow.some((item) => isItemActive(item, pathname));
@@ -102,6 +96,7 @@ export function BottomNavBar() {
           onClick={() => setMoreOpen(true)}
           aria-label="More"
           aria-expanded={moreOpen}
+          aria-current={moreActive ? "page" : undefined}
           className="group flex flex-1 flex-col items-center justify-center gap-1 pt-2 pb-1.5"
         >
           <TabIcon icon={MoreHorizontal} active={moreActive || moreOpen} />
@@ -109,22 +104,21 @@ export function BottomNavBar() {
         </button>
       </nav>
 
-      {moreOpen && (
-        <MoreSheet
-          items={overflow}
-          pathname={pathname}
-          username={user?.username}
-          onLogout={user ? handleLogout : undefined}
-          onClose={() => setMoreOpen(false)}
-        />
-      )}
+      <MoreSheet
+        open={moreOpen}
+        items={overflow}
+        pathname={pathname}
+        username={user?.username}
+        onLogout={user ? handleLogout : undefined}
+        onClose={() => setMoreOpen(false)}
+      />
     </>
   );
 }
 
 function NavTab({ item, active }: { item: NavItem; active: boolean }) {
   const className =
-    "group flex flex-1 flex-col items-center justify-center gap-1 pt-2 pb-1.5 active:scale-95 transition-transform duration-150";
+    "group flex flex-1 flex-col items-center justify-center gap-1 pt-2 pb-1.5 active:scale-95 transition-transform duration-press";
   const content = (
     <>
       <TabIcon icon={item.icon} active={active} />
@@ -133,13 +127,13 @@ function NavTab({ item, active }: { item: NavItem; active: boolean }) {
   );
   if (item.external) {
     return (
-      <a href={item.href} className={className}>
+      <a href={item.href} className={className} aria-current={active ? "page" : undefined}>
         {content}
       </a>
     );
   }
   return (
-    <Link href={item.href} className={className}>
+    <Link href={item.href} className={className} aria-current={active ? "page" : undefined}>
       {content}
     </Link>
   );
@@ -152,7 +146,7 @@ function TabIcon({ icon: Icon, active }: { icon: LucideIcon; active: boolean }) 
     <span
       className={`flex h-7 w-[3.25rem] items-center justify-center rounded-full transition-colors ${
         active
-          ? "bg-blue-600/10 text-blue-600 dark:bg-orange-500/15 dark:text-orange-400"
+          ? "bg-accent text-primary"
           : "text-muted-foreground group-hover:bg-muted group-hover:text-foreground"
       }`}
     >
@@ -170,8 +164,8 @@ function TabLabel({
 }) {
   return (
     <span
-      className={`text-[10px] font-medium leading-none tracking-tight ${
-        active ? "text-blue-600 dark:text-orange-400" : "text-muted-foreground"
+      className={`text-3xs font-medium leading-none tracking-tight ${
+        active ? "text-primary" : "text-muted-foreground"
       }`}
     >
       {children}
@@ -180,12 +174,14 @@ function TabLabel({
 }
 
 function MoreSheet({
+  open,
   items,
   pathname,
   username,
   onLogout,
   onClose,
 }: {
+  open: boolean;
   items: NavItem[];
   pathname: string;
   username?: string;
@@ -193,12 +189,14 @@ function MoreSheet({
   onClose: () => void;
 }) {
   return (
-    <div className="md:hidden fixed inset-0 z-50">
-      <div
-        className="fade-in absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <div className="slide-up absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-border bg-card px-4 pt-3 pb-safe shadow-2xl">
+    <Drawer
+      open={open}
+      onClose={onClose}
+      side="bottom"
+      ariaLabel="More"
+      containerClassName="md:hidden"
+      className="rounded-t-2xl border-t border-border bg-card px-4 pt-3 pb-safe shadow-2xl"
+    >
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-muted-foreground/25" />
         <div className="mb-3 flex items-center justify-between">
           <span className="text-sm font-semibold text-foreground">More</span>
@@ -215,9 +213,9 @@ function MoreSheet({
           <div className="grid grid-cols-3 gap-2">
             {items.map((item) => {
               const active = isItemActive(item, pathname);
-              const className = `flex flex-col items-center justify-center gap-2 rounded-xl border p-4 text-center transition-colors active:scale-95 ${
+              const className = `flex flex-col items-center justify-center gap-2 rounded-xl border p-4 text-center transition-[color,background-color,border-color,transform] duration-press active:scale-[0.98] ${
                 active
-                  ? "border-blue-600/40 bg-blue-600/10 text-blue-600 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-400"
+                  ? "border-primary-soft bg-accent text-primary"
                   : "border-border bg-background text-foreground hover:bg-muted"
               }`;
               const inner = (
@@ -228,13 +226,13 @@ function MoreSheet({
               );
               if (item.external) {
                 return (
-                  <a key={item.href} href={item.href} onClick={onClose} className={className}>
+                  <a key={item.href} href={item.href} aria-current={active ? "page" : undefined} onClick={onClose} className={className}>
                     {inner}
                   </a>
                 );
               }
               return (
-                <Link key={item.href} href={item.href} onClick={onClose} className={className}>
+                <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} onClick={onClose} className={className}>
                   {inner}
                 </Link>
               );
@@ -253,14 +251,13 @@ function MoreSheet({
             <button
               type="button"
               onClick={onLogout}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
             >
               <LogOut className="h-4 w-4" />
               Log out
             </button>
           </div>
         )}
-      </div>
-    </div>
+    </Drawer>
   );
 }

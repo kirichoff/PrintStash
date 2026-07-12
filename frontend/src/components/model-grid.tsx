@@ -13,6 +13,8 @@ import { FilterSidebar } from "@/components/filter-sidebar";
 import { MobileFilterDrawer } from "@/components/mobile-filter-drawer";
 import { UploadModal, UploadMode } from "@/components/upload-modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
 import { useMobileFilterDrawer } from "@/lib/mobile-filter-context";
 import {
   SlidersHorizontal,
@@ -20,7 +22,7 @@ import {
   Grid,
   List,
   FileText,
-  MoreVertical,
+  X,
   Printer,
   Folder,
   ChevronRight,
@@ -30,7 +32,7 @@ import {
 import { createCollection, updateModel, moveCollection, deleteCollection, batchMoveModels, batchTagModels, batchDeleteModels, } from "@/lib/api";
 import { isMeshFile, isGcodeFile, extensionOf, walkEntries, entriesFromDataTransfer, BulkItem } from "@/lib/bulk-upload";
 import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, type ModelListFilters, } from "@/lib/queries";
-import { queryKeys } from "@/lib/query-client";
+import { queryKeys, refreshVaultAfterIngest } from "@/lib/query-client";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
@@ -359,6 +361,7 @@ async function onMainDrop(e: React.DragEvent) {
   // the root with no filter narrowing the view, label it with the real library
   // total instead of that root-only count (#30).
   const hasActiveFilters =
+    !!selectedCollection ||
     selectedTags.length > 0 ||
     selectedPrinterId !== null ||
     selectedPrinterPresence !== null ||
@@ -468,12 +471,65 @@ async function onMainDrop(e: React.DragEvent) {
     }
   }
 
+  function clearSearch() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("q");
+    const qs = params.toString();
+    router.replace(qs ? `/?${qs}` : "/", { scroll: false });
+  }
+
+  function clearAllFilters() {
+    setSelectedTags([]);
+    setSelectedPrinterId(null);
+    setSelectedPrinterPresence(null);
+    setSelectedIds(new Set());
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("q");
+    params.delete("c");
+    const qs = params.toString();
+    router.replace(qs ? `/?${qs}` : "/", { scroll: false });
+  }
+
+  const activeFilterItems: { label: string; onRemove: () => void }[] = (() => {
+    const items: { label: string; onRemove: () => void }[] = [];
+    if (selectedCollection) {
+      items.push({
+        label: `Collection: ${selectedName ?? selectedCollection}`,
+        onRemove: () => handleCollectionChange(null),
+      });
+    }
+    if (query.trim()) {
+      items.push({ label: `Search: ${query.trim()}`, onRemove: clearSearch });
+    }
+    for (const slug of selectedTags) {
+      const tag = tags.find((item) => item.slug === slug);
+      items.push({
+        label: `Tag: ${tag?.name ?? slug}`,
+        onRemove: () => setSelectedTags((current) => current.filter((item) => item !== slug)),
+      });
+    }
+    if (selectedPrinterId !== null) {
+      const printer = printers.find((item) => item.id === selectedPrinterId);
+      items.push({
+        label: `Printer: ${printer?.name ?? selectedPrinterId}`,
+        onRemove: () => setSelectedPrinterId(null),
+      });
+    }
+    if (selectedPrinterPresence !== null) {
+      items.push({
+        label: selectedPrinterPresence === "none" ? "Vault only" : "On a printer",
+        onRemove: () => setSelectedPrinterPresence(null),
+      });
+    }
+    return items;
+  })();
+
   return (
     <>
       <UploadModal
         open={uploadOpen}
         onClose={() => { setUploadOpen(false); setDropPreload(null); setDropCollection(null); }}
-        onUploaded={refresh}
+        onUploaded={refreshVaultAfterIngest}
         defaultCollection={dropCollection ?? uploadDefaultCollection}
         preloadFiles={dropPreload?.files ?? null}
         preloadItems={dropPreload?.items ?? null}
@@ -556,9 +612,9 @@ async function onMainDrop(e: React.DragEvent) {
         <div className="px-4 sm:px-6 py-5 sm:py-8 bg-background border-b border-border">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 flex-col space-y-1">
-              <h2 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight truncate">
+              <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight truncate">
                 {selectedName ?? "All Models"}
-              </h2>
+              </h1>
               <p className="text-sm text-muted-foreground">
                 {loading ? "Loading..." : `${displayCount} model${displayCount !== 1 ? "s" : ""} total${selectedName ? ` in this collection` : ""}`}
                 {refreshing && <span className="ml-2 font-mono text-xs text-muted-foreground">Updating...</span>}
@@ -568,55 +624,56 @@ async function onMainDrop(e: React.DragEvent) {
               <div className="flex items-center space-x-2">
                 <button
                   onClick={openDrawer}
-                  className="md:hidden flex items-center px-3 py-2 text-xs font-medium text-foreground bg-background border border-border rounded hover:bg-muted transition-all"
+                  className="md:hidden flex items-center px-3 py-2 text-xs font-medium text-foreground bg-background border border-border rounded hover:bg-muted transition-colors"
                 >
                   <SlidersHorizontal className="w-4 h-4 mr-1.5 text-muted-foreground" />
                   Filters
                 </button>
-                <button
+                <Button
+                  variant="outline"
+                  size="xs"
                   onClick={handleOpenCreateCollection}
                   disabled={!canAdminSelectedCollection}
-                  className="hidden md:flex items-center px-3 py-2 text-xs font-medium text-foreground bg-background border border-border rounded hover:bg-muted transition-all"
+                  title={canAdminSelectedCollection ? "Create a collection" : "Admin access required for this collection"}
+                  className="hidden md:inline-flex"
                 >
-                  <Plus className="w-4 h-4 mr-1.5 text-muted-foreground" />
+                  <Plus className="w-4 h-4 text-muted-foreground" />
                   New collection
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="xs"
                   onClick={() => { setDropPreload(null); setDropCollection(null); setUploadOpen(true); }}
                   disabled={!canUploadToVault}
-                  className="flex items-center px-3 py-2 text-xs font-medium text-white bg-blue-600 dark:bg-orange-600 rounded hover:bg-blue-700 dark:hover:bg-orange-700 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={canUploadToVault ? "Upload artifacts" : "Sign in and get edit access to upload"}
                 >
                   Upload
-                </button>
+                </Button>
               </div>
               {auth.isAuthenticated && (
-                <button
+                <Button
+                  variant={selectMode ? "default" : "outline"}
+                  size="xs"
                   onClick={() => {
                     if (selectMode) clearSelection();
                     else setSelectMode(true);
                   }}
-                  className={`hidden md:flex items-center px-3 py-2 text-xs font-medium rounded border transition-all ${
-                    selectMode
-                      ? "text-white bg-blue-600 dark:bg-orange-600 border-transparent hover:bg-blue-700 dark:hover:bg-orange-700"
-                      : "text-foreground bg-background border-border hover:bg-muted"
-                  }`}
                 >
-                  <CheckSquare className="w-4 h-4 mr-1.5" />
+                  <CheckSquare className="w-4 h-4" />
                   {selectMode ? "Done" : "Select"}
-                </button>
+                </Button>
               )}
               <div className="h-6 w-px bg-muted mx-1 hidden md:block" />
               <div className="flex items-center bg-muted p-1 rounded">
                 <button
                   onClick={() => setViewMode("grid")}
-                  className={`p-1.5 rounded transition-all ${viewMode === "grid" ? "bg-background text-blue-600 dark:text-orange-500 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`p-1.5 rounded transition-[color,background-color,box-shadow] ${viewMode === "grid" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                   title="Grid View"
                 >
                   <Grid className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setViewMode("list")}
-                  className={`p-1.5 rounded transition-all ${viewMode === "list" ? "bg-background text-blue-600 dark:text-orange-500 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`p-1.5 rounded transition-[color,background-color,box-shadow] ${viewMode === "list" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                   title="List View"
                 >
                   <List className="w-4 h-4" />
@@ -634,6 +691,31 @@ async function onMainDrop(e: React.DragEvent) {
           />
         )}
 
+        {activeFilterItems.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3 sm:px-6">
+            <span className="text-3xs font-mono uppercase tracking-wider text-muted-foreground">
+              Filters
+            </span>
+            {activeFilterItems.map((item) => (
+              <Button
+                key={item.label}
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={item.onRemove}
+                className="gap-1.5"
+                title={`Remove ${item.label}`}
+              >
+                {item.label}
+                <X className="h-3 w-3" aria-hidden />
+              </Button>
+            ))}
+            <Button type="button" variant="ghost" size="xs" onClick={clearAllFilters}>
+              Clear all
+            </Button>
+          </div>
+        )}
+
         {/* Models / Documents tabs */}
         <div className="flex items-center gap-1 px-4 sm:px-6 pt-3 border-b border-border">
           {(["models", "docs"] as const).map((v) => (
@@ -642,7 +724,7 @@ async function onMainDrop(e: React.DragEvent) {
               onClick={() => setDocView(v)}
               className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                 docView === v
-                  ? "border-blue-600 dark:border-orange-500 text-foreground"
+                  ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -663,12 +745,12 @@ async function onMainDrop(e: React.DragEvent) {
                 onChange={(e) => setNewCollectionName(e.target.value)}
                 placeholder={auth.isAuthenticated ? (selectedCollection ? `New subcollection in "${selectedName ?? selectedCollection}"...` : "Collection name...") : "Sign in to add"}
                 disabled={!auth.isAuthenticated}
-                className="flex-1 max-w-xs bg-background text-foreground text-sm border border-border rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-600 dark:focus:ring-orange-500 focus:border-transparent disabled:opacity-50"
+                className="flex-1 max-w-xs bg-background text-foreground text-sm border border-border rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent disabled:opacity-50"
               />
               <button
                 type="submit"
                 disabled={!newCollectionName.trim() || !auth.isAuthenticated}
-                className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 dark:bg-orange-600 rounded hover:bg-blue-700 dark:hover:bg-orange-700 transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-xs font-medium text-primary-foreground bg-primary rounded hover:bg-primary-hover transition-colors disabled:opacity-50"
               >
                 Create
               </button>
@@ -691,7 +773,7 @@ async function onMainDrop(e: React.DragEvent) {
             <button
               type="button"
               onClick={selectAllVisible}
-              className="font-medium text-blue-600 dark:text-orange-500 hover:underline"
+              className="font-medium text-primary hover:underline"
             >
               Select all on screen ({sortedModels.length})
             </button>
@@ -717,32 +799,39 @@ async function onMainDrop(e: React.DragEvent) {
         ) : (
         <div className="flex-1 flex flex-col bg-background">
           {error && (
-            <div className="mx-6 mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+            <div className="mx-6 mt-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
           )}
 
           {loading ? (
             viewMode === "grid" ? <ModelGridSkeleton /> : <ModelListSkeleton />
           ) : sortedModels.length === 0 && visibleCollections.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 px-6 flex-1 text-center text-muted-foreground">
-              <p className="text-lg font-medium text-foreground">No models found</p>
-              <p className="text-sm mt-1">
-                {query || selectedCollection || selectedTags.length || selectedPrinterId || selectedPrinterPresence
+            <EmptyState
+              title="No models found"
+              description={
+                query || selectedCollection || selectedTags.length || selectedPrinterId || selectedPrinterPresence
                   ? "Try clearing some filters."
-                  : "Upload a model when you're ready, or skim the wiki first if this is a new install."}
-              </p>
-              {!query && !selectedCollection && selectedTags.length === 0 && !selectedPrinterId && !selectedPrinterPresence && (
-                <a
-                  href="https://xiao-villamor.github.io/PrintStash/"
-                  className="mt-4 inline-flex items-center gap-2 rounded border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                >
-                  <BookOpen className="h-4 w-4 text-muted-foreground" />
-                  Open wiki
-                </a>
-              )}
-            </div>
+                  : "Upload a model when you're ready, or skim the wiki first if this is a new install."
+              }
+              action={
+                hasActiveFilters ? (
+                  <Button type="button" variant="outline" size="xs" onClick={clearAllFilters}>
+                    Clear all filters
+                  </Button>
+                ) : (
+                  <a
+                    href="https://xiao-villamor.github.io/PrintStash/"
+                    className="inline-flex items-center gap-2 rounded border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                  >
+                    <BookOpen className="h-4 w-4 text-muted-foreground" />
+                    Open wiki
+                  </a>
+                )
+              }
+              className="flex-1 py-20 animate-panel-in"
+            />
           ) : viewMode === "grid" ? (
-            <div className="p-4 sm:p-6">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(340px,340px))]">
+            <div key="grid" className="p-4 sm:p-6 animate-panel-in">
+              <div className="stagger-children grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(340px,340px))]">
                 {visibleCollections.map((collection) => (
                   <CollectionFolderCard
                     key={collection.id}
@@ -765,7 +854,7 @@ async function onMainDrop(e: React.DragEvent) {
               <LoadMore hasMore={hasMore} loading={loadingMore} onClick={loadMore} />
             </div>
           ) : (
-            <div className="flex-1 overflow-y-auto">
+            <div key="list" className="flex-1 overflow-y-auto animate-panel-in">
               <div className="flex flex-col">
                 <div className="flex items-center gap-3 px-4 py-2 border-b border-border text-xs font-mono text-muted-foreground uppercase tracking-wider bg-muted/50">
                   <span className="w-10 flex-shrink-0">Thumb</span>
@@ -773,7 +862,6 @@ async function onMainDrop(e: React.DragEvent) {
                   <span className="w-24 text-right hidden sm:block">Collection</span>
                   <span className="w-20 text-right">Files</span>
                   <span className="w-24 text-right hidden md:block">Updated</span>
-                  <span className="w-8" />
                 </div>
                 {visibleCollections.map((collection) => (
                   <CollectionListRow
@@ -851,18 +939,18 @@ function CollectionFolderCard({ collection, onSelect, onDropModel }: { collectio
       data-collection-path={collection.path}
       onClick={() => onSelect(collection.path)}
       {...handlers}
-      className={`animate-card-in group flex flex-col text-left bg-muted border rounded-lg hover:shadow-sm transition-all relative overflow-hidden ${
+      className={`animate-card-in group flex flex-col text-left bg-muted border rounded-lg hover:shadow-sm transition-[border-color,box-shadow,transform] duration-fast active:scale-[0.99] relative overflow-hidden ${
         dragOver
-          ? "border-blue-500 dark:border-orange-500 ring-2 ring-blue-500/40 dark:ring-orange-500/40"
-          : "border-border hover:border-orange-500 dark:hover:border-orange-500"
+          ? "border-primary ring-2 ring-primary-soft"
+          : "border-border hover:border-primary"
       }`}
     >
-      <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-[var(--surface-container-high)] min-h-[100px] sm:min-h-[140px]">
-        <Folder className="w-12 h-12 sm:w-16 sm:h-16 text-blue-600/30 dark:text-orange-500/25" />
+      <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-surface-container-high min-h-[100px] sm:min-h-[140px]">
+        <Folder className="w-12 h-12 sm:w-16 sm:h-16 text-primary/30" />
       </div>
       <div className="p-3 border-t border-border">
         <div className="flex items-center justify-end gap-2 mb-0.5">
-          <span className="text-[10px] text-muted-foreground font-mono">{collection.model_count} models</span>
+          <span className="text-3xs text-muted-foreground font-mono">{collection.model_count} models</span>
         </div>
         <p className="text-sm font-bold text-foreground truncate tracking-tight">{collection.name}</p>
       </div>
@@ -881,16 +969,16 @@ function CollectionListRow({ collection, onSelect, onDropModel }: { collection: 
       {...handlers}
       className={`flex items-center gap-2 md:gap-3 px-4 py-3 border-b text-left transition-colors group ${
         dragOver
-          ? "border-blue-500 dark:border-orange-500 ring-2 ring-inset ring-blue-500/40 dark:ring-orange-500/40 bg-muted"
+          ? "border-primary ring-2 ring-inset ring-primary-soft bg-muted"
           : "border-border hover:bg-muted"
       }`}
     >
-      <span className="w-8 h-8 md:w-10 md:h-10 rounded bg-blue-50 flex-shrink-0 border border-blue-100 dark:border-orange-900 flex items-center justify-center text-blue-600 dark:text-orange-500">
+      <span className="w-8 h-8 md:w-10 md:h-10 rounded bg-accent flex-shrink-0 border border-primary-soft flex items-center justify-center text-primary">
         <Folder className="h-4 w-4 md:h-5 md:w-5" />
       </span>
       <span className="flex-1 min-w-0">
         <span className="block text-sm font-medium text-foreground truncate">{collection.name}</span>
-        <span className="block font-mono text-[10px] text-muted-foreground truncate">{collection.path}</span>
+        <span className="block font-mono text-3xs text-muted-foreground truncate">{collection.path}</span>
       </span>
       <span className="w-24 text-right text-xs font-mono text-muted-foreground truncate hidden sm:block">Folder</span>
       <span className="w-20 text-right text-xs font-mono text-muted-foreground">{collection.model_count}</span>
@@ -939,7 +1027,7 @@ function ModelListRow({
       }}
       className={`flex items-center gap-2 md:gap-3 px-4 py-3 border-b border-border transition-colors group active:bg-muted ${
         draggable ? "cursor-grab active:cursor-grabbing" : ""
-      } ${selected ? "bg-blue-50 dark:bg-orange-950/30" : "hover:bg-muted"}`}
+      } ${selected ? "bg-accent" : "hover:bg-muted"}`}
     >
       {selectable && (
         <Checkbox
@@ -962,14 +1050,14 @@ function ModelListRow({
         {model.tags.length > 0 && (
           <div className="flex gap-1 mt-0.5">
             {model.tags.slice(0, 2).map((tag) => (
-              <span key={tag} className="bg-blue-50 text-blue-700 dark:text-orange-400 px-1 py-px rounded font-mono text-[9px] uppercase tracking-wider">{tag}</span>
+              <span key={tag} className="bg-accent text-accent-foreground px-1 py-px rounded font-mono text-3xs uppercase tracking-wider">{tag}</span>
             ))}
           </div>
         )}
         {printerPresence.length > 0 && (
           <div className="flex gap-1 mt-1">
             {printerPresence.slice(0, 2).map((p) => (
-              <span key={p.printer_id} className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1 py-px font-mono text-[9px] uppercase tracking-wider text-emerald-600">
+              <span key={p.printer_id} className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1 py-px font-mono text-3xs uppercase tracking-wider text-emerald-600">
                 <Printer className="h-3 w-3" />{p.printer_name}
               </span>
             ))}
@@ -979,9 +1067,6 @@ function ModelListRow({
       <span className="w-24 text-right text-xs font-mono text-muted-foreground truncate hidden sm:block">{model.collection || "—"}</span>
       <span className="w-20 text-right text-xs font-mono text-muted-foreground">{model.file_count}</span>
       <span className="w-24 text-right text-xs font-mono text-muted-foreground hidden md:block">{timeAgo(model.updated_at)}</span>
-      <span className="w-8 flex justify-center">
-        <MoreVertical className="h-4 w-4 text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-opacity" />
-      </span>
     </Link>
   );
 }
