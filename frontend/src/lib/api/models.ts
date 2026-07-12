@@ -93,6 +93,21 @@ export async function downloadModelExport(format: "json" | "csv"): Promise<void>
   URL.revokeObjectURL(url);
 }
 
+export async function downloadLibraryArchive(): Promise<void> {
+  const res = await fetch(getUrl("/api/v1/models/library-archive"), { headers: authHeaders(), cache: "no-store" });
+  await expectOk(res);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = "printstash-library-v1.zip";
+  document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+}
+
+export function importLibraryArchive(file: File): Promise<{ created_models: number; created_files: number; skipped_files: number; imported_jobs: number }> {
+  const form = new FormData(); form.append("file", file);
+  return sendForm("/api/v1/models/library-import", form);
+}
+
 export function getModelPrinterFiles(id: number): Promise<ModelPrinterFileRead[]> {
   return getJson<ModelPrinterFileRead[]>(`/api/v1/models/${id}/printer-files`);
 }

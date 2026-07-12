@@ -51,6 +51,8 @@ import {
   deleteCollectionPermission,
   downloadBackup,
   downloadModelExport,
+  downloadLibraryArchive,
+  importLibraryArchive,
   getVaultConfig,
   listBackups,
   listCollectionPermissions,
@@ -215,6 +217,7 @@ export function SettingsPanel() {
   // invalidate queryKeys.vaultStats), so no manual refetch on this screen.
   const stats = useVaultStats().data ?? null;
   const [exporting, setExporting] = useState<"json" | "csv" | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState<"export" | "import" | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeyRead[]>([]);
   const [users, setUsers] = useState<UserRead[]>([]);
   const [usersBusy, setUsersBusy] = useState<number | "create" | null>(null);
@@ -445,6 +448,22 @@ export function SettingsPanel() {
     } finally {
       setExporting(null);
     }
+  }
+
+  async function exportArchive() {
+    setArchiveBusy("export");
+    try { await downloadLibraryArchive(); }
+    catch (e) { toast.error(e); }
+    finally { setArchiveBusy(null); }
+  }
+
+  async function importArchive(file: File) {
+    setArchiveBusy("import");
+    try {
+      const result = await importLibraryArchive(file);
+      toast.success(`Imported ${result.created_models} models and ${result.created_files} artifacts`);
+    } catch (e) { toast.error(e); }
+    finally { setArchiveBusy(null); }
   }
 
   async function generateApiKey() {
@@ -879,6 +898,31 @@ export function SettingsPanel() {
                     </span>
                   </div>
                 ))}
+              </div>
+            </SettingsCard>
+
+            <SettingsCard
+              icon={Download}
+              title="Library migration"
+              description="Portable archive with models, metadata, print history, and original artifacts"
+            >
+              <div className="p-4 sm:p-5 space-y-4">
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Export a versioned archive for migration to another PrintStash installation. Accounts, credentials, settings, and trash are excluded.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void exportArchive()} disabled={archiveBusy !== null} className={BTN_SECONDARY}>
+                    <Download className="h-3.5 w-3.5" /> {archiveBusy === "export" ? "Exporting" : "Export full library"}
+                  </button>
+                  {user?.is_superuser && (
+                    <label className={`${BTN_SECONDARY} ${archiveBusy !== null ? "pointer-events-none opacity-50" : "cursor-pointer"}`}>
+                      <Download className="h-3.5 w-3.5 rotate-180" /> {archiveBusy === "import" ? "Importing" : "Import archive"}
+                      <input type="file" accept=".zip,application/zip" className="sr-only" disabled={archiveBusy !== null} onChange={(event) => {
+                        const file = event.target.files?.[0]; if (file) void importArchive(file); event.target.value = "";
+                      }} />
+                    </label>
+                  )}
+                </div>
               </div>
             </SettingsCard>
 

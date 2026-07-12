@@ -65,7 +65,9 @@ class LibraryCreate(BaseModel):
     # Empty string = manual only. Otherwise a cron expression.
     scan_schedule: str = Field(default="0 * * * *", max_length=128)
     watch_mode: ExternalLibraryWatchMode = ExternalLibraryWatchMode.AUTO
-    collection_mode: ExternalLibraryCollectionMode = ExternalLibraryCollectionMode.MIRROR
+    collection_mode: ExternalLibraryCollectionMode = (
+        ExternalLibraryCollectionMode.MIRROR
+    )
     target_collection_id: Optional[int] = None
 
 
@@ -79,6 +81,11 @@ class LibraryUpdate(BaseModel):
     watch_mode: Optional[ExternalLibraryWatchMode] = None
     collection_mode: Optional[ExternalLibraryCollectionMode] = None
     target_collection_id: Optional[int] = None
+
+
+class LibraryPathScan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(default="", max_length=1024)
 
 
 def _validate_root_path(root_path: str) -> None:
@@ -95,7 +102,9 @@ def _validate_schedule(schedule: str) -> None:
         raise HTTPException(status_code=400, detail="invalid_cron_schedule")
 
 
-def _schedule_watcher_refresh(request: Request, background_tasks: BackgroundTasks) -> None:
+def _schedule_watcher_refresh(
+    request: Request, background_tasks: BackgroundTasks
+) -> None:
     """Reconcile the folder watcher after a config change (best-effort).
 
     The watcher only exists once the app lifespan has started; guard for setups
@@ -114,7 +123,8 @@ def _to_read(lib: ExternalLibrary) -> LibraryRead:
         except (ValueError, TypeError):
             summary = None
     watch_active = lib.fs_kind is not None and external_library.should_watch(
-        lib, lib.fs_kind  # type: ignore[arg-type]
+        lib,
+        lib.fs_kind,  # type: ignore[arg-type]
     )
     return LibraryRead(
         id=lib.id,  # type: ignore[arg-type]
@@ -128,7 +138,9 @@ def _to_read(lib: ExternalLibrary) -> LibraryRead:
         watch_active=watch_active,
         collection_mode=lib.collection_mode,
         target_collection_id=lib.target_collection_id,
-        last_scanned_at=lib.last_scanned_at.isoformat() if lib.last_scanned_at else None,
+        last_scanned_at=lib.last_scanned_at.isoformat()
+        if lib.last_scanned_at
+        else None,
         last_scan_status=lib.last_scan_status.value if lib.last_scan_status else None,
         last_scan_summary=summary,
     )
@@ -261,3 +273,36 @@ def scan_now(
         session_factory=session_factory,
     )
     return IngestResponse(job_id=job_id, state="pending", message="library scan queued")
+
+
+@router.post(
+    "/{library_id}/scan-path",
+    response_model=IngestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_feature)],
+    summary="Import one folder under a configured library root",
+)
+def scan_path(
+    library_id: int,
+    body: LibraryPathScan,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_superuser),
+    session: Session = Depends(get_session),
+    session_factory: SessionFactory = Depends(get_session_factory),
+) -> IngestResponse:
+    lib = get_or_404(session, ExternalLibrary, library_id, "library_not_found")
+    root = Path(lib.root_path).resolve()
+    candidate = (root / body.path).resolve()
+    if candidate != root and root not in candidate.parents:
+        raise HTTPException(status_code=400, detail="path_outside_library_root")
+    if not candidate.is_dir() or not os.access(candidate, os.R_OK):
+        raise HTTPException(status_code=400, detail="path_missing_or_unreadable")
+    job_id = registry.create(owner_user_id=current_user.id)
+    background_tasks.add_task(
+        external_library.scan_library,
+        library_id,
+        relative_path=body.path,
+        job_id=job_id,
+        session_factory=session_factory,
+    )
+    return IngestResponse(job_id=job_id, state="pending", message="folder scan queued")

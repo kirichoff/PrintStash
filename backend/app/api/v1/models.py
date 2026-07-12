@@ -6,7 +6,10 @@ Read-model assembly lives in ``services/model_views``; trash lifecycle in
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import uuid
+import zipfile
 from pathlib import Path
 from typing import List, Literal, Optional
 
@@ -22,8 +25,9 @@ from fastapi import (
 from fastapi import (
     File as UploadFileParam,
 )
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, delete, select
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
@@ -72,7 +76,15 @@ from app.schemas.models import (
     VaultStatsRead,
 )
 from app.schemas.saved_views import ModelStarRead
-from app.services import job_import, model_views, print_results, rbac, storage, taxonomy
+from app.services import (
+    job_import,
+    library_transfer,
+    model_views,
+    print_results,
+    rbac,
+    storage,
+    taxonomy,
+)
 from app.services.ingestion import add_gcode_revision_to_model
 from app.services.moonraker import MoonrakerError
 from app.services.trash import (
@@ -263,6 +275,48 @@ def export_models(
             "Content-Disposition": 'attachment; filename="printstash-model-export.json"'
         },
     )
+
+
+@router.get(
+    "/library-archive",
+    dependencies=[Depends(require_auth)],
+    summary="Export a portable full-library archive",
+)
+def export_library_archive(
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> FileResponse:
+    path = library_transfer.create_archive(session, current_user)
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename="printstash-library-v1.zip",
+        background=BackgroundTask(path.unlink, missing_ok=True),
+    )
+
+
+@router.post(
+    "/library-import",
+    dependencies=[Depends(require_superuser)],
+    summary="Import a portable full-library archive",
+)
+async def import_library_archive(
+    file: UploadFile = UploadFileParam(...),
+    current_user: User = Depends(require_superuser),
+    session: Session = Depends(get_session),
+) -> dict[str, int]:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix != ".zip":
+        raise HTTPException(status_code=400, detail="archive_zip_required")
+    fd, name = tempfile.mkstemp(suffix=".zip")
+    try:
+        with open(fd, "wb", closefd=True) as target:
+            shutil.copyfileobj(file.file, target)
+        return library_transfer.import_archive(session, Path(name), current_user)
+    except (ValueError, zipfile.BadZipFile) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 
 @router.get(
