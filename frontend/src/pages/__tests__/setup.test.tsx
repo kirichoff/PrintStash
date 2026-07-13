@@ -24,6 +24,7 @@ vi.mock("@/components/brand-mark", () => ({ BrandMark: () => <span /> }));
 
 const status = {
   configured: false,
+  setup_token_required: true,
   user_count: 0,
   default_data_dir: "/data/files",
   default_thumb_dir: "/data/thumbs",
@@ -44,6 +45,7 @@ async function reachStorage() {
   const user = userEvent.setup();
   render(<SetupPage />);
   await screen.findByRole("heading", { name: "Welcome to PrintStash" });
+  await user.type(screen.getByLabelText("Setup token"), "operator-setup-token-123");
   await user.type(screen.getByLabelText("Username"), "admin");
   await user.type(screen.getByLabelText("Password"), "Password123");
   await user.type(screen.getByLabelText("Confirm password"), "Password123");
@@ -71,6 +73,7 @@ describe("first-run setup", () => {
     const user = userEvent.setup();
     render(<SetupPage />);
     await screen.findByRole("heading", { name: "Welcome to PrintStash" });
+    await user.type(screen.getByLabelText("Setup token"), "operator-setup-token-123");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Username must be at least 3 characters");
     expect(mocks.completeSetup).not.toHaveBeenCalled();
@@ -81,6 +84,9 @@ describe("first-run setup", () => {
     await user.click(screen.getByRole("button", { name: "Complete setup" }));
 
     await waitFor(() => expect(mocks.storeLogin).toHaveBeenCalledWith("token", expect.objectContaining({ username: "admin" })));
+    expect(mocks.completeSetup).toHaveBeenCalledWith(
+      expect.objectContaining({ setup_token: "operator-setup-token-123" }),
+    );
   expect(mocks.router.replace).toHaveBeenCalledWith("/");
   });
 

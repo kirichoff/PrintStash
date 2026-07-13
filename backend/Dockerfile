@@ -13,6 +13,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
     curl \
+    gosu \
     libxml2-dev \
     libxslt1-dev \
     libfreetype6-dev \
@@ -27,6 +28,10 @@ RUN uv sync --frozen --no-dev --no-editable
 # stored at $PLAYWRIGHT_BROWSERS_PATH so the runtime finds it. This is the bulk
 # of the image size. See app/services/browser_fetch.py.
 RUN uv run patchright install --with-deps chromium
+
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin printstash \
+ && mkdir -p /data/files /data/thumbs /data/staging /data/backups /data/db \
+ && chown -R printstash:printstash /data /opt/pw-browsers
 
 COPY app ./app
 COPY alembic.ini ./alembic.ini

@@ -87,8 +87,8 @@ export function BottomNavBar() {
   const overflow = visibleItems.slice(MAX_TABS);
   const moreActive = overflow.some((item) => isItemActive(item, pathname));
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     setMoreOpen(false);
     router.push("/login");
   }

@@ -17,7 +17,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel import Session, select
 
 from app.core.config import FrozenSettings, settings
@@ -26,7 +26,8 @@ from app.db.models import User
 from app.db.session import get_session
 from app.schemas.setup import SetupRequest, SetupResponse, SetupStatus
 from app.services import runtime_config
-from app.services.auth import create_access_token, hash_password
+from app.services.auth import create_access_token, hash_password, set_session_cookie
+from app.services.setup_token import verify_setup_token
 
 logger = get_logger(__name__)
 
@@ -78,14 +79,17 @@ def _validate_writable_dir(path_str: str, label: str) -> Path:
     return path
 
 
-@router.get("/status", response_model=SetupStatus)
+@router.get("/status", response_model=SetupStatus, response_model_exclude_none=True)
 def get_status(session: Session = Depends(get_session)) -> SetupStatus:
     """Lightweight probe — safe to call on every page load."""
     config = runtime_config.get_config(session)
     user_count = len(session.exec(select(User.id)).all())
     configured = config.configured_at is not None and user_count > 0
+    if configured:
+        return SetupStatus(configured=True)
     return SetupStatus(
         configured=configured,
+        setup_token_required=True,
         user_count=user_count,
         default_data_dir=_DEFAULT_DATA_DIR,
         default_thumb_dir=_DEFAULT_THUMB_DIR,
@@ -105,10 +109,14 @@ def get_status(session: Session = Depends(get_session)) -> SetupStatus:
 
 @router.post("", response_model=SetupResponse, status_code=status.HTTP_201_CREATED)
 def complete_setup(
-    body: SetupRequest, session: Session = Depends(get_session)
+    body: SetupRequest,
+    response: Response,
+    session: Session = Depends(get_session),
 ) -> SetupResponse:
     with _setup_lock:
-        return _complete_setup(body, session)
+        result = _complete_setup(body, session)
+        set_session_cookie(response, result.access_token)
+        return result
 
 
 def _complete_setup(body: SetupRequest, session: Session) -> SetupResponse:
@@ -122,6 +130,12 @@ def _complete_setup(body: SetupRequest, session: Session) -> SetupResponse:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="already_configured",
+        )
+
+    if not verify_setup_token(body.setup_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="invalid_setup_token",
         )
 
     # Guard against a half-configured state (e.g. user table seeded out of band).
@@ -195,7 +209,9 @@ def _complete_setup(body: SetupRequest, session: Session) -> SetupResponse:
         settings.thumb_dir,
     )
 
-    token = create_access_token(user.id, user.username, scope="admin")
+    token = create_access_token(
+        user.id, user.username, scope="admin", auth_version=user.auth_version
+    )
     return SetupResponse(
         configured=True,
         user_id=user.id,

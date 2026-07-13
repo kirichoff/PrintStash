@@ -3,7 +3,14 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
-from app.services.storage import ensure_unique_slug, slugify, stream_to_path
+import pytest
+
+from app.services.storage import (
+    UploadTooLarge,
+    ensure_unique_slug,
+    slugify,
+    stream_to_path,
+)
 
 
 def test_slugify_normalises_unicode_punctuation_and_empty_names() -> None:
@@ -29,3 +36,22 @@ def test_stream_to_path_creates_parent_dirs_and_returns_byte_count(
 
     assert written == len(payload)
     assert dest.read_bytes() == payload
+
+
+def test_stream_to_path_stops_and_removes_partial_file_at_limit(tmp_path: Path) -> None:
+    class CountingStream(BytesIO):
+        bytes_read = 0
+
+        def read(self, size: int = -1) -> bytes:
+            chunk = super().read(size)
+            self.bytes_read += len(chunk)
+            return chunk
+
+    source = CountingStream(b"x" * (3 * 1024 * 1024))
+    dest = tmp_path / "oversized.bin"
+
+    with pytest.raises(UploadTooLarge):
+        stream_to_path(source, dest, max_bytes=1024 * 1024)
+
+    assert source.bytes_read <= 2 * 1024 * 1024
+    assert not dest.exists()

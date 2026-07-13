@@ -9,7 +9,6 @@ import {
   sendAction,
   sendJson,
 } from "@/lib/api/request";
-import { getStoredToken } from "@/lib/auth";
 import {
   Dashboard,
   MoonrakerConfigRead,
@@ -173,10 +172,13 @@ export function listPrinterJobs(
   return getJson<PrintJobRead[]>(`/api/v1/printers/${id}/jobs?limit=${limit}`);
 }
 
-export function openPrinterWS(id: number): WebSocket {
-  const token = getStoredToken();
-  const path = token
-    ? `/api/v1/printers/${id}/ws?token=${encodeURIComponent(token)}`
-    : `/api/v1/printers/${id}/ws`;
-  return new WebSocket(getWsUrl(path));
+export async function openPrinterWS(id: number): Promise<WebSocket> {
+  const { ticket } = await sendJson<{ ticket: string; expires_in: number }>(
+    `/api/v1/printers/${id}/ws-ticket`,
+    "POST",
+    {},
+  );
+  return new WebSocket(
+    getWsUrl(`/api/v1/printers/${id}/ws?ticket=${encodeURIComponent(ticket)}`),
+  );
 }

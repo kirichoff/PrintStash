@@ -146,8 +146,8 @@ export function TopBar() {
     return () => { unsubscribe(); stopSync(); };
   }, []);
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     setProfileOpen(false);
     router.push("/login");
   }

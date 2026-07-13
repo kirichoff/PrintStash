@@ -247,7 +247,7 @@ def extract_selected(path: Path, names: list[str]) -> list[tuple[Path, str]]:
                 continue
             staged = settings.incoming_dir / f"{uuid.uuid4().hex}{suffix}"
             with zf.open(info) as src:
-                storage.stream_to_path(src, staged)
+                storage.stream_to_path(src, staged, max_bytes=max_entry)
             extracted.append((staged, info.filename.replace("\\", "/")))
     return extracted
 

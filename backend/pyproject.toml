@@ -4,6 +4,7 @@ version = "0.10.0"
 description = "PrintStash — self-hosted 3D printing asset manager"
 requires-python = ">=3.11"
 dependencies = [
+    "cryptography>=44.0.0",
     "alembic>=1.14",
     "aiosqlite>=0.20",
     "asyncpg>=0.29",
@@ -31,7 +32,7 @@ dependencies = [
     "prometheus-client>=0.20",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
-    "python-jose[cryptography]>=3.5.0",
+    "PyJWT>=2.10",
     "python-multipart>=0.0.12",
     "psycopg2-binary>=2.9",
     "sqlmodel>=0.0.22",

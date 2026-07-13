@@ -17,9 +17,10 @@ COPY . .
 # nginx /api/v1 proxy, so no API URL needs to be baked in at build time.
 RUN pnpm run build
 
-FROM nginx:alpine AS runner
+FROM nginxinc/nginx-unprivileged:alpine AS runner
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/templates/default.conf.template
+COPY security-headers.conf /etc/nginx/security-headers.conf
 
 ENV NGINX_CLIENT_MAX_BODY_SIZE=512m
 

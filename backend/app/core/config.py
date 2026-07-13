@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     db_url: str = "sqlite:////data/db/printstash.sqlite"
 
     jwt_secret: str = DEFAULT_JWT_SECRET
+    # First-run setup credential. When empty, a random process-local token is
+    # generated and printed to the API log while the vault is unconfigured.
+    setup_token: str = ""
+    # Credentials persisted in the database are encrypted with this external
+    # key. Empty uses a generated 0600 key file beside the SQLite database.
+    secrets_key: str = ""
+    secrets_key_file: Path = Path("/data/db/.printstash-secrets-key")
+    session_cookie_secure: bool = False
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     # "Remember me" login lifetime. Kept short because the access token is a

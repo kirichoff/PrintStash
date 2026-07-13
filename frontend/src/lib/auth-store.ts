@@ -1,5 +1,5 @@
 /**
- * Single module that owns all localStorage reads and writes for auth state.
+ * Browser auth metadata store. Access JWTs live only in an HttpOnly cookie.
  *
  * The React AuthContext and API client consume this module instead of
  * touching localStorage directly. Events drive cross-component sync.
@@ -29,12 +29,7 @@ function emit() {
 }
 
 export function getToken(): string | null {
-  if (!isBrowser()) return null;
-  try {
-    return localStorage.getItem(TOKEN_KEY) ?? localStorage.getItem(LEGACY_TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 export function getUser(): StoredUser | null {
@@ -48,7 +43,7 @@ export function getUser(): StoredUser | null {
 }
 
 export function isLoggedIn(): boolean {
-  return !!getToken();
+  return !!getUser();
 }
 
 export function storeLogin(
@@ -58,7 +53,10 @@ export function storeLogin(
 ): void {
   if (!isBrowser()) return;
   try {
-    localStorage.setItem(TOKEN_KEY, token);
+    // The backend also sets the access JWT as an HttpOnly SameSite cookie.
+    // Never persist the response token where injected JavaScript can read it.
+    void token;
+    localStorage.removeItem(TOKEN_KEY);
     localStorage.setItem(USER_KEY, JSON.stringify(user));
     localStorage.removeItem(LEGACY_TOKEN_KEY);
     localStorage.removeItem(LEGACY_USER_KEY);
@@ -97,7 +95,7 @@ export function emitUnauthorized(): void {
   if (!isBrowser()) return;
   // Login failures also return 401. Only expire an established session, and
   // clear it before broadcasting so concurrent failed requests become no-ops.
-  if (!getToken()) return;
+  if (!isLoggedIn()) return;
   try {
     sessionStorage.setItem(SESSION_EXPIRED_KEY, "1");
   } catch { /* ignore */ }

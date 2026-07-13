@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
+from starlette.websockets import WebSocketDisconnect
 
 from app.db.models import (
     Collection,
@@ -66,6 +68,41 @@ class TestListPrinters:
         assert len(data) == 1
         assert data[0]["name"] == "Ender 3"
         assert data[0]["status"] == PrinterStatus.UNKNOWN.value
+
+
+class TestPrinterWebSocketAuth:
+    def test_one_time_ticket_replaces_access_token_in_websocket_url(
+        self, client: TestClient, auth_headers: dict[str, str], db_session: Session
+    ):
+        printer = Printer(name="Ticketed", moonraker_url="http://printer.local")
+        db_session.add(printer)
+        db_session.commit()
+        db_session.refresh(printer)
+
+        response = client.post(
+            f"/api/v1/printers/{printer.id}/ws-ticket", headers=auth_headers
+        )
+        assert response.status_code == 200
+        ticket = response.json()["ticket"]
+        assert response.json()["expires_in"] <= 30
+
+        with client.websocket_connect(
+            f"/api/v1/printers/{printer.id}/ws?ticket={ticket}"
+        ):
+            pass
+
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(
+                f"/api/v1/printers/{printer.id}/ws?ticket={ticket}"
+            ):
+                pass
+
+        raw_token = auth_headers["Authorization"].split(" ", 1)[1]
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(
+                f"/api/v1/printers/{printer.id}/ws?token={raw_token}"
+            ):
+                pass
 
 
 class TestCreatePrinter:

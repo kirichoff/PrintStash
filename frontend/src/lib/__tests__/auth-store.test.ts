@@ -40,4 +40,17 @@ describe("session expiry", () => {
 
     expect(consumeSessionExpired()).toBe(false);
   });
+
+  it("never persists a browser-readable access token", () => {
+    storeLogin("sensitive-jwt", {
+      id: 1,
+      username: "admin",
+      email: null,
+      is_superuser: true,
+    });
+
+    expect(localStorage.getItem("printstash.token")).toBeNull();
+    expect(sessionStorage.getItem("printstash.token")).toBeNull();
+    expect(getToken()).toBeNull();
+  });
 });

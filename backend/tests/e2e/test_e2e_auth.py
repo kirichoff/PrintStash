@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import pytest
 
+from app.services.setup_token import current_setup_token
+
 pytestmark = pytest.mark.e2e
 
 
@@ -25,6 +27,7 @@ async def test_setup_login_refresh_apikey_and_rbac(api, tmp_path, e2e_db):
     r = await api.post(
         "/api/v1/setup",
         json={
+            "setup_token": current_setup_token(),
             "username": "owner",
             "password": "Password123",
             "storage_backend": "local",
@@ -38,7 +41,11 @@ async def test_setup_login_refresh_apikey_and_rbac(api, tmp_path, e2e_db):
     # The wizard refuses to run twice.
     again = await api.post(
         "/api/v1/setup",
-        json={"username": "owner2", "password": "Password123"},
+        json={
+            "setup_token": current_setup_token(),
+            "username": "owner2",
+            "password": "Password123",
+        },
     )
     assert again.status_code == 409
 

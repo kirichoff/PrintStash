@@ -17,6 +17,7 @@ from sqlmodel import select
 from starlette import status
 
 from app.api.v1 import api_router
+from app.core.body_limit import RequestBodyLimitMiddleware
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.metrics import app_info as _app_info
@@ -33,6 +34,7 @@ from app.services.library_watcher import LibraryWatcher
 from app.services.notifications import run_dispatcher_loop
 from app.services.printer_hub import PrinterHub
 from app.services.runtime_config import apply_overlay, ensure_jwt_secret, is_configured
+from app.services.setup_token import current_setup_token
 from app.services.storage_backend import init_backend
 from app.services.trash import gc_soft_deleted
 
@@ -70,7 +72,8 @@ async def lifespan(app: FastAPI):
     _backend = init_backend()
     if not configured:
         logger.warning(
-            "vault is unconfigured — open the web UI to run the first-run setup wizard"
+            "vault is unconfigured — open the web UI and enter this setup token: %s",
+            current_setup_token(),
         )
     logger.info(
         "backend=%s data_dir=%s thumb_dir=%s db=%s",
@@ -191,6 +194,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestBodyLimitMiddleware)
 
 
 @app.exception_handler(RequestValidationError)

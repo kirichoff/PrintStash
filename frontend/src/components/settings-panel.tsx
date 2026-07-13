@@ -54,6 +54,7 @@ import {
   downloadModelExport,
   downloadLibraryArchive,
   importLibraryArchive,
+  getHealthDetails,
   getVaultConfig,
   listBackups,
   listCollectionPermissions,
@@ -302,14 +303,15 @@ export function SettingsPanel() {
   }, [user]);
 
   useEffect(() => {
-    fetch("/api/v1/health")
-      .then((r) => r.json())
-      .then(setHealth)
-      .catch(() => {});
     setMetadataPrefs(readMetadataPreferences());
     setCardMetrics(readCardMetrics());
     setShowPrinterCardImage(readPrinterCardImagePreference());
   }, []);
+
+  useEffect(() => {
+    if (!user?.is_superuser) return;
+    getHealthDetails<HealthResponse>().then(setHealth).catch(() => {});
+  }, [user]);
 
   useEffect(() => {
     if (!user) {

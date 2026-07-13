@@ -18,6 +18,7 @@ from sqlalchemy import Column, Text, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.core.time import utcnow
+from app.db.encrypted import EncryptedText
 
 
 class FileType(str, Enum):
@@ -441,21 +442,33 @@ class Printer(SQLModel, table=True):
     )
     # Base URL of Moonraker, e.g. "http://mainsailos.local" or "http://10.0.0.42:7125".
     moonraker_url: str = Field(default="", max_length=512)
-    api_key: Optional[str] = Field(default=None, max_length=128)
+    api_key: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
     provider_variant: Optional[str] = Field(default=None, max_length=64)
     bambu_host: Optional[str] = Field(default=None, max_length=255)
     bambu_serial: Optional[str] = Field(default=None, max_length=128)
-    bambu_access_code: Optional[str] = Field(default=None, max_length=128)
+    bambu_access_code: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
     prusalink_url: Optional[str] = Field(default=None, max_length=512)
     prusalink_auth_mode: Optional[str] = Field(default=None, max_length=32)
     prusalink_username: Optional[str] = Field(default=None, max_length=128)
-    prusalink_password: Optional[str] = Field(default=None, max_length=255)
-    prusalink_api_key: Optional[str] = Field(default=None, max_length=255)
+    prusalink_password: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
+    prusalink_api_key: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
     elegoo_centauri_host: Optional[str] = Field(default=None, max_length=255)
-    elegoo_centauri_access_code: Optional[str] = Field(default=None, max_length=255)
+    elegoo_centauri_access_code: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
     elegoo_centauri_mainboard_id: Optional[str] = Field(default=None, max_length=128)
     octoprint_url: Optional[str] = Field(default=None, max_length=512)
-    octoprint_api_key: Optional[str] = Field(default=None, max_length=255)
+    octoprint_api_key: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
     # Hardware model label shown on the printer card. ``model_name`` is a
     # user-set override; ``detected_model`` is a best-effort guess from
     # provider_variant/bambu_serial, recomputed on create/update. Display
@@ -487,6 +500,9 @@ class User(SQLModel, table=True):
     hashed_password: str = Field(max_length=255)
     is_superuser: bool = Field(default=False)
     is_active: bool = Field(default=True)
+    # Incrementing this value invalidates every access token issued for user.
+    # Persisted in DB so logout survives API restarts and multiple processes.
+    auth_version: int = Field(default=0)
 
     deleted_at: Optional[datetime] = Field(default=None, index=True)
     deleted_by: Optional[int] = Field(default=None, foreign_key="users.id")
@@ -546,14 +562,20 @@ class SystemConfig(SQLModel, table=True):
     # Generated on first boot when no VAULT_JWT_SECRET is supplied, so an install
     # never signs tokens with the public default. Stays None when the operator
     # sets the env var — theirs wins and we don't copy it into the DB.
-    jwt_secret: Optional[str] = Field(default=None, max_length=128)
+    jwt_secret: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
 
     # S3 / R2 settings
     s3_bucket: Optional[str] = Field(default=None, max_length=256)
     s3_endpoint_url: Optional[str] = Field(default=None, max_length=512)
     s3_region: Optional[str] = Field(default=None, max_length=128)
-    s3_access_key: Optional[str] = Field(default=None, max_length=256)
-    s3_secret_key: Optional[str] = Field(default=None, max_length=512)
+    s3_access_key: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
+    s3_secret_key: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
 
     # Backup
     backup_retention_days: Optional[int] = Field(default=None)
@@ -563,8 +585,12 @@ class SystemConfig(SQLModel, table=True):
     backup_s3_bucket: Optional[str] = Field(default=None, max_length=256)
     backup_s3_endpoint_url: Optional[str] = Field(default=None, max_length=512)
     backup_s3_region: Optional[str] = Field(default=None, max_length=128)
-    backup_s3_access_key: Optional[str] = Field(default=None, max_length=256)
-    backup_s3_secret_key: Optional[str] = Field(default=None, max_length=512)
+    backup_s3_access_key: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
+    backup_s3_secret_key: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
 
     # Behaviour toggles
     # When true, a file's revision is auto-marked known_good after its first
@@ -594,7 +620,9 @@ class SystemConfig(SQLModel, table=True):
     # Optional API key / bearer token (e.g. for a reverse proxy in front of
     # Spoolman). Stored plaintext like the S3 secrets / makerworld_token above,
     # superuser-only API, masked on read.
-    spoolman_api_key: Optional[str] = Field(default=None, max_length=512)
+    spoolman_api_key: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
     # Whether PrintStash writes consumption back to Spoolman on measured-print
     # completion. On by default; the write path skips at runtime when Moonraker's
     # native Spoolman hook is decrementing the active spool (see
@@ -610,7 +638,9 @@ class SystemConfig(SQLModel, table=True):
     # login flow. MakerWorld auth-gates file downloads; this token is injected as
     # the ``token=<jwt>`` cookie so imports authenticate. Stored like the S3
     # secrets above (plaintext, superuser-only API). ``None`` = not connected.
-    makerworld_token: Optional[str] = Field(default=None, max_length=4096)
+    makerworld_token: Optional[str] = Field(
+        default=None, sa_column=Column(EncryptedText(), nullable=True)
+    )
     makerworld_token_updated_at: Optional[datetime] = Field(default=None)
 
     configured_at: Optional[datetime] = Field(default=None, index=True)
@@ -834,7 +864,9 @@ class NotificationChannel(SQLModel, table=True):
     enabled: bool = Field(default=True, index=True)
 
     # Target-specific connection config (url, bot_token, chat_id, topic, ...).
-    config_json: str = Field(default="{}", sa_column=Column(Text))
+    config_json: str = Field(
+        default="{}", sa_column=Column(EncryptedText(), nullable=False)
+    )
     # JSON array of NotificationEventType values this channel subscribes to.
     events_json: str = Field(default="[]", sa_column=Column(Text))
     # JSON array of printer ids; null = all printers.

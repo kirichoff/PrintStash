@@ -2,18 +2,19 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session
 
 from app.db.models import User
 from app.db.session import get_session
-from app.services.auth import get_user_by_id, verify_access_token
+from app.services.auth import SESSION_COOKIE_NAME, get_user_by_id, verify_access_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 def get_token_payload(
+    request: Request,
     token: str | None = Depends(oauth2_scheme),
 ) -> Optional[dict]:
     """FastAPI dependency: decoded JWT payload, or None.
@@ -21,6 +22,7 @@ def get_token_payload(
     FastAPI caches dependency results per request, so stacking
     `get_current_user` + `require_auth` decodes the token exactly once.
     """
+    token = token or request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
         return None
     return verify_access_token(token)
@@ -45,7 +47,11 @@ def get_current_user(
     except (ValueError, TypeError):
         return None
     user = get_user_by_id(session, user_id)
-    if user and user.is_active:
+    if (
+        user
+        and user.is_active
+        and payload.get("auth_version") == user.auth_version
+    ):
         return user
     return None
 

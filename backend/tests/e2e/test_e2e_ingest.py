@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from app.services.setup_token import current_setup_token
+
 pytestmark = pytest.mark.e2e
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "real_orca_ender3_benchy.gcode"
@@ -22,6 +24,7 @@ async def _setup_and_login(api, tmp_path) -> dict[str, str]:
     r = await api.post(
         "/api/v1/setup",
         json={
+            "setup_token": current_setup_token(),
             "username": "owner",
             "password": "Password123",
             "storage_backend": "local",

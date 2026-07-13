@@ -6,7 +6,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
+from fastapi import Response
+from jwt import InvalidTokenError
 from sqlmodel import Session, select
 
 from app.core.config import settings
@@ -16,6 +18,31 @@ from app.db.models import ApiKey, RefreshToken, User
 
 logger = get_logger(__name__)
 ACCESS_BLOCKLIST: set[str] = set()
+SESSION_COOKIE_NAME = "printstash_session"
+
+
+def set_session_cookie(
+    response: Response, token: str, *, max_age: int | None = None
+) -> None:
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        token,
+        httponly=True,
+        secure=bool(settings.session_cookie_secure),
+        samesite="strict",
+        path="/",
+        max_age=max_age,
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        SESSION_COOKIE_NAME,
+        httponly=True,
+        secure=bool(settings.session_cookie_secure),
+        samesite="strict",
+        path="/",
+    )
 
 
 def hash_password(password: str) -> str:
@@ -37,7 +64,12 @@ def _as_utc(value: datetime) -> datetime:
 
 
 def create_access_token(
-    user_id: int, username: str, scope: str, expires_delta: timedelta | None = None,) -> str:
+    user_id: int,
+    username: str,
+    scope: str,
+    expires_delta: timedelta | None = None,
+    auth_version: int = 0,
+) -> str:
     expire = datetime.now(timezone.utc) + (expires_delta
         if expires_delta is not None
         else timedelta(minutes=settings.access_token_expire_minutes)
@@ -47,6 +79,7 @@ def create_access_token(
         "sub": str(user_id),
         "username": username,
         "scope": scope,
+        "auth_version": auth_version,
         "jti": token_id,
         "exp": expire,
     }
@@ -62,7 +95,7 @@ def verify_access_token(token: str) -> Optional[dict]:
         if isinstance(token_id, str) and token_id in ACCESS_BLOCKLIST:
             return None
         return payload
-    except JWTError as exc:
+    except InvalidTokenError as exc:
         logger.debug("jwt verification failed: %s", exc)
         return None
 
@@ -147,6 +180,21 @@ def revoke_refresh_token(session: Session, raw_token: str) -> bool:
         session.add(record)
         session.commit()
     return True
+
+
+def revoke_all_refresh_tokens(session: Session, user_id: int) -> None:
+    records = session.exec(
+        select(RefreshToken).where(
+            RefreshToken.user_id == user_id,
+            RefreshToken.revoked == False,  # noqa: E712
+        )
+    ).all()
+    now = utcnow()
+    for record in records:
+        record.revoked = True
+        record.revoked_at = now
+        session.add(record)
+    session.commit()
 
 
 def get_user_by_username(session: Session, username: str) -> Optional[User]:

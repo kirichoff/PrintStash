@@ -102,13 +102,15 @@ def _validate_target_library(session: Session, library_id: int | None) -> None:
 def _stage_upload(upload: UploadFile, suffix: str) -> Path:
     """Stream an UploadFile into the staging dir; reject if it exceeds the limit."""
     staged = settings.incoming_dir / f"{uuid.uuid4().hex}{suffix}"
-    written = storage.stream_to_path(upload.file, staged)
-    if written > settings.max_upload_bytes:
-        staged.unlink(missing_ok=True)
+    try:
+        storage.stream_to_path(
+            upload.file, staged, max_bytes=settings.max_upload_bytes
+        )
+    except storage.UploadTooLarge as exc:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="upload_too_large",
-        )
+        ) from exc
     return staged
 
 

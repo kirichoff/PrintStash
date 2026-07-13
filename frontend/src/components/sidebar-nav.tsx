@@ -82,7 +82,7 @@ export function SidebarNav() {
             </div>
             <button
               type="button"
-              onClick={logout}
+              onClick={() => void logout()}
               className="text-muted-foreground hover:text-red-500 transition-colors p-1"
               title="Sign out"
             >

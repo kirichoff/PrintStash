@@ -15,6 +15,10 @@ from typing import BinaryIO
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
+class UploadTooLarge(Exception):
+    pass
+
+
 def slugify(name: str) -> str:
     """Produce a filesystem-safe, kebab-case slug."""
     normalized = (
@@ -34,7 +38,9 @@ def ensure_unique_slug(base: str, exists: callable) -> str:
     return candidate
 
 
-def stream_to_path(src: BinaryIO, dest: Path) -> int:
+def stream_to_path(
+    src: BinaryIO, dest: Path, *, max_bytes: int | None = None
+) -> int:
     """Stream a binary source to a local path, returning bytes written."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     bytes_written = 0
@@ -43,6 +49,10 @@ def stream_to_path(src: BinaryIO, dest: Path) -> int:
             chunk = src.read(1024 * 1024)
             if not chunk:
                 break
-            out.write(chunk)
             bytes_written += len(chunk)
+            if max_bytes is not None and bytes_written > max_bytes:
+                out.close()
+                dest.unlink(missing_ok=True)
+                raise UploadTooLarge
+            out.write(chunk)
     return bytes_written

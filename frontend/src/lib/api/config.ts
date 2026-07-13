@@ -24,6 +24,10 @@ export function getVaultConfig(): Promise<VaultConfigRead> {
   return getJson<VaultConfigRead>("/api/v1/config");
 }
 
+export function getHealthDetails<T>(): Promise<T> {
+  return getJson<T>("/api/v1/health/details", { fresh: true });
+}
+
 export function updateVaultConfig(body: VaultConfigUpdate): Promise<VaultConfigRead> {
   return sendJson<VaultConfigRead>("/api/v1/config", "PUT", body);
 }

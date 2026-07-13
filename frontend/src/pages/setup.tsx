@@ -56,6 +56,8 @@ const SETUP_ERROR_MESSAGES: Record<string, string> = {
     "The backend cannot write to the thumbnail directory. Check filesystem permissions.",
   invalid_storage_backend: "Choose either local disk or S3/R2 storage.",
   s3_bucket_required: "S3/R2 storage needs a bucket name.",
+  invalid_setup_token:
+    "That setup token is not valid. Copy the current token from the API container logs.",
 };
 
 function humanizeError(raw: string): string {
@@ -76,6 +78,7 @@ export default function SetupPage() {
   const [step, setStep] = useState<Step>(1);
 
   // Step 1 — account
+  const [setupToken, setSetupToken] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -111,14 +114,14 @@ export default function SetupPage() {
         }
         setStatus(s);
         setStorageBackend(s.current_storage_backend || "local");
-        setDataDir(s.current_data_dir);
-        setThumbDir(s.current_thumb_dir);
-        setS3Bucket(s.current_s3_bucket);
-        setS3Endpoint(s.current_s3_endpoint_url);
+        setDataDir(s.current_data_dir ?? "");
+        setThumbDir(s.current_thumb_dir ?? "");
+        setS3Bucket(s.current_s3_bucket ?? "");
+        setS3Endpoint(s.current_s3_endpoint_url ?? "");
         setS3Region(s.current_s3_region || "auto");
         setBackupDays(s.current_backup_retention_days ?? 30);
-        setBackupS3Bucket(s.current_backup_s3_bucket);
-        setBackupS3Endpoint(s.current_backup_s3_endpoint_url);
+        setBackupS3Bucket(s.current_backup_s3_bucket ?? "");
+        setBackupS3Endpoint(s.current_backup_s3_endpoint_url ?? "");
         setBackupS3Region(s.current_backup_s3_region || "auto");
       })
       .catch((err) => {
@@ -134,6 +137,8 @@ export default function SetupPage() {
   }, [router]);
 
   function validateStep1(): string | null {
+    if (setupToken.trim().length < 16)
+      return "Enter the setup token shown in the API container logs.";
     if (username.trim().length < 3)
       return "Username must be at least 3 characters.";
     if (password.length < 8) return "Password must be at least 8 characters.";
@@ -179,6 +184,7 @@ export default function SetupPage() {
       const trimmedData = dataDir.trim();
       const trimmedThumb = thumbDir.trim();
       const res = await completeSetup({
+        setup_token: setupToken.trim(),
         username: username.trim(),
         password,
         email: email.trim() || undefined,
@@ -316,6 +322,8 @@ export default function SetupPage() {
           <div key={step} className="animate-panel-in">
             {step === 1 ? (
               <AccountStep
+                setupToken={setupToken}
+                setSetupToken={setSetupToken}
                 username={username}
                 setUsername={setUsername}
                 email={email}
@@ -333,8 +341,8 @@ export default function SetupPage() {
                 setDataDir={setDataDir}
                 thumbDir={thumbDir}
                 setThumbDir={setThumbDir}
-                defaultDataDir={status.default_data_dir}
-                defaultThumbDir={status.default_thumb_dir}
+                defaultDataDir={status.default_data_dir ?? ""}
+                defaultThumbDir={status.default_thumb_dir ?? ""}
                 s3Bucket={s3Bucket}
                 setS3Bucket={setS3Bucket}
                 s3Endpoint={s3Endpoint}
@@ -411,6 +419,8 @@ export default function SetupPage() {
 // ---------------------------------------------------------------------------
 
 function AccountStep(props: {
+  setupToken: string;
+  setSetupToken: (v: string) => void;
   username: string;
   setUsername: (v: string) => void;
   email: string;
@@ -426,6 +436,16 @@ function AccountStep(props: {
         eyebrow="Step 1 of 2"
         title="Create your admin account"
         description="Use this account to manage your library and invite other administrators later."
+      />
+      <Field
+        label="Setup token"
+        id="setup-token"
+        value={props.setupToken}
+        onChange={props.setSetupToken}
+        type="password"
+        autoComplete="off"
+        required
+        hint="Copy it from the API container logs"
       />
       <div className="grid gap-4 sm:grid-cols-2">
         <Field

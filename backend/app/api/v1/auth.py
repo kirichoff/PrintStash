@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel import Session
 
 from app.core.config import settings
@@ -29,14 +29,17 @@ from app.schemas.auth import (
 from app.services.auth import (
     authenticate_api_key,
     authenticate_user,
+    clear_session_cookie,
     create_access_token,
     create_api_key,
     create_refresh_token,
     list_active_api_keys,
     revoke_access_token,
+    revoke_all_refresh_tokens,
     revoke_api_key,
     revoke_refresh_token,
     rotate_refresh_token,
+    set_session_cookie,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -48,7 +51,11 @@ _refresh_rate_limit = rate_limit(10, 60.0)
 
 
 @router.post("/login", response_model=TokenResponse, dependencies=[Depends(_login_rate_limit)])
-def login(body: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
+def login(
+    body: LoginRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+) -> TokenResponse:
     """Authenticate and receive a JWT access token.
 
     Programmatic clients can exchange username + API key for the same Bearer
@@ -71,8 +78,20 @@ def login(body: LoginRequest, session: Session = Depends(get_session)) -> TokenR
         )
     scope = "admin" if user.is_superuser else "write"
     expires_delta = timedelta(days=settings.remember_me_days) if body.remember_me else None
-    access_token = create_access_token(user.id, user.username, scope=scope, expires_delta=expires_delta)
+    access_token = create_access_token(
+        user.id,
+        user.username,
+        scope=scope,
+        expires_delta=expires_delta,
+        auth_version=user.auth_version,
+    )
     refresh_token = create_refresh_token(session, user_id=user.id)
+    max_age = (
+        int(timedelta(days=settings.remember_me_days).total_seconds())
+        if body.remember_me
+        else None
+    )
+    set_session_cookie(response, access_token, max_age=max_age)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -84,7 +103,9 @@ def login(body: LoginRequest, session: Session = Depends(get_session)) -> TokenR
     "/refresh", response_model=TokenResponse, dependencies=[Depends(_refresh_rate_limit)]
 )
 def refresh(
-    body: RefreshRequest, session: Session = Depends(get_session)
+    body: RefreshRequest,
+    response: Response,
+    session: Session = Depends(get_session),
 ) -> TokenResponse:
     """Exchange a valid refresh token for a new access+refresh token pair."""
     old_token = rotate_refresh_token(session, body.refresh_token)
@@ -100,8 +121,11 @@ def refresh(
             detail="invalid_refresh_token",
         )
     scope = "admin" if user.is_superuser else "write"
-    access_token = create_access_token(user.id, user.username, scope=scope)
+    access_token = create_access_token(
+        user.id, user.username, scope=scope, auth_version=user.auth_version
+    )
     refresh_token = create_refresh_token(session, user_id=user.id)
+    set_session_cookie(response, access_token)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -111,7 +135,9 @@ def refresh(
 
 @router.post("/logout")
 def logout(
+    response: Response,
     body: LogoutRequest | None = None,
+    current_user: User = Depends(require_user),
     session: Session = Depends(get_session),
     token: str | None = Depends(oauth2_scheme),
 ) -> dict:
@@ -120,6 +146,11 @@ def logout(
         revoke_access_token(token)
     if body and body.refresh_token:
         revoke_refresh_token(session, body.refresh_token)
+    current_user.auth_version += 1
+    session.add(current_user)
+    session.commit()
+    revoke_all_refresh_tokens(session, current_user.id)
+    clear_session_cookie(response)
     return {"ok": True}
 
 

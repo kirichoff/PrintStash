@@ -97,8 +97,8 @@ export function MobileNavDrawer({ open, onClose }: MobileNavDrawerProps) {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  logout();
+                onClick={async () => {
+                  await logout();
                   onClose();
                 }}
                 className="text-on-surface-variant hover:text-error transition-colors p-1"

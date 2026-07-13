@@ -192,9 +192,9 @@ export function PrinterDetailPage({
     }
   }
 
-  function connect() {
+  async function connect() {
     try {
-      const ws = openPrinterWS(printerId);
+      const ws = await openPrinterWS(printerId);
       wsRef.current = ws;
       ws.onopen = () => setWsConnected(true);
       ws.onclose = () => {
