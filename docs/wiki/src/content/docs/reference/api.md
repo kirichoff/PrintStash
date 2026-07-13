@@ -60,6 +60,12 @@ password, which is exactly why the Orca hook uses one.
 | `GET`  | `/api/v1/models/{id}`               | Model detail with files and metadata.    |
 | `GET`  | `/api/v1/models/stats`              | Vault totals and breakdowns.             |
 | `GET`  | `/api/v1/models/export`             | Metadata export (`?format=json` or `csv`).|
+| `GET`  | `/api/v1/models/library-archive`    | Download versioned full-library ZIP.      |
+| `POST` | `/api/v1/models/library-import`     | Admin-only portable ZIP import.           |
+| `GET`  | `/api/v1/saved-views`               | List current user's saved filters.        |
+| `POST` | `/api/v1/saved-views`               | Create a saved filter view.               |
+| `PUT`  | `/api/v1/models/{id}/star`          | Add Model to current user's favorites.    |
+| `DELETE` | `/api/v1/models/{id}/star`        | Remove Model from favorites.              |
 | `POST` | `/api/v1/ingest`                    | Upload files into the vault.             |
 | `GET`  | `/api/v1/collections`               | List collections (with model counts).    |
 | `GET`  | `/api/v1/tags`                      | List tags.                               |

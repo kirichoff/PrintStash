@@ -139,15 +139,15 @@ Not in 0.9, added on demand: Prusa Connect (cloud, unlike the local PrusaLink
 support that shipped here) and Elegoo models beyond the Neptune 4 and Centauri
 Carbon families.
 
-## 0.10 — Library Workflow Polish
+## 0.10 — Library Workflow Polish (delivered in 0.10.0)
 
 Goal: make the vault better as a daily-use 3D print library.
 
-- Better bulk editing for tags/categories and revision labels
-- Saved filters or views for common searches, plus favorites/starred models
-- Richer model/version comparison beyond the current G-code metadata compare
-- More useful model detail pages for repeated reprints, including deeper print-history analytics
-- Import/export paths for people migrating from folders or other tools
+- Atomic bulk editing for tags, collections, trash, and revision labels
+- Per-user saved views and favorite/starred Models
+- Mixed-Artifact comparison with metadata and actual print outcomes
+- Reprint analytics for success, duration, filament, and cost
+- Versioned full-library archive migration and configured-root folder import
 
 ## 0.11 — Fleet and Scheduling
 

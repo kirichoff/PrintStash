@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.10.0",
+    date: "Jul 2026",
+    changes: [
+      "Bulk-select Models to move collections, update tags, move to trash, and label several G-code revisions atomically",
+      "Save common library filters as per-user views and star favorite Models from cards or Model detail",
+      "Compare any two Artifacts in one Model, including file, mesh, slicer, material, revision, and measured print outcomes",
+      "Export a hash-verified portable library archive containing original Artifacts, metadata, taxonomy, print history, favorites, and saved views",
+      "Import portable archives as an administrator with safe path validation and content deduplication",
+      "Import a selected folder below a configured external-library root without exposing arbitrary server paths",
+    ],
+  },
+  {
     version: "0.9.0",
     date: "Jul 2026",
     changes: [

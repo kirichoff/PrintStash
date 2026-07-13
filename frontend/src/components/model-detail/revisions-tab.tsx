@@ -73,9 +73,9 @@ export function RevisionsTab({
   const compareRight = allFiles.find((f) => f.id === compareRightId) ?? allFiles[allFiles.length - 2] ?? null;
 
   useEffect(() => {
-    if (!compareLeft || !compareRight) { setOutcomes([]); return; }
-    getArtifactOutcomes(modelId, [compareLeft.id, compareRight.id]).then(setOutcomes).catch(() => setOutcomes([]));
-  }, [modelId, compareLeft?.id, compareRight?.id]);
+    if (!compareLeftId || !compareRightId) { setOutcomes([]); return; }
+    getArtifactOutcomes(modelId, [compareLeftId, compareRightId]).then(setOutcomes).catch(() => setOutcomes([]));
+  }, [modelId, compareLeftId, compareRightId]);
 
   function startRevisionEdit(file: FileRead) {
     if (!auth.isAuthenticated) {
