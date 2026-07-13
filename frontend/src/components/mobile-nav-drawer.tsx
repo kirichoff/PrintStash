@@ -2,7 +2,7 @@
 
 import { Link } from "@/lib/navigation";
 import { usePathname } from "@/lib/navigation";
-import { Box, SlidersHorizontal, FolderTree, LogIn, LogOut, Printer, Settings, User, X } from "lucide-react";
+import { Box, SlidersHorizontal, LogIn, LogOut, Printer, Settings, User, X } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { BrandMark } from "@/components/brand-mark";
 import { Drawer } from "@/components/ui/drawer";
@@ -16,7 +16,6 @@ const mainItems = [
   { href: "/", label: "Vault", icon: Box },
   { href: "/printers", label: "Printers", icon: Printer, adminOnly: true },
   { href: "/profiles", label: "Profiles", icon: SlidersHorizontal },
-  { href: "/organize", label: "Catalog", icon: FolderTree },
 ];
 
 const bottomItems = [
@@ -149,4 +148,3 @@ export function MobileNavDrawer({ open, onClose }: MobileNavDrawerProps) {
     </Drawer>
   );
 }
-

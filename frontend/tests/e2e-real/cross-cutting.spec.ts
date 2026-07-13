@@ -24,7 +24,7 @@ test("core routes load without uncaught errors", async ({ page }) => {
   const crashes: string[] = [];
   page.on("pageerror", (e) => crashes.push(e.message));
 
-  for (const route of ["/", "/organize", "/profiles", "/printers", "/statistics", "/settings"]) {
+  for (const route of ["/", "/profiles", "/printers", "/statistics", "/settings"]) {
     await page.goto(route);
     await page.waitForLoadState("networkidle");
   }

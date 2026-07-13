@@ -9,7 +9,6 @@ import {
   BookOpen,
   Box,
   SlidersHorizontal,
-  FolderTree,
   LogOut,
   MoreHorizontal,
   Printer,
@@ -44,7 +43,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/printers", label: "Printers", icon: Printer, adminOnly: true },
   { href: "/statistics", label: "Stats", icon: BarChart3, adminOnly: true },
   { href: "/profiles", label: "Profiles", icon: SlidersHorizontal },
-  { href: "/organize", label: "Catalog", icon: FolderTree },
   { href: "/settings", label: "Settings", icon: Settings },
   {
     href: "https://xiao-villamor.github.io/PrintStash/",

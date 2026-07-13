@@ -1,33 +1,32 @@
 import { test, expect, authBundleFor, authedContext } from "./helpers";
-import { modelCard, uploadModel } from "./util";
+import { createCollectionViaVault, modelCard, uploadModel } from "./util";
 
 const USER_PW = "userpass123";
 
-// Grant `username` a role on collection `colName` via the share modal.
+// Grant `username` a role on collection `colName` through Settings.
 async function grant(
   page: import("@playwright/test").Page,
   colName: string,
   username: string,
   roleLabel: "View" | "Edit",
 ) {
-  await page.goto("/organize");
-  await page.getByRole("button", { name: `Share ${colName}` }).click();
-  await expect(page.getByRole("heading", { name: "Collection access" })).toBeVisible();
-  await page
-    .getByRole("combobox")
+  await page.goto("/settings?section=access");
+  await expect(page.getByText("Collection access", { exact: true })).toBeVisible();
+  await page.getByRole("combobox")
     .filter({ has: page.getByRole("option", { name: "Select user" }) })
     .selectOption({ label: username });
-  await page
-    .getByRole("combobox")
-    .filter({ has: page.getByRole("option", { name: "View", exact: true }) })
+  await page.getByRole("combobox")
+    .filter({ has: page.getByRole("option", { name: "Select collection" }) })
+    .selectOption({ label: colName });
+  await page.getByRole("combobox")
+    .filter({ has: page.getByRole("option", { name: "Admin", exact: true }) })
     .selectOption({ label: roleLabel });
   await Promise.all([
     page.waitForResponse(
       (r) => /\/collections\/\d+\/permissions\/\d+/.test(r.url()) && r.request().method() === "PUT",
     ),
-    page.getByRole("button", { name: "Save" }).click(),
+    page.getByRole("button", { name: "Grant" }).click(),
   ]);
-  await page.getByRole("button", { name: "Close" }).click();
 }
 
 async function createUser(page: import("@playwright/test").Page, username: string) {
@@ -49,12 +48,8 @@ test("a non-admin user sees only collections granted to them", async ({ page, br
   const username = `rbac-user-${stamp}`;
 
   // ── Admin: create two collections ───────────────────────────────────────────
-  await page.goto("/organize");
-  const newCol = page.getByPlaceholder("New collection...");
   for (const name of [granted, hidden]) {
-    await newCol.fill(name);
-    await newCol.press("Enter");
-    await expect(page.getByRole("button", { name: `Delete ${name}` })).toBeVisible();
+    await createCollectionViaVault(page, name);
   }
 
   // ── Admin: create a regular user ────────────────────────────────────────────
@@ -66,28 +61,16 @@ test("a non-admin user sees only collections granted to them", async ({ page, br
   await expect(page.getByRole("paragraph").filter({ hasText: username })).toBeVisible();
 
   // ── Admin: grant the user "view" on the granted collection only ─────────────
-  await page.goto("/organize");
-  await page.getByRole("button", { name: `Share ${granted}` }).click();
-  await expect(page.getByRole("heading", { name: "Collection access" })).toBeVisible();
-  await page
-    .getByRole("combobox")
-    .filter({ has: page.getByRole("option", { name: "Select user" }) })
-    .selectOption({ label: username });
-  await Promise.all([
-    page.waitForResponse(
-      (r) => /\/collections\/\d+\/permissions\/\d+/.test(r.url()) && r.request().method() === "PUT",
-    ),
-    page.getByRole("button", { name: "Save" }).click(),
-  ]);
-  await page.getByRole("button", { name: "Close" }).click();
+  await grant(page, granted, username, "View");
 
   // ── User: open a separate browser and check visibility ──────────────────────
   const bundle = await authBundleFor(username, USER_PW);
   const { context, page: userPage } = await authedContext(browser, bundle);
   try {
-    await userPage.goto("/organize");
-    await expect(userPage.getByText(granted, { exact: true }).first()).toBeVisible();
-    await expect(userPage.getByText(hidden, { exact: true })).toHaveCount(0);
+    await userPage.goto("/");
+    const sidebar = userPage.locator("aside");
+    await expect(sidebar.getByRole("button", { name: granted, exact: true })).toBeVisible();
+    await expect(sidebar.getByRole("button", { name: hidden, exact: true })).toHaveCount(0);
   } finally {
     await context.close();
   }
@@ -103,10 +86,7 @@ test("collection role gates whether a user can edit or delete a model", async ({
   const editor = `rbac-editor-${stamp}`;
 
   // Admin: collection + a model inside it; capture the model URL.
-  await page.goto("/organize");
-  await page.getByPlaceholder("New collection...").fill(col);
-  await page.getByPlaceholder("New collection...").press("Enter");
-  await expect(page.getByRole("button", { name: `Delete ${col}` })).toBeVisible();
+  await createCollectionViaVault(page, col);
   await uploadModel(page, model, { collection: col });
   await modelCard(page, model).click();
   await expect(page.getByRole("heading", { name: model })).toBeVisible();

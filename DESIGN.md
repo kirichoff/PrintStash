@@ -84,7 +84,7 @@ A page is either a **document** or a **surface**, and the choice is not a matter
 of taste.
 
 - **Documents** — a heading plus cards, forms, or charts: Printers, Statistics,
-  Profiles, Settings, Organize, printer detail. These compose
+  Profiles, Settings, printer detail. These compose
   `PageContainer` (`components/ui/page-container.tsx`), which owns the scroll
   container, the padding, the mobile bottom-nav clearance, and **one** content
   width: `max-w-screen-2xl`, centered. There is no second width to choose from, and no

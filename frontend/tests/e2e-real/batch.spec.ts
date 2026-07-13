@@ -1,5 +1,5 @@
 import { test, expect } from "./helpers";
-import { modelCard, uploadModel } from "./util";
+import { createCollectionViaVault, modelCard, uploadModel } from "./util";
 
 // Batch move/tag/delete (new in 0.8.0). Models live in their own collection so
 // "Select all on screen" is scoped to just them — the shared serial DB is never
@@ -12,10 +12,7 @@ test("batch-tag and batch-delete two models from the toolbar", async ({ page }) 
   const m1 = `e2e-batch-a-${stamp}`;
   const m2 = `e2e-batch-b-${stamp}`;
 
-  await page.goto("/organize");
-  await page.getByPlaceholder("New collection...").fill(col);
-  await page.getByPlaceholder("New collection...").press("Enter");
-  await expect(page.getByRole("button", { name: `Delete ${col}` })).toBeVisible();
+  await createCollectionViaVault(page, col);
   await uploadModel(page, m1, { collection: col });
   await uploadModel(page, m2, { collection: col });
 

@@ -18,6 +18,7 @@
 
 - Model detail now includes actual print counts, success rate, duration, filament, and cost when comparing Artifacts.
 - **Daily library workflow polish.** Saved views now support search, recent ordering, update, rename, duplicate, and delete; mixed Model/folder selection adapts available bulk actions; destination search prevents invalid folder moves; sorting, compact density, keyboard shortcuts, recent folders, and undo reduce repetitive library work.
+- Collection and tag management now lives in Vault, model editing, upload, and Settings; the redundant Catalog page and navigation entry have been removed.
 
 ### Fixed
 

@@ -32,12 +32,11 @@ test("'More' sheet exposes overflow destinations and navigates", async ({ page }
   await hideDevtools(page);
   await bottomNav(page).getByRole("button", { name: "More" }).click();
 
-  // The bottom sheet holds the overflow items (Catalog, Settings) + account.
+  // The bottom sheet holds overflow destinations and account actions.
   const sheet = page.getByRole("dialog", { name: "More" });
-  await expect(sheet.getByRole("link", { name: "Catalog" })).toBeVisible();
   await expect(sheet.getByRole("link", { name: "Settings" })).toBeVisible();
 
-  await sheet.getByRole("link", { name: "Catalog" }).click();
-  await expect(page).toHaveURL(/\/organize$/);
-  await expect(page.getByRole("heading", { name: "Collections" }).first()).toBeVisible();
+  await sheet.getByRole("link", { name: "Settings" }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 });

@@ -31,6 +31,23 @@ export function modelCard(page: Page, name: string) {
   return page.locator('a[href^="/models/"]').filter({ hasText: name });
 }
 
+export async function createCollectionViaVault(
+  page: Page,
+  name: string,
+  parent?: string,
+): Promise<void> {
+  await page.goto(parent ? `/?c=${encodeURIComponent(parent)}` : "/");
+  await page.getByRole("button", { name: "New collection" }).click();
+  const input = page.getByPlaceholder(parent ? /New subcollection in/ : "Collection name...");
+  await input.fill(name);
+  await input.press("Enter");
+  if (parent) {
+    await expect(page.locator(`[data-collection-path="${parent}/${name}"]`)).toBeVisible();
+  } else {
+    await expect(page.locator("aside").getByRole("button", { name, exact: true })).toBeVisible();
+  }
+}
+
 type UploadOpts = { mesh?: boolean; gcode?: boolean; collection?: string; tag?: string };
 
 // Upload a model through the real upload flow and wait for async ingestion to
