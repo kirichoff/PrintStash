@@ -108,7 +108,7 @@ function ModelCardInner({
   metrics: CardMetrics;
   selectable?: boolean;
   selected?: boolean;
-  onToggleSelect?: (id: number) => void;
+  onToggleSelect?: (id: number, range?: boolean) => void;
   draggable?: boolean;
 }) {
   const router = useRouter();
@@ -196,7 +196,7 @@ function ModelCardInner({
         onClick={(e) => {
           if (selectable) {
             e.preventDefault();
-            onToggleSelect?.(model.id);
+            onToggleSelect?.(model.id, e.shiftKey);
           }
         }}
       >
@@ -317,7 +317,7 @@ export function ModelCard({
   model: ModelListItem;
   selectable?: boolean;
   selected?: boolean;
-  onToggleSelect?: (id: number) => void;
+  onToggleSelect?: (id: number, range?: boolean) => void;
   draggable?: boolean;
 }) {
   const [metrics, setMetrics] = useState<CardMetrics>(DEFAULT_CARD_METRICS);

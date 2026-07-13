@@ -17,6 +17,11 @@
 ### Changed
 
 - Model detail now includes actual print counts, success rate, duration, filament, and cost when comparing Artifacts.
+- **Daily library workflow polish.** Saved views now support search, recent ordering, update, rename, duplicate, and delete; mixed Model/folder selection adapts available bulk actions; destination search prevents invalid folder moves; sorting, compact density, keyboard shortcuts, recent folders, and undo reduce repetitive library work.
+
+### Fixed
+
+- Artifact comparison rounds percentages and filament totals to readable precision instead of exposing floating-point artifacts, and the vault sort picker now uses the shared styled menu.
 
 ## 0.9.0
 

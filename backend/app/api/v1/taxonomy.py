@@ -239,7 +239,7 @@ def create_collection(
     "/collections/{collection_id}",
     response_model=CollectionRead,
     dependencies=[Depends(require_auth)],
-    summary="Move a collection to a different parent",
+    summary="Move or rename a collection",
 )
 def move_collection(
     collection_id: int,
@@ -251,23 +251,29 @@ def move_collection(
     col = get_or_404(session, Collection, collection_id, "collection_not_found")
     rbac.require_collection_role(session, current_user, col.id, CollectionRole.ADMIN)
 
-    new_parent_id = payload.parent_id
+    moving = "parent_id" in payload.model_fields_set and payload.parent_id != col.parent_id
+    new_parent_id = payload.parent_id if "parent_id" in payload.model_fields_set else col.parent_id
+    new_name = payload.name.strip() if payload.name is not None else col.name
+    if not new_name:
+        raise HTTPException(status_code=422, detail="collection_name_required")
+    new_slug = slugify(new_name)
     if new_parent_id is not None:
         parent = get_or_404(session, Collection, new_parent_id, "parent_not_found")
-        rbac.require_collection_role(
-            session, current_user, parent.id, CollectionRole.ADMIN
-        )
+        if moving:
+            rbac.require_collection_role(
+                session, current_user, parent.id, CollectionRole.ADMIN
+            )
         if parent.path == col.path or parent.path.startswith(col.path + "/"):
             raise HTTPException(status_code=400, detail="circular_reference")
-        new_path = f"{parent.path}/{col.slug}"
+        new_path = f"{parent.path}/{new_slug}"
     else:
-        if not current_user.is_superuser:
+        if moving and not current_user.is_superuser:
             raise HTTPException(
                 status_code=403, detail="root_collection_admin_required"
             )
-        new_path = col.slug
+        new_path = new_slug
 
-    if new_path == col.path:
+    if new_path == col.path and new_name == col.name:
         return CollectionRead(
             id=col.id,
             name=col.name,
@@ -298,6 +304,8 @@ def move_collection(
         session.add(desc)
 
     col.parent_id = new_parent_id
+    col.name = new_name
+    col.slug = new_slug
     col.path = new_path
     session.add(col)
     session.commit()

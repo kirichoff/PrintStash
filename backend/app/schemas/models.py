@@ -142,6 +142,10 @@ class PrintSummaryRead(BaseModel):
     filament_weight_g: Optional[float] = None
     material_type: Optional[str] = None
     slicer_name: Optional[str] = None
+    success_rate: Optional[float] = None
+    last_printed_at: Optional[datetime] = None
+    average_duration_s: Optional[float] = None
+    total_cost: Optional[float] = None
 
 
 class ModelListItem(BaseModel):
@@ -397,6 +401,7 @@ class CollectionMove(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     parent_id: Optional[int] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
 
 
 class CollectionPermissionUpdate(BaseModel):

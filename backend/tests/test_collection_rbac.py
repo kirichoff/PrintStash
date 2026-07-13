@@ -380,3 +380,25 @@ def test_role_revocation_takes_effect_immediately(
     body = listed.json()
     rows = body["items"] if isinstance(body, dict) else body
     assert all(row["id"] != model.id for row in rows)
+
+
+def test_collection_rename_updates_descendant_paths(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    owner = _user(db_session, "rename-owner")
+    parent = taxonomy.resolve_or_create_collection(db_session, "Projects")
+    child = taxonomy.resolve_or_create_collection(db_session, "Projects/Parts")
+    assert parent is not None and child is not None
+    _grant(db_session, owner, parent.id, CollectionRole.ADMIN)
+
+    response = client.patch(
+        f"/api/v1/collections/{parent.id}",
+        headers=_headers(owner),
+        json={"name": "Active projects"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["path"] == "active-projects"
+    db_session.expire_all()
+    assert db_session.get(type(child), child.id).path == "active-projects/parts"

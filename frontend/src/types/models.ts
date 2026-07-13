@@ -132,6 +132,10 @@ export interface PrintSummaryRead {
   filament_weight_g: number | null;
   material_type: string | null;
   slicer_name: string | null;
+  success_rate?: number | null;
+  last_printed_at?: string | null;
+  average_duration_s?: number | null;
+  total_cost?: number | null;
 }
 
 export interface ModelListItem {

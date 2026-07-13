@@ -67,7 +67,9 @@ describe("scalar formatters", () => {
   it("apply their unit suffix to real values", () => {
     expect(formatMillimeters(0.2)).toBe("0.2mm");
     expect(formatPercent(20)).toBe("20%");
+    expect(formatPercent(88.88888888888889)).toBe("88.9%");
     expect(formatGrams(15)).toBe("15g");
+    expect(formatGrams(1231.0000000000002)).toBe("1,231g");
     expect(formatTemperature(210)).toBe("210°C");
     expect(formatCost(24.5)).toBe("24.50");
   });

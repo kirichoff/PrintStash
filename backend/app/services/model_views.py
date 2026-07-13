@@ -18,7 +18,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any, List, Literal, Optional
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlmodel import Session, select
 
 from app.core.config import settings
@@ -554,6 +554,24 @@ def list_items(
                 material_type=md.material_type,
                 slicer_name=md.slicer_name,
             )
+
+    for model_id, completed, decided, last_printed, average_duration, total_cost in session.exec(
+        select(
+            PrintJob.model_id,
+            func.sum(case((PrintJob.state == PrintJobState.COMPLETED, 1), else_=0)),
+            func.sum(case((PrintJob.state.in_([PrintJobState.COMPLETED, PrintJobState.FAILED]), 1), else_=0)),
+            func.max(PrintJob.finished_at),
+            func.avg(PrintJob.actual_duration_s),
+            func.sum(PrintJob.cost),
+        )
+        .where(PrintJob.model_id.in_(model_ids), live(PrintJob))  # type: ignore[union-attr]
+        .group_by(PrintJob.model_id)
+    ).all():
+        summary = summaries.setdefault(int(model_id), PrintSummaryRead())
+        summary.success_rate = float(completed or 0) / int(decided) if decided else None
+        summary.last_printed_at = ensure_utc(last_printed) if last_printed else None
+        summary.average_duration_s = float(average_duration) if average_duration is not None else None
+        summary.total_cost = float(total_cost) if total_cost is not None else None
 
     # One resolution for the whole page: per-row lookups cost two queries each.
     roles = rbac.effective_roles_for_collections(
