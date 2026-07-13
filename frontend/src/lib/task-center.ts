@@ -14,6 +14,8 @@ export interface TaskItem {
   createdAt: number;
   updatedAt: number;
   jobId?: string;
+  jobIds?: string[];
+  expectedJobCount?: number;
   stage?: IngestJobStatus["stage"];
   processed?: number;
   total?: number | null;
@@ -28,7 +30,9 @@ export interface TaskItem {
 
 const TASK_EVENT = "printstash:tasks-changed";
 const STORAGE_KEY = "printstash:import-tasks:v1";
+const DISMISSED_JOBS_KEY = "printstash:dismissed-import-jobs:v1";
 let tasks: TaskItem[] = loadTasks();
+const dismissedJobIds = loadDismissedJobIds();
 let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -42,9 +46,27 @@ function loadTasks(): TaskItem[] {
   }
 }
 
+function loadDismissedJobIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DISMISSED_JOBS_KEY) ?? "[]");
+    return new Set(Array.isArray(parsed) ? parsed.slice(0, 200) : []);
+  } catch {
+    return new Set();
+  }
+}
+
 function persist(): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}
+
+function persistDismissedJobIds(): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(
+    DISMISSED_JOBS_KEY,
+    JSON.stringify([...dismissedJobIds].slice(-200)),
+  );
 }
 
 function emit() {
@@ -150,10 +172,25 @@ export function updateTask(
   scheduleCleanup();
 }
 
+export function linkTaskToJob(taskId: string, jobId: string): void {
+  const task = tasks.find((item) => item.id === taskId);
+  if (!task) return;
+  const jobIds = [...new Set([...(task.jobIds ?? []), jobId])];
+  dismissedJobIds.delete(jobId);
+  persistDismissedJobIds();
+  updateTask(taskId, { jobIds });
+}
+
 export function clearCompletedTasks(): void {
+  for (const task of tasks) {
+    if (task.status !== "completed" && task.status !== "failed") continue;
+    if (task.jobId) dismissedJobIds.add(task.jobId);
+    for (const jobId of task.jobIds ?? []) dismissedJobIds.add(jobId);
+  }
   tasks = tasks.filter(
     (task) => task.status !== "completed" && task.status !== "failed",
   );
+  persistDismissedJobIds();
   persist();
   emit();
   scheduleCleanup();
@@ -171,7 +208,10 @@ function detailForJob(job: IngestJobStatus): string {
 }
 
 function applyJob(job: IngestJobStatus): void {
-  const existing = tasks.find((task) => task.jobId === job.job_id);
+  if (dismissedJobIds.has(job.job_id)) return;
+  const existing = tasks.find(
+    (task) => task.jobId === job.job_id || task.jobIds?.includes(job.job_id),
+  );
   if (existing && existing.status === job.state && (job.state === "completed" || job.state === "failed")) return;
   const status: TaskStatus = job.state;
   const patch = {
@@ -194,6 +234,47 @@ function applyJob(job: IngestJobStatus): void {
   else createTask({ title: "Import", ...patch });
 }
 
+function applyGroupedJobs(task: TaskItem, jobs: IngestJobStatus[]): void {
+  const expected = Math.max(task.expectedJobCount ?? task.jobIds?.length ?? 1, 1);
+  const failedJob = jobs.find((job) => job.state === "failed");
+  if (failedJob) {
+    updateTask(task.id, {
+      status: "failed",
+      progress: 100,
+      detail: failedJob.error ?? "Upload failed",
+    });
+    return;
+  }
+
+  const allCompleted =
+    jobs.length >= expected && jobs.every((job) => job.state === "completed");
+  if (allCompleted) {
+    if (task.status !== "completed") {
+      updateTask(task.id, {
+        status: "completed",
+        progress: 100,
+        detail: expected === 1 ? "Upload processed" : `${expected} files processed`,
+      });
+    }
+    return;
+  }
+
+  const current = [...jobs]
+    .reverse()
+    .find((job) => job.state === "running" || job.state === "pending");
+  const completedProgress = jobs.reduce(
+    (sum, job) => sum + (job.state === "completed" ? 100 : (job.progress ?? 0)),
+    0,
+  );
+  updateTask(task.id, {
+    status: jobs.some((job) => job.state === "running" || job.state === "completed")
+      ? "running"
+      : "pending",
+    progress: completedProgress / expected,
+    detail: current ? detailForJob(current) : task.detail,
+  });
+}
+
 export function trackImportJob(jobId: string, title: string): string {
   const existing = tasks.find((task) => task.jobId === jobId);
   if (existing) return existing.id;
@@ -207,8 +288,22 @@ export function trackImportJob(jobId: string, title: string): string {
 }
 
 export async function syncImportJobs(): Promise<void> {
-  const jobs = await listIngestJobs();
-  jobs.forEach(applyJob);
+  const jobs = (await listIngestJobs()).filter(
+    (job) => !dismissedJobIds.has(job.job_id),
+  );
+  const jobsById = new Map(jobs.map((job) => [job.job_id, job]));
+  const claimedJobIds = new Set<string>();
+
+  for (const task of tasks) {
+    if (!task.jobIds?.length) continue;
+    const groupedJobs = task.jobIds
+      .map((jobId) => jobsById.get(jobId))
+      .filter((job): job is IngestJobStatus => job !== undefined);
+    task.jobIds.forEach((jobId) => claimedJobIds.add(jobId));
+    if (groupedJobs.length) applyGroupedJobs(task, groupedJobs);
+  }
+
+  jobs.filter((job) => !claimedJobIds.has(job.job_id)).forEach(applyJob);
 }
 
 export function startImportJobSync(): () => void {

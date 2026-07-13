@@ -28,7 +28,12 @@ import {
 } from "@/lib/api";
 import { useCollections, useTags } from "@/lib/queries";
 import { toast } from "@/lib/toast";
-import { createTask, trackImportJob, updateTask } from "@/lib/task-center";
+import {
+  createTask,
+  linkTaskToJob,
+  trackImportJob,
+  updateTask,
+} from "@/lib/task-center";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
 import { formatBytes } from "@/lib/format";
@@ -394,6 +399,7 @@ function sortIntoSlots(files: File[]) {
         if (tagsForUpload.length) meshFd.append("tags", tagsForUpload.join(","));
         appendLibrary(meshFd);
         const meshRes = await ingestModel(meshFd);
+        linkTaskToJob(taskId, meshRes.job_id);
 
         updateTask(taskId, {
           detail: "Processing mesh and thumbnail",
@@ -432,6 +438,7 @@ function sortIntoSlots(files: File[]) {
         gcodeFd.append("source_hash", full.hash);
         appendLibrary(gcodeFd);
         const gcodeRes = await ingestOrca(gcodeFd);
+        linkTaskToJob(taskId, gcodeRes.job_id);
         await pollJob(gcodeRes.job_id, taskId, {
           progressStart: 70,
           progressEnd: 100,
@@ -457,6 +464,7 @@ function sortIntoSlots(files: File[]) {
         if (tagsForUpload.length) fd.append("tags", tagsForUpload.join(","));
         appendLibrary(fd);
         const res = await ingestOrca(fd);
+        linkTaskToJob(taskId, res.job_id);
         await pollJob(res.job_id, taskId, {
           progressStart: 45,
           progressEnd: 100,
@@ -500,6 +508,7 @@ function sortIntoSlots(files: File[]) {
         detail: "Queued",
         status: "pending" as const,
         progress: 0,
+        expectedJobCount: 1,
       }),
     }));
     for (const { item, taskId } of queue) {
@@ -777,6 +786,7 @@ function sortIntoSlots(files: File[]) {
       detail: "Preparing upload",
       status: "running",
       progress: 5,
+      expectedJobCount: meshFile && gcodeFile ? 2 : 1,
     });
     setSubmitting(true);
     void runUploadTask({
