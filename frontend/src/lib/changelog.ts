@@ -23,7 +23,7 @@ export interface ChangelogEntry {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     version: "0.10.0",
-    date: "Jul 2026",
+    date: "Unreleased — development branch",
     changes: [
       "Bulk-select Models to move collections, update tags, move to trash, and label several G-code revisions atomically",
       "Save common library filters as per-user views and star favorite Models from cards or Model detail",

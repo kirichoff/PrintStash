@@ -79,9 +79,22 @@ const METRIC_CONFIG: Record<CardMetricId, { abbr: string; getValue: (model: Mode
 function RevisionBadge({ status, label }: { status: FileRevisionStatus | null | undefined; label?: string | null }) {
   if (!status) return null;
   const cfg = REVISION_CONFIG[status];
+  const accessibleLabel = label
+    ? `Revision status: ${cfg.label}; label: ${label}`
+    : `Revision status: ${cfg.label}`;
   return (
-    <span className={`text-3xs font-mono font-semibold px-1.5 py-0.5 rounded border uppercase tracking-tight shrink-0 ${cfg.classes}`}>
-      {label ?? cfg.label}
+    <span
+      aria-label={accessibleLabel}
+      title={accessibleLabel}
+      className={`inline-flex items-center gap-1 text-3xs font-mono font-semibold px-1.5 py-0.5 rounded border uppercase tracking-tight shrink-0 ${cfg.classes}`}
+    >
+      <span>{cfg.label}</span>
+      {label && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="max-w-20 truncate">{label}</span>
+        </>
+      )}
     </span>
   );
 }

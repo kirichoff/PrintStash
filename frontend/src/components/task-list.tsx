@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, Loader2, XCircle } from "lucide-react";
 
 import type { TaskItem } from "@/lib/task-center";
 
@@ -60,12 +60,38 @@ function TaskRow({ task }: { task: TaskItem }) {
             <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">{task.status}</span>
           </div>
           {task.detail && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{task.detail}</p>}
+          {active && task.total == null && (
+            <p className="mt-1 text-xs text-muted-foreground">Discovering total… Safe to close this view.</p>
+          )}
           <div className="mt-2 h-1.5 overflow-hidden rounded bg-muted">
             <div
               className={`h-full w-full origin-left transition-transform duration-slow ease-linear ${task.status === "failed" ? "bg-destructive" : "bg-primary"}`}
               style={{ transform: `scaleX(${Math.min(100, task.progress) / 100})` }}
             />
           </div>
+          {!!task.failedItems?.length && (
+            <details className="mt-2 text-xs text-muted-foreground">
+              <summary className="flex cursor-pointer list-none items-center gap-1 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <ChevronDown className="h-3.5 w-3.5" /> Failed item details
+              </summary>
+              <ul className="mt-2 space-y-1">
+                {task.failedItems.map((item, index) => (
+                  <li key={`${item.name}-${index}`} className="break-words">
+                    <span className="font-medium text-foreground">{item.name}</span>: {item.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {task.retryable && !active && (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent("printstash:review-import"))}
+              className="mt-2 rounded border border-border px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Review and retry
+            </button>
+          )}
         </div>
       </div>
     </div>

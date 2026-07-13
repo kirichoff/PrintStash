@@ -320,6 +320,17 @@ export interface IngestJobStatus {
   label?: string | null;
   progress?: number | null;
   result?: Record<string, unknown> | null;
+  stage?: "resolving" | "downloading" | "inspecting" | "extracting" | "hashing" | "ingesting" | "thumbnailing" | "completed" | null;
+  current_item?: string | null;
+  processed?: number;
+  total?: number | null;
+  succeeded?: number;
+  deduplicated?: number;
+  skipped?: number;
+  failed?: number;
+  completion?: "completed" | "completed_with_warnings" | "failed_before_import" | null;
+  retryable?: boolean;
+  failed_items?: Array<{ name: string; reason: string; retryable: boolean }>;
 }
 
 export interface ArchiveEntry {

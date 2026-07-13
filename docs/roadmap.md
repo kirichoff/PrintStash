@@ -10,6 +10,10 @@ Issues are better for confirmed bugs or scoped implementation work.
 
 ## Current Release: 0.9.0 — Provider Maturity
 
+The `0.10.0` development branch contains work not present in the latest public
+tag or GitHub release. Items under 0.10 remain development work until a public
+`v0.10.0` release exists.
+
 Production hardening is in place. The app is useful for local-first 3D print
 library workflows, installable through Docker Compose (the default compose pulls
 prebuilt GHCR images; a build overlay is available for contributors), and ready
@@ -139,7 +143,7 @@ Not in 0.9, added on demand: Prusa Connect (cloud, unlike the local PrusaLink
 support that shipped here) and Elegoo models beyond the Neptune 4 and Centauri
 Carbon families.
 
-## 0.10 — Library Workflow Polish (delivered in 0.10.0)
+## 0.10 — Library Workflow Polish (implemented on development branch; not shipped)
 
 Goal: make the vault better as a daily-use 3D print library.
 

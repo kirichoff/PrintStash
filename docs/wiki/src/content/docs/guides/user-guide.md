@@ -90,7 +90,8 @@ file inventory, and import its print history onto the matching models.
 
 Open the **Diagnostics** tab to see the provider's support level, capability
 checks, and which actions aren't supported. PrintStash is Moonraker-first; Bambu
-LAN is beta and limited to status plus pause/resume/cancel. The full breakdown is
+LAN is beta and supports status, plain-text G-code upload with explicit opt-in
+start, plus pause/resume/cancel. Remote file inventory remains unavailable. The full breakdown is
 in [Printers & providers](/guides/printers/).
 
 ## 6. See what you've printed

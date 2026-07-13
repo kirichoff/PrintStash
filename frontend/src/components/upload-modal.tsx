@@ -17,7 +17,7 @@ import {
   getJobStatus,
   getModel,
   getVaultConfig,
-  ingestArchive,
+  inspectArchive,
   ingestModel,
   ingestOrca,
   ingestUrl,
@@ -28,7 +28,7 @@ import {
 } from "@/lib/api";
 import { useCollections, useTags } from "@/lib/queries";
 import { toast } from "@/lib/toast";
-import { createTask, updateTask } from "@/lib/task-center";
+import { createTask, trackImportJob, updateTask } from "@/lib/task-center";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { useAuth } from "@/lib/auth-context";
 import { formatBytes } from "@/lib/format";
@@ -195,8 +195,9 @@ function sortIntoSlots(files: File[]) {
   }, [open]);
 
   useEffect(() => {
-    if (!open || (!preloadFiles?.length && !preloadItems?.length)) return;
+    if (!open) return;
     if (initialMode) setMode(initialMode);
+    if (!preloadFiles?.length && !preloadItems?.length) return;
     if (initialMode === "bulk") {
       setBulkFiles(preloadItems?.length ? preloadItems : fileListToItems(preloadFiles ?? []));
     } else if (initialMode === "zip") {
@@ -544,12 +545,7 @@ function sortIntoSlots(files: File[]) {
   }
 
   function startImportTask(jobId: string, title: string) {
-    const taskId = createTask({
-      title,
-      detail: "Importing",
-      status: "running",
-      progress: 10,
-    });
+    const taskId = trackImportJob(jobId, title);
     void (async () => {
       try {
         await pollJob(jobId, taskId, {
@@ -686,7 +682,16 @@ function sortIntoSlots(files: File[]) {
     try {
       const fd = new FormData();
       fd.append("file", zipFile);
-      const m = await ingestArchive(fd);
+      const response = await inspectArchive(fd);
+      trackImportJob(response.job_id, `Inspect ${zipFile.name}`);
+      const status = await pollJobInline(response.job_id);
+      if (status.state === "failed") throw new Error(status.error || "Archive inspection failed");
+      const result = (status.result ?? {}) as Record<string, unknown>;
+      const m: ArchiveManifest = {
+        archive_id: String(result.archive_id),
+        archive_name: String(result.archive_name),
+        entries: (result.entries as ArchiveManifest["entries"]) ?? [],
+      };
       showManifest(m);
     } catch (err) {
       toast.error(err);

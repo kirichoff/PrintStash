@@ -9,6 +9,7 @@ let tc: TaskCenter;
 
 beforeEach(async () => {
   vi.resetModules();
+  localStorage.clear();
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-06-14T12:00:00Z"));
   tc = await import("@/lib/task-center");
@@ -81,19 +82,30 @@ describe("listTasks ordering", () => {
 });
 
 describe("TTL pruning", () => {
-  it("drops completed tasks after their TTL elapses", () => {
+  it("keeps completed summaries until the user clears them", () => {
     const id = tc.createTask({ title: "done" });
     tc.updateTask(id, { status: "completed" });
     expect(tc.listTasks()).toHaveLength(1);
 
     vi.advanceTimersByTime(12_000 + 1);
-    expect(tc.listTasks()).toHaveLength(0);
+    expect(tc.listTasks()).toHaveLength(1);
   });
 
   it("keeps running tasks indefinitely (no TTL)", () => {
     tc.createTask({ title: "long", status: "running" });
     vi.advanceTimersByTime(60_000);
     expect(tc.listTasks()).toHaveLength(1);
+  });
+});
+
+describe("import reconnect", () => {
+  it("persists a tracked server job across UI reloads without cancelling it", async () => {
+    const id = tc.trackImportJob("server-job-1", "Import archive");
+    expect(tc.listTasks()[0]).toMatchObject({ id, jobId: "server-job-1", status: "pending" });
+
+    vi.resetModules();
+    tc = await import("@/lib/task-center");
+    expect(tc.listTasks()[0]).toMatchObject({ jobId: "server-job-1", status: "pending" });
   });
 });
 

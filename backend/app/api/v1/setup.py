@@ -14,6 +14,7 @@ operator is responsible for ensuring the path lives on persistent storage
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,6 +31,7 @@ from app.services.auth import create_access_token, hash_password
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/setup", tags=["setup"])
+_setup_lock = threading.Lock()
 
 
 # Pydantic Settings exposes its defaults via ``model_fields``. We pull the
@@ -105,6 +107,11 @@ def get_status(session: Session = Depends(get_session)) -> SetupStatus:
 def complete_setup(
     body: SetupRequest, session: Session = Depends(get_session)
 ) -> SetupResponse:
+    with _setup_lock:
+        return _complete_setup(body, session)
+
+
+def _complete_setup(body: SetupRequest, session: Session) -> SetupResponse:
     """Create the first superuser and (optionally) persist storage paths.
 
     Refuses to run if the vault is already configured. The wizard hands back a

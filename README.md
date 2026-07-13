@@ -186,7 +186,7 @@ build overlay: `docker compose -f docker-compose.yml -f docker-compose.build.yml
 `PRINTSTASH_VERSION` (the image tag); set it in `.env` and bump it to upgrade:
 
 ```bash
-echo "PRINTSTASH_VERSION=0.6.4" >> .env   # pin; omit to track latest
+echo "PRINTSTASH_VERSION=0.9.0" >> .env   # pin latest shipped release; omit to track latest
 ```
 
 By default the compose files track `latest`. Pin `PRINTSTASH_VERSION` when you

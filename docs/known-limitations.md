@@ -85,8 +85,9 @@ manufacturing platform.
 
 - The UI is functional and responsive, but repeated daily workflows still need
   polish.
-- Bulk editing for tags/categories and revision labels is limited.
-- Saved views and advanced comparison workflows are future work.
+- The public v0.9.0 release has limited bulk editing and no saved views. The
+  current 0.10.0 development branch implements broader batch actions, saved
+  views, and comparison work, but these are not publicly shipped yet.
 - The app is not a slicer, not a firmware replacement, and not a full queue
   manager.
 

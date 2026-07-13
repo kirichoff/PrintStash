@@ -499,6 +499,11 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     });
     return;
   }
+  if (url.pathname === "/api/v1/ingest/jobs") {
+    sendJson(res, []);
+    return;
+  }
+
   if (url.pathname === "/api/v1/ingest/jobs/gcode-job-1") {
     sendJson(res, {
       job_id: "gcode-job-1",

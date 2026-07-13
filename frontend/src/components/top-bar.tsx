@@ -26,6 +26,7 @@ import {
   clearCompletedTasks,
   listTasks,
   subscribeTasks,
+  startImportJobSync,
   TaskItem,
 } from "@/lib/task-center";
 
@@ -140,7 +141,9 @@ export function TopBar() {
 
   useEffect(() => {
     setTasks(listTasks());
-    return subscribeTasks(() => setTasks(listTasks()));
+    const unsubscribe = subscribeTasks(() => setTasks(listTasks()));
+    const stopSync = startImportJobSync();
+    return () => { unsubscribe(); stopSync(); };
   }, []);
 
   function handleLogout() {

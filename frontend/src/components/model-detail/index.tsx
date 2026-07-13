@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { Link } from "@/lib/navigation";
 import { useRouter } from "@/lib/navigation";
 import {
@@ -9,6 +10,7 @@ import {
   FileText,
   Link2,
   Loader2,
+  MoreHorizontal,
   Minus,
   Pencil,
   Plus,
@@ -51,6 +53,8 @@ import {
 } from "@/types";
 
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { TabBar } from "@/components/ui/tabs";
 import { AddGcodeRevisionModal } from "./add-revision-modal";
 import { FilesTab } from "./files-tab";
@@ -60,6 +64,7 @@ import {
   TabKey,
   buildPrintSettingRows,
   headerStatusLabel,
+  normalizeRecommendedGcodeFiles,
   revisionStatusClass,
 } from "./presentation";
 import { PrintHistorySection } from "./print-history-section";
@@ -85,6 +90,18 @@ const ViewerFallback = (
 const PRINTER_BED_SIZES: Record<string, { x: number; y: number }> = {
   default: { x: 235, y: 235 },
 };
+
+const DETAIL_SIDEBAR_STORAGE_KEY = "ps-model-detail-sidebar-width";
+const DETAIL_SIDEBAR_DEFAULT_WIDTH = 480;
+const DETAIL_SIDEBAR_MIN_WIDTH = 400;
+const DETAIL_SIDEBAR_MAX_WIDTH = 800;
+
+function clampDetailSidebarWidth(width: number): number {
+  const viewportMax = typeof window === "undefined"
+    ? DETAIL_SIDEBAR_MAX_WIDTH
+    : Math.max(DETAIL_SIDEBAR_MIN_WIDTH, window.innerWidth - 320);
+  return Math.round(Math.min(DETAIL_SIDEBAR_MAX_WIDTH, viewportMax, Math.max(DETAIL_SIDEBAR_MIN_WIDTH, width)));
+}
 
 function getBedSize(printerModel: string | null | undefined): { x: number; y: number } {
   if (!printerModel) return PRINTER_BED_SIZES.default;
@@ -132,11 +149,22 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
   const [printJobs, setPrintJobs] = useState<ModelPrintJobRead[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [displayMode, setDisplayMode] = useState<ViewerDisplayMode>("solid");
+  const [detailSidebarWidth, setDetailSidebarWidth] = useState(() => {
+    try {
+      const stored = Number(localStorage.getItem(DETAIL_SIDEBAR_STORAGE_KEY));
+      return Number.isFinite(stored) && stored > 0
+        ? clampDetailSidebarWidth(stored)
+        : DETAIL_SIDEBAR_DEFAULT_WIDTH;
+    } catch {
+      return DETAIL_SIDEBAR_DEFAULT_WIDTH;
+    }
+  });
 
   const [showGrid, setShowGrid] = useState(true);
   const [sendOpen, setSendOpen] = useState(false);
   const [sendFileId, setSendFileId] = useState<number | undefined>(undefined);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [deleteTagTarget, setDeleteTagTarget] = useState<TagRead | null>(null);
   const [deleteTagBusy, setDeleteTagBusy] = useState(false);
   const [viewerMode, setViewerMode] = useState<ViewerMode>("model");
@@ -174,6 +202,43 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
   useEffect(() => {
     setMetadataPreferences(readMetadataPreferences());
   }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem(DETAIL_SIDEBAR_STORAGE_KEY, String(detailSidebarWidth)); }
+    catch { /* Storage can be unavailable in hardened browser contexts. */ }
+  }, [detailSidebarWidth]);
+
+  useEffect(() => {
+    const onResize = () => setDetailSidebarWidth((width) => clampDetailSidebarWidth(width));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  function startDetailSidebarResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = detailSidebarWidth;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      setDetailSidebarWidth(clampDetailSidebarWidth(startWidth + startX - moveEvent.clientX));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
 
   useEffect(() => {
     if (!canViewPrinters && activeTab === "history") setActiveTab("overview");
@@ -309,7 +374,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
     );
 
   const sortedFiles = useMemo(
-    () => [...model.files].sort((a, b) => a.version - b.version),
+    () => normalizeRecommendedGcodeFiles([...model.files].sort((a, b) => a.version - b.version)),
     [model.files],
   );
   const gcodeFiles = useMemo(
@@ -426,7 +491,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
                 {model.name}
               </h1>
             )}
-            <span className="font-mono text-[13px] text-on-surface-variant">
+            <span className="font-mono text-xs text-on-surface-variant">
               {(meshFile ?? sourceFiles[0]) ? `${(meshFile ?? sourceFiles[0])!.file_type.toUpperCase()} source · ` : ""}
               {gcodeFiles.length} G-code revision{gcodeFiles.length === 1 ? "" : "s"} · Last updated {timeAgo(model.updated_at)}
             </span>
@@ -459,65 +524,86 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
         <div className="flex items-center gap-2">
           {editing ? (
             <>
-              <button
-                onClick={cancelEdit}
-                className="px-4 py-2 rounded border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors font-mono text-xs uppercase tracking-wider"
-              >
-                Cancel
-              </button>
-              <button
+              <Button variant="outline" size="sm" onClick={cancelEdit}>Cancel</Button>
+              <Button
+                size="sm"
                 onClick={saveEdit}
-                disabled={saving}
-                className="px-4 py-2 rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                loading={saving}
               >
-                {saving ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
-                ) : (
-                  <><Check className="h-4 w-4" /> Save</>
-                )}
-              </button>
+                {!saving && <Check className="h-4 w-4" />} {saving ? "Saving…" : "Save"}
+              </Button>
             </>
           ) : (
             <>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => void toggleFavorite()}
                 disabled={starBusy || !auth.isAuthenticated}
-                className="px-4 py-2 rounded border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Star className={`h-4 w-4 ${model.starred ? "fill-current text-primary" : ""}`} />
                 {model.starred ? "Favorited" : "Favorite"}
-              </button>
-              <button
-                onClick={auth.isAuthenticated && canEditModel ? () => setShareOpen(true) : auth.showAuthRequiredToast}
-                disabled={!auth.isAuthenticated || !canEditModel}
-                title={auth.blockReason ?? (canEditModel ? "Share model" : "Edit access required")}
-                className="px-4 py-2 rounded border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              </Button>
+              <DropdownMenu
+                open={actionsOpen}
+                onOpenChange={setActionsOpen}
+                trigger={
+                  <Button
+                    type="button"
+                    data-menu-trigger
+                    variant="outline"
+                    size="icon-sm"
+                    onClick={() => setActionsOpen((open) => !open)}
+                    aria-haspopup="menu"
+                    aria-expanded={actionsOpen}
+                    aria-label="Model actions"
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                }
+                contentClassName="w-48 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg"
               >
-                <Link2 className="h-4 w-4" /> Share
-              </button>
-              <button
-                onClick={auth.isAuthenticated && canEditModel ? enterEdit : auth.showAuthRequiredToast}
-                disabled={!auth.isAuthenticated || !canEditModel}
-                title={auth.blockReason ?? (canEditModel ? "Edit model" : "Edit access required")}
-                className="px-4 py-2 rounded border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Pencil className="h-4 w-4" /> {auth.isAuthenticated ? "Edit" : "Sign in to edit"}
-              </button>
-              <button
-                onClick={auth.isAuthenticated && canEditModel ? () => setConfirmDeleteOpen(true) : auth.showAuthRequiredToast}
-                disabled={deleting || !auth.isAuthenticated || !canEditModel}
-                title={auth.blockReason ?? (canEditModel ? "Delete model" : "Edit access required")}
-                className="px-4 py-2 rounded border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors font-mono text-xs uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {deleting ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Deleting...</>
-                ) : auth.isAuthenticated ? (
-                  <><Trash2 className="h-4 w-4" /> Delete</>
-                ) : (
-                  <><Trash2 className="h-4 w-4" /> Sign in to delete</>
-                )}
-              </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setActionsOpen(false);
+                    if (auth.isAuthenticated && canEditModel) setShareOpen(true);
+                    else auth.showAuthRequiredToast();
+                  }}
+                  disabled={!auth.isAuthenticated || !canEditModel}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-popover-hover focus-visible:bg-popover-hover focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <Link2 className="h-4 w-4" /> Share
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setActionsOpen(false);
+                    if (auth.isAuthenticated && canEditModel) enterEdit();
+                    else auth.showAuthRequiredToast();
+                  }}
+                  disabled={!auth.isAuthenticated || !canEditModel}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-popover-hover focus-visible:bg-popover-hover focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <Pencil className="h-4 w-4" /> Edit details
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setActionsOpen(false);
+                    if (auth.isAuthenticated && canEditModel) setConfirmDeleteOpen(true);
+                    else auth.showAuthRequiredToast();
+                  }}
+                  disabled={deleting || !auth.isAuthenticated || !canEditModel}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" /> Delete model
+                </button>
+              </DropdownMenu>
             </>
           )}
         </div>
@@ -644,7 +730,35 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
         </div>
 
         {/* Right: Settings & Files Panel */}
-        <div className="md:w-[480px] bg-surface-container-lowest border-l-0 md:border-l border-t md:border-t-0 border-outline-variant flex flex-col h-auto md:h-full shrink-0 min-h-0">
+        <div
+          data-testid="model-detail-sidebar"
+          style={{ "--detail-sidebar-width": `${detailSidebarWidth}px` } as CSSProperties}
+          className="relative flex h-auto min-h-0 w-full shrink-0 flex-col border-l-0 border-t border-outline-variant bg-surface-container-lowest md:h-full md:[width:var(--detail-sidebar-width)] md:border-l md:border-t-0"
+        >
+          <div
+            role="separator"
+            aria-label="Resize details panel"
+            aria-orientation="vertical"
+            aria-valuemin={DETAIL_SIDEBAR_MIN_WIDTH}
+            aria-valuemax={DETAIL_SIDEBAR_MAX_WIDTH}
+            aria-valuenow={detailSidebarWidth}
+            tabIndex={0}
+            title="Drag to resize · Double-click to reset"
+            onPointerDown={startDetailSidebarResize}
+            onDoubleClick={() => setDetailSidebarWidth(DETAIL_SIDEBAR_DEFAULT_WIDTH)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft") setDetailSidebarWidth((width) => clampDetailSidebarWidth(width + 16));
+              else if (event.key === "ArrowRight") setDetailSidebarWidth((width) => clampDetailSidebarWidth(width - 16));
+              else if (event.key === "Home") setDetailSidebarWidth(DETAIL_SIDEBAR_MIN_WIDTH);
+              else if (event.key === "End") setDetailSidebarWidth(clampDetailSidebarWidth(DETAIL_SIDEBAR_MAX_WIDTH));
+              else return;
+              event.preventDefault();
+            }}
+            className="group absolute inset-y-0 -left-1 z-20 hidden w-2 touch-none cursor-col-resize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:block"
+          >
+            <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors duration-press group-hover:bg-primary group-focus-visible:bg-primary" />
+            <span className="absolute left-1/2 top-1/2 h-10 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border transition-colors duration-press group-hover:bg-primary group-focus-visible:bg-primary" />
+          </div>
           {/* Segmented tab navigation */}
           <TabBar
             tabs={visibleTabs.map((tab) => ({
@@ -652,9 +766,9 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
               label: (
                 <>
                   {tab.label}
-                  {tab.key === "revisions" && gcodeFiles.length > 0 && (
-                    <span className="ml-1 opacity-60">{gcodeFiles.length}</span>
-                  )}
+                  {tab.key === "revisions" && gcodeFiles.length > 0 && <span className="ml-1 opacity-60">{gcodeFiles.length}</span>}
+                  {tab.key === "files" && sourceFiles.length > 0 && <span className="ml-1 opacity-60">{sourceFiles.length}</span>}
+                  {tab.key === "history" && printJobs.length > 0 && <span className="ml-1 opacity-60">{printJobs.length}</span>}
                 </>
               ),
             }))}
@@ -662,7 +776,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
             onChange={setActiveTab}
             indicatorInset={8}
             className="shrink-0 border-b border-outline-variant bg-surface-container-lowest px-2 overflow-x-auto scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
-            tabClassName="px-3 py-3 font-mono text-2xs uppercase tracking-wider whitespace-nowrap transition-colors text-on-surface-variant hover:text-on-surface"
+            tabClassName="flex-1 px-2 py-3 font-mono text-2xs uppercase tracking-wider whitespace-nowrap transition-colors text-on-surface-variant hover:text-on-surface"
             activeTabClassName="text-primary"
           />
           <div key={activeTab} className="animate-panel-in flex-1 overflow-y-auto p-4 md:p-6 space-y-6 md:space-y-8 [scrollbar-width:thin] [scrollbar-color:var(--outline-variant)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-outline-variant [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-primary/50">

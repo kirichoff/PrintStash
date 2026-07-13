@@ -162,6 +162,7 @@ export default function SetupPage() {
   }
 
   async function handleSubmit() {
+    if (busy) return;
     setError(null);
     const v = validateStep2();
     if (v) {
@@ -229,6 +230,7 @@ export default function SetupPage() {
             {bootError}
           </p>
           <button
+            type="button"
             onClick={() => window.location.reload()}
             className="h-9 px-4 rounded bg-primary text-primary-foreground font-mono text-xs uppercase tracking-wider hover:opacity-90"
           >
@@ -241,8 +243,9 @@ export default function SetupPage() {
 
   if (!status) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-surface-container-lowest">
-        <Loader2 className="h-6 w-6 animate-spin text-on-surface-variant" />
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-surface-container-lowest" role="status" aria-live="polite">
+        <Loader2 className="h-6 w-6 animate-spin text-on-surface-variant" aria-hidden />
+        <p className="text-sm text-on-surface-variant">Checking vault setup…</p>
       </div>
     );
   }
@@ -274,7 +277,15 @@ export default function SetupPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-surface-container-low border border-outline-variant rounded p-6 space-y-4">
+        <form
+          noValidate
+          className="bg-surface-container-low border border-outline-variant rounded p-6 space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (step === 1) handleNext();
+            else void handleSubmit();
+          }}
+        >
           {step === 1 ? (
             <AccountStep
               username={username}
@@ -322,7 +333,7 @@ export default function SetupPage() {
           )}
 
           {error && (
-            <div className="text-xs text-error font-mono">{error}</div>
+            <div role="alert" className="rounded border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive font-mono">{error}</div>
           )}
 
           <div className="flex items-center justify-between gap-2 pt-2">
@@ -345,8 +356,7 @@ export default function SetupPage() {
 
             {step === 1 ? (
               <button
-                type="button"
-                onClick={handleNext}
+                type="submit"
                 className="h-10 px-4 rounded bg-primary text-primary-foreground font-mono text-xs uppercase tracking-wider hover:opacity-90 flex items-center gap-1.5"
               >
                 Next
@@ -354,8 +364,7 @@ export default function SetupPage() {
               </button>
             ) : (
               <button
-                type="button"
-                onClick={handleSubmit}
+                type="submit"
                 disabled={busy}
                 className="h-10 px-4 rounded bg-primary text-primary-foreground font-mono text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
               >
@@ -368,7 +377,7 @@ export default function SetupPage() {
               </button>
             )}
           </div>
-        </div>
+        </form>
 
         <p className="text-center text-xs text-on-surface-variant font-mono">
           This wizard only runs once. Subsequent admins can be added later.

@@ -441,6 +441,7 @@ async def _handle_collection_url(
     session_factory: SessionFactory,
 ) -> None:
     """Resolve a collection URL; either stage a review manifest or import all."""
+    registry.update(job_id, state="running", stage="resolving")
     cookie = _makerworld_cookie(req.makerworld_cookie)
     resolved = await import_resolvers.resolve_collection_url(
         req.url, makerworld_cookie=cookie
@@ -477,6 +478,7 @@ async def _handle_collection_url(
         )
         return
 
+    registry.update(job_id, stage="downloading", total=len(members))
     groups = await _stage_members(members, makerworld_cookie=cookie)
     await run_in_threadpool(
         importer.import_resolved_groups,
@@ -504,7 +506,7 @@ async def _import_from_url(
     is still recorded as the model's ``source_url``).
     """
     try:
-        registry.update(job_id, state="running")
+        registry.update(job_id, state="running", stage="resolving")
         if import_resolvers.classify_collection(req.url):
             await _handle_collection_url(
                 job_id=job_id,
@@ -526,6 +528,7 @@ async def _import_from_url(
             )
             or req.url
         )
+        registry.update(job_id, stage="downloading")
         staged, original_filename = await importer.download_to_staging(download_url)
     except importer.ImportError_ as exc:
         registry.update(job_id, state="failed", error=str(exc))
@@ -546,6 +549,7 @@ async def _import_from_url(
         and suffix not in _GCODE_SUFFIXES
     ):
         try:
+            registry.update(job_id, stage="inspecting", current_item=original_filename)
             entries = await run_in_threadpool(importer.inspect_archive, staged)
         except importer.ImportError_ as exc:
             staged.unlink(missing_ok=True)
@@ -589,6 +593,42 @@ async def _import_from_url(
     )
 
 
+async def _inspect_uploaded_archive(
+    *, job_id: str, staged: Path, original_filename: str, actor_user_id: int
+) -> None:
+    """Inspect an uploaded ZIP in background and return its selection manifest."""
+    try:
+        registry.update(
+            job_id,
+            state="running",
+            stage="inspecting",
+            current_item=original_filename,
+        )
+        entries = await run_in_threadpool(importer.inspect_archive, staged)
+        pending = importer._PendingArchive(
+            path=staged,
+            archive_name=original_filename,
+            owner_user_id=actor_user_id,
+            entries=entries,
+        )
+        archive_id = importer.archives.add(pending)
+        manifest = _manifest_from_pending(archive_id, pending)
+        registry.update(
+            job_id,
+            state="completed",
+            processed=len(entries),
+            total=len(entries),
+            result={"kind": "archive_manifest", **manifest.model_dump()},
+        )
+    except importer.ImportError_ as exc:
+        staged.unlink(missing_ok=True)
+        registry.update(job_id, state="failed", error=str(exc), retryable=True)
+    except Exception as exc:  # noqa: BLE001 — background IO boundary
+        staged.unlink(missing_ok=True)
+        logger.exception("archive inspection failed")
+        registry.update(job_id, state="failed", error=str(exc), retryable=True)
+
+
 async def _run_file_selection_import(
     *,
     job_id: str,
@@ -601,8 +641,9 @@ async def _run_file_selection_import(
 ) -> None:
     """Background task: download a chosen subset of a page's files and ingest them."""
     try:
-        registry.update(job_id, state="running")
+        registry.update(job_id, state="running", stage="resolving")
         links = await import_resolvers.resolve_selected_download(page_url, files)
+        registry.update(job_id, stage="downloading", total=len(links))
         staged_files: list[tuple[Path, str]] = []
         for link in links:
             staged_files.extend(await _download_and_collect(link))
@@ -640,7 +681,7 @@ async def _run_collection_member_import(
 ) -> None:
     """Background task: stage selected collection members and ingest them."""
     try:
-        registry.update(job_id, state="running")
+        registry.update(job_id, state="running", stage="downloading", total=len(members))
         groups = await _stage_members(members, makerworld_cookie=makerworld_cookie)
     except Exception as exc:  # noqa: BLE001 — network/IO boundary
         logger.exception("collection member import failed")
@@ -737,6 +778,39 @@ async def ingest_archive(
     )
     archive_id = importer.archives.add(pending)
     return _manifest_from_pending(archive_id, pending)
+
+
+@router.post(
+    "/archive/inspect",
+    response_model=IngestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_auth)],
+    summary="Stage and inspect a ZIP archive in the background",
+)
+async def inspect_archive_background(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = UploadFileParam(..., description="The .zip archive"),
+    current_user: User = Depends(require_user),
+) -> IngestResponse:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="filename_required")
+    original_filename = Path(file.filename).name
+    if Path(original_filename).suffix.lower() != ".zip":
+        raise HTTPException(status_code=400, detail="unsupported_file_type")
+    staged = await run_in_threadpool(_stage_upload, file, ".zip")
+    if not zipfile.is_zipfile(staged):
+        staged.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="archive_invalid")
+    assert current_user.id is not None
+    job_id = registry.create(owner_user_id=current_user.id)
+    background_tasks.add_task(
+        _inspect_uploaded_archive,
+        job_id=job_id,
+        staged=staged,
+        original_filename=original_filename,
+        actor_user_id=current_user.id,
+    )
+    return IngestResponse(job_id=job_id, state="pending", message="archive inspection queued")
 
 
 @router.post(
@@ -900,6 +974,16 @@ async def select_collection_members(
         makerworld_cookie=pending.makerworld_cookie,
     )
     return IngestResponse(job_id=job_id, state="pending")
+
+
+@router.get(
+    "/jobs",
+    response_model=list[IngestJobStatus],
+    summary="List reconnectable ingestion jobs for the current user",
+)
+def list_jobs(current_user: User = Depends(require_user)) -> list[IngestJobStatus]:
+    assert current_user.id is not None
+    return registry.list_for_user(current_user.id)
 
 
 @router.get(

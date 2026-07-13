@@ -265,6 +265,10 @@ export function getJobStatus(jobId: string): Promise<IngestJobStatus> {
   return getJson<IngestJobStatus>(`/api/v1/ingest/jobs/${jobId}`, { fresh: true });
 }
 
+export function listIngestJobs(): Promise<IngestJobStatus[]> {
+  return getJson<IngestJobStatus[]>("/api/v1/ingest/jobs", { fresh: true });
+}
+
 export function ingestUrl(payload: {
   url: string;
   collection?: string;
@@ -298,6 +302,10 @@ export function selectCollectionMembers(
 
 export function ingestArchive(formData: FormData): Promise<ArchiveManifest> {
   return sendForm<ArchiveManifest>("/api/v1/ingest/archive", formData);
+}
+
+export function inspectArchive(formData: FormData): Promise<IngestResponse> {
+  return sendForm<IngestResponse>("/api/v1/ingest/archive/inspect", formData);
 }
 
 export function selectArchiveEntries(

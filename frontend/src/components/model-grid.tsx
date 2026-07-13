@@ -22,7 +22,6 @@ import { SavedViewSelector } from "@/components/saved-view-selector";
 import { useMobileFilterDrawer } from "@/lib/mobile-filter-context";
 import {
   SlidersHorizontal,
-  BookOpen,
   Grid,
   List,
   FileText,
@@ -198,6 +197,15 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   );
   const [uploadOpen, setUploadOpen] = useState(false);
   const [dropPreload, setDropPreload] = useState<{ files: File[]; items?: BulkItem[]; mode: UploadMode } | null>(null);
+
+  useEffect(() => {
+    const reviewImport = () => {
+      setDropPreload({ files: [], mode: "url" });
+      setUploadOpen(true);
+    };
+    window.addEventListener("printstash:review-import", reviewImport);
+    return () => window.removeEventListener("printstash:review-import", reviewImport);
+  }, []);
 const [dropCollection, setDropCollection] = useState<string | null>(null);
 const [isDragging, setIsDragging] = useState(false);
 const dragEnterCount = useRef(0);
@@ -1196,13 +1204,30 @@ async function onMainDrop(e: React.DragEvent) {
                     Clear all filters
                   </Button>
                 ) : (
-                  <a
-                    href="https://xiao-villamor.github.io/PrintStash/"
-                    className="inline-flex items-center gap-2 rounded border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                  >
-                    <BookOpen className="h-4 w-4 text-muted-foreground" />
-                    Open wiki
-                  </a>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!canUploadToVault}
+                      onClick={() => { setDropPreload({ files: [], mode: "files" }); setUploadOpen(true); }}
+                    >
+                      Upload files
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!canUploadToVault}
+                      onClick={() => { setDropPreload({ files: [], mode: "url" }); setUploadOpen(true); }}
+                    >
+                      Import from URL
+                    </Button>
+                    {user?.is_superuser && (
+                      <Button asChild variant="outline" size="sm">
+                        <Link href="/settings">Connect folder or NAS</Link>
+                      </Button>
+                    )}
+                  </div>
                 )
               }
               className="flex-1 py-20 animate-panel-in"

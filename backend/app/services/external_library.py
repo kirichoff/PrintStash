@@ -452,7 +452,13 @@ def scan_library(
                 return summary.as_dict()
 
             if job_id:
-                registry.update(job_id, state="running", total_steps=len(disk) or 1)
+                registry.update(
+                    job_id,
+                    state="running",
+                    stage="hashing",
+                    total_steps=len(disk) or 1,
+                    total=len(disk),
+                )
 
             for index, (path, (size, mtime)) in enumerate(disk.items(), start=1):
                 if job_id:
@@ -460,7 +466,10 @@ def scan_library(
                         job_id,
                         step=index,
                         total_steps=len(disk),
-                        label=f"scanning {Path(path).name}",
+                        label="hashing",
+                        stage="hashing",
+                        current_item=Path(path).name,
+                        processed=index,
                         progress=index / len(disk) * 100,
                     )
                 existing = db_by_path.get(path)
@@ -508,7 +517,21 @@ def scan_library(
             if job_id:
                 # The job itself completed even with per-file errors; the PARTIAL
                 # signal lives on the library status and in result.errors.
-                registry.update(job_id, state="completed", result=summary.as_dict())
+                registry.update(
+                    job_id,
+                    state="completed",
+                    result=summary.as_dict(),
+                    processed=len(disk),
+                    total=len(disk),
+                    succeeded=summary.added + summary.updated,
+                    skipped=summary.skipped,
+                    failed=len(summary.errors),
+                    retryable=bool(summary.errors),
+                    failed_items=[
+                        {"name": item.split(":", 1)[0], "reason": item.split(":", 1)[-1], "retryable": True}
+                        for item in summary.errors
+                    ],
+                )
         except Exception as exc:  # noqa: BLE001 — never leave the row RUNNING
             logger.exception("scan[lib=%s] crashed", library_id)
             summary.error = f"scan_failed: {exc}"
