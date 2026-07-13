@@ -15,6 +15,8 @@ import { UploadModal, UploadMode } from "@/components/upload-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import { useMobileFilterDrawer } from "@/lib/mobile-filter-context";
 import {
   SlidersHorizontal,
@@ -148,6 +150,9 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   });
   const [favoritesOnly, setFavoritesOnly] = useState(searchParams.get("favorites") === "true");
   const [savedViews, setSavedViews] = useState<SavedViewRead[]>([]);
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [saveViewName, setSaveViewName] = useState("");
+  const [saveViewBusy, setSaveViewBusy] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   // Seed from the URL (`?v=docs`), falling back to the remembered tab, so
   // returning from a document (Back or the logo) lands on the Documents tab
@@ -303,8 +308,9 @@ async function onMainDrop(e: React.DragEvent) {
   }
 
   async function saveCurrentView() {
-    const name = window.prompt("Saved view name")?.trim();
+    const name = saveViewName.trim();
     if (!name) return;
+    setSaveViewBusy(true);
     try {
       const created = await createSavedView(name, {
         collection: selectedCollection,
@@ -316,8 +322,11 @@ async function onMainDrop(e: React.DragEvent) {
         favorites: favoritesOnly,
       });
       setSavedViews((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setSaveViewOpen(false);
+      setSaveViewName("");
       toast.success("View saved");
     } catch (error) { toast.error(error); }
+    finally { setSaveViewBusy(false); }
   }
   // The paginated grid. `keepPreviousData` (in the hook) holds the current page
   // on screen while a new search/folder loads, and results are cached per filter
@@ -583,6 +592,36 @@ async function onMainDrop(e: React.DragEvent) {
 
   return (
     <>
+      <Modal
+        open={saveViewOpen}
+        onClose={() => { if (!saveViewBusy) { setSaveViewOpen(false); setSaveViewName(""); } }}
+        title="Save current view"
+        className="max-w-md"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(event) => { event.preventDefault(); void saveCurrentView(); }}
+        >
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium text-foreground">View name</span>
+            <Input
+              autoFocus
+              value={saveViewName}
+              onChange={(event) => setSaveViewName(event.target.value)}
+              maxLength={128}
+              placeholder="Ready to print"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => { setSaveViewOpen(false); setSaveViewName(""); }} disabled={saveViewBusy}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={saveViewBusy} disabled={!saveViewName.trim()}>
+              Save view
+            </Button>
+          </div>
+        </form>
+      </Modal>
       <UploadModal
         open={uploadOpen}
         onClose={() => { setUploadOpen(false); setDropPreload(null); setDropCollection(null); }}
@@ -734,7 +773,7 @@ async function onMainDrop(e: React.DragEvent) {
                     <option value="">Saved views</option>
                     {savedViews.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}
                   </select>
-                  <Button variant="outline" size="xs" onClick={() => void saveCurrentView()}>
+                  <Button variant="outline" size="xs" onClick={() => setSaveViewOpen(true)}>
                     <BookmarkPlus className="h-4 w-4" /> Save view
                   </Button>
                   <Button

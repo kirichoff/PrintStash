@@ -213,6 +213,12 @@ In `frontend/src/components/ui/`. **Compose these — do not rebuild them.** Eve
 bespoke overlay reintroduces the same four bugs (no focus trap, no Escape, no
 scroll lock, no exit animation).
 
+**Browser-native dialogs are banned.** Never call `window.prompt`,
+`window.alert`, or `window.confirm`. They bypass PrintStash styling, focus,
+motion, accessibility, and error handling. Compose `Modal`, `ConfirmModal`, or
+another `components/ui/` primitive instead. CI scans frontend source and keeps
+these calls at zero.
+
 | Primitive | Gives you |
 | --- | --- |
 | `PageContainer` | The standard page frame: scroll container, padding, bottom-nav clearance, the one content width |
@@ -242,6 +248,7 @@ Supporting hooks in `frontend/src/lib/`:
    hand-typed cubic-bezier.
 3. Transform/opacity only. No `transition-all`. Explicit property lists.
 4. Overlays compose `Modal`/`Drawer`/`DropdownMenu` — never hand-rolled.
+   Browser-native `prompt`/`alert`/`confirm` calls also stay at zero.
 5. Pressable things have press feedback; focusable things have a `ring-ring`
    focus ring.
 6. New movement is registered in the reduced-motion block, at matching
