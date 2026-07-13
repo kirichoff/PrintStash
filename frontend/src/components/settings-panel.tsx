@@ -36,6 +36,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { TabBar } from "@/components/ui/tabs";
 import { inputClasses } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useRouter, useSearchParams } from "@/lib/navigation";
 import { CURRENCY_OPTIONS } from "@/lib/currency";
 import { ExternalLibrariesPanel } from "@/components/external-libraries-panel";
 import { StorageConfigCard } from "@/components/storage-config-card";
@@ -138,6 +139,12 @@ const SETTINGS_SECTIONS: {
   { id: "about", label: "About", icon: Info },
 ];
 
+function settingsSection(value: string | null): SettingsSection {
+  return SETTINGS_SECTIONS.some((section) => section.id === value)
+    ? value as SettingsSection
+    : "overview";
+}
+
 // Shared button styles — keep settings actions visually uniform and theme-aware.
 const BTN_PRIMARY = cn(buttonVariants({ size: "xs" }), "uppercase tracking-wider");
 const BTN_SECONDARY = cn(
@@ -210,8 +217,10 @@ function SettingsCard({
 
 export function SettingsPanel() {
   const { user } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const latestRelease = CHANGELOG[0];
-  const [activeSection, setActiveSection] = useState<SettingsSection>("overview");
+  const [activeSection, setActiveSection] = useState<SettingsSection>(() => settingsSection(searchParams.get("section")));
   const [health, setHealth] = useState<HealthResponse | null>(null);
   // Vault totals refresh automatically when models change (model writes
   // invalidate queryKeys.vaultStats), so no manual refetch on this screen.
@@ -248,6 +257,7 @@ export function SettingsPanel() {
   const [backupsLoading, setBackupsLoading] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<BackupMeta | null>(null);
   const [restoringBackup, setRestoringBackup] = useState(false);
+
   const [downloadingBackup, setDownloadingBackup] = useState<string | null>(null);
   const [metadataPrefs, setMetadataPrefs] = useState<MetadataPreferences>(
     DEFAULT_METADATA_PREFERENCES,
@@ -255,6 +265,19 @@ export function SettingsPanel() {
   const [cardMetrics, setCardMetrics] = useState<CardMetrics>(DEFAULT_CARD_METRICS);
   const [showPrinterCardImage, setShowPrinterCardImage] = useState(false);
   const [printerImageWarningOpen, setPrinterImageWarningOpen] = useState(false);
+
+  useEffect(() => {
+    setActiveSection(settingsSection(searchParams.get("section")));
+  }, [searchParams]);
+
+  function changeSection(section: SettingsSection) {
+    setActiveSection(section);
+    const params = new URLSearchParams(searchParams.toString());
+    if (section === "overview") params.delete("section");
+    else params.set("section", section);
+    const query = params.toString();
+    router.replace(query ? `/settings?${query}` : "/settings", { scroll: false });
+  }
 
   const refreshUsers = useCallback(async () => {
     if (!user?.is_superuser) return;
@@ -813,7 +836,7 @@ export function SettingsPanel() {
             };
           })}
           active={activeSection}
-          onChange={setActiveSection}
+          onChange={changeSection}
           className="gap-1 overflow-x-auto"
           tabClassName="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-[color,background-color,transform] duration-press active:scale-[0.99] hover:bg-popover-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
           activeTabClassName="bg-accent text-accent-foreground"
@@ -831,7 +854,7 @@ export function SettingsPanel() {
                 key={section.id}
                 type="button"
                 aria-current={isActive ? "page" : undefined}
-                onClick={() => setActiveSection(section.id)}
+                onClick={() => changeSection(section.id)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium transition-[color,background-color,transform] duration-press active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   isActive

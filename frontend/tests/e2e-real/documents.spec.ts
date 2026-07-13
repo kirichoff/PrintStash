@@ -94,7 +94,7 @@ test("edit a collection README and have it persist", async ({ page }) => {
   await page
     .getByPlaceholder(/short description of this collection/i)
     .fill("## Printed parts\n\nDownload, slice, print.");
-  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Printed parts" })).toBeVisible();
 
   // Survives a reload — proves it persisted, not just optimistic UI.

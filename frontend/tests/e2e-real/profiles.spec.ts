@@ -28,7 +28,7 @@ test("create, edit, and delete a filament preset", async ({ page }) => {
   await page.goto("/profiles");
 
   const section = page.locator("section", { hasText: "Filament presets" });
-  await section.getByRole("button", { name: /New filament/ }).click();
+  await page.getByRole("button", { name: /New filament/ }).click();
   const createForm = section.getByRole("form", { name: "Create filament preset" });
   await createForm.getByLabel("Name").fill(name);
   await createForm.getByLabel("Material").fill("PLA");
@@ -68,8 +68,9 @@ test("create and delete a printer preset", async ({ page }) => {
   const name = `e2e-printer-${Date.now()}`;
   await page.goto("/profiles");
 
+  await page.getByRole("tab", { name: /Printers/ }).click();
   const section = page.locator("section", { hasText: "Printer presets" });
-  await section.getByRole("button", { name: /New printer/ }).click();
+  await page.getByRole("button", { name: /New printer/ }).click();
   const createForm = section.getByRole("form", { name: "Create printer preset" });
   await createForm.getByLabel("Name").fill(name);
   await createForm.getByLabel("Printer model").fill("Voron 2.4");
@@ -79,6 +80,7 @@ test("create and delete a printer preset", async ({ page }) => {
   await expect(nameInput).toBeVisible();
 
   await page.reload();
+  await page.getByRole("tab", { name: /Printers/ }).click();
   const reloaded = await inputByValue(section, /^Printer preset name/, name);
   await rowOf(reloaded).getByRole("button", { name: `Delete printer preset ${name}` }).click();
   await expect

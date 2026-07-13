@@ -365,6 +365,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     sendJson(res, []);
     return;
   }
+  if (url.pathname === "/api/v1/saved-views") {
+    sendJson(res, []);
+    return;
+  }
   if (url.pathname === "/api/v1/models/stats") {
     sendJson(res, {
       model_count: modelList.length,
@@ -438,6 +442,15 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
   if (url.pathname === "/api/v1/printers") {
     sendJson(res, [printer]);
+    return;
+  }
+  if (url.pathname === "/api/v1/printers/dashboard") {
+    sendJson(res, {
+      total_printers: 1,
+      status_counts: { ready: 1 },
+      active_jobs: 0,
+      groups: [{ name: "__ungrouped", count: 1, status_counts: { ready: 1 } }],
+    });
     return;
   }
   if (url.pathname === "/api/v1/printers/3") {

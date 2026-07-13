@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bookmark, Check, Copy, Pencil, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkPlus, Check, Copy, Pencil, RefreshCw, Search, Trash2 } from "lucide-react";
 import type { SavedViewRead } from "@/types";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
@@ -20,7 +20,9 @@ function readRecent(): number[] {
 export function SavedViewSelector({
   views,
   activeId,
+  modified = false,
   onSelect,
+  onCreate,
   onUpdate,
   onRename,
   onDuplicate,
@@ -28,7 +30,9 @@ export function SavedViewSelector({
 }: {
   views: SavedViewRead[];
   activeId: number | null;
+  modified?: boolean;
   onSelect: (view: SavedViewRead) => void;
+  onCreate: () => void;
   onUpdate: (view: SavedViewRead) => Promise<void>;
   onRename: (view: SavedViewRead, name: string) => Promise<void>;
   onDuplicate: (view: SavedViewRead) => Promise<void>;
@@ -89,6 +93,7 @@ export function SavedViewSelector({
         >
           <Bookmark className="h-4 w-4" />
           <span className="truncate">{active?.name ?? "Saved views"}</span>
+          {active && modified && <span className="text-warning" aria-label="Modified saved view">•</span>}
           {views.length > 0 && <span className="text-muted-foreground">{views.length}</span>}
         </Button>
       }
@@ -126,6 +131,9 @@ export function SavedViewSelector({
             {views.length ? "No matching views" : "No saved views yet"}
           </p>
         )}
+      </div>
+      <div className="border-t border-border p-1">
+        <button type="button" onClick={() => { setMenuOpen(false); onCreate(); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-popover-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><BookmarkPlus className="h-4 w-4 text-muted-foreground" /> Save current view</button>
       </div>
     </DropdownMenu>
     <Modal open={!!editing} onClose={() => setEditing(null)} title="Rename saved view" className="max-w-sm">

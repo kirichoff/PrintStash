@@ -46,5 +46,5 @@ test("g-code revision workflow: auto-recommend, re-recommend, status, compare", 
   await expect(revRow(page, 1).getByText("Recommended")).toHaveCount(0);
 
   // With two revisions, the compare panel appears.
-  await expect(page.getByRole("heading", { name: /Compare Revisions/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Compare Artifacts/ })).toBeVisible();
 });

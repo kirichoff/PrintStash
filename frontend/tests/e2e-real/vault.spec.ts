@@ -11,9 +11,11 @@ test("search filters the library; list/grid toggle keeps the model visible", asy
   await expect(modelCard(page, name)).toBeVisible();
 
   // List / grid toggle (title-labelled buttons) both keep the result.
-  await page.getByRole("button", { name: "List View" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
+  await page.getByRole("menuitem", { name: "List View" }).click();
   await expect(modelCard(page, name)).toBeVisible();
-  await page.getByRole("button", { name: "Grid View" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
+  await page.getByRole("menuitem", { name: "Grid View" }).click();
   await expect(modelCard(page, name)).toBeVisible();
 });
 

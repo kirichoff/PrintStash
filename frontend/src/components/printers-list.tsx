@@ -1,10 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "@/lib/navigation";
 import { PrinterRead } from "@/types";
 import { createPrinter, deletePrinter, updatePrinter } from "@/lib/api";
-import { usePrinters } from "@/lib/queries";
+import { usePrinterDashboard, usePrinters } from "@/lib/queries";
 import { toast } from "@/lib/toast";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import {
@@ -24,7 +24,7 @@ import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { readPrinterCardImagePreference } from "@/lib/printer-card-display";
 import { printerArtwork } from "@/lib/orca-printer-images";
-import { Plus, Trash2, RefreshCw, ArrowRight, Pencil, Printer as PrinterIcon, Network, Clock3, Search, Check } from "lucide-react";
+import { Plus, Trash2, RefreshCw, ArrowRight, Pencil, Printer as PrinterIcon, Network, Clock3, Search, Check, CircleAlert, Layers3, Play } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
   ready: "bg-emerald-500",
@@ -35,12 +35,23 @@ const STATUS_COLORS: Record<string, string> = {
   error: "bg-red-600",
 };
 
+const STATUS_PRIORITY: Record<string, number> = {
+  printing: 0,
+  paused: 1,
+  error: 2,
+  offline: 3,
+  ready: 4,
+  unknown: 5,
+};
+
 export function PrintersPage() {
   const auth = useRequireAuth();
   // Shared printers cache: mutations through the api layer invalidate
   // queryKeys.printers, so this list refetches itself after add/delete.
-  const printersQuery = usePrinters();
-  const printers = printersQuery.data ?? [];
+  const printersQuery = usePrinters({ refetchInterval: 15_000 });
+  const dashboardQuery = usePrinterDashboard({ refetchInterval: 15_000 });
+  const printers = useMemo(() => printersQuery.data ?? [], [printersQuery.data]);
+  const dashboard = dashboardQuery.data;
   const loading = printersQuery.isLoading;
   const error =
     printersQuery.error instanceof Error ? printersQuery.error.message : null;
@@ -48,6 +59,32 @@ export function PrintersPage() {
   const [deleteTarget, setDeleteTarget] = useState<PrinterRead | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [showCardImages] = useState(readPrinterCardImagePreference);
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const visiblePrinters = useMemo(
+    () => printers
+      .filter((printer) => selectedGroup === null || (printer.group || "__ungrouped") === selectedGroup)
+      .sort((a, b) => (STATUS_PRIORITY[a.status] ?? 99) - (STATUS_PRIORITY[b.status] ?? 99) || a.name.localeCompare(b.name)),
+    [printers, selectedGroup],
+  );
+  const statusCounts = useMemo(
+    () =>
+      printers.reduce<Record<string, number>>((counts, printer) => {
+        counts[printer.status] = (counts[printer.status] ?? 0) + 1;
+        return counts;
+      }, {}),
+    [printers],
+  );
+  const printerGroups = useMemo(() => {
+    const groups = new Map<string, number>();
+    for (const printer of printers) {
+      const group = printer.group?.trim() || "__ungrouped";
+      groups.set(group, (groups.get(group) ?? 0) + 1);
+    }
+    return [...groups.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [printers]);
+  const attentionCount = (statusCounts.error ?? 0) + (statusCounts.offline ?? 0);
 
   function handleDelete(p: PrinterRead, e: React.MouseEvent) {
     e.preventDefault();
@@ -87,7 +124,7 @@ export function PrintersPage() {
         description="Connected printer endpoints"
         actions={
           <>
-            <Button variant="outline" size="xs" onClick={() => printersQuery.refetch()}>
+            <Button variant="outline" size="xs" onClick={() => { void printersQuery.refetch(); void dashboardQuery.refetch(); }}>
               <RefreshCw className="h-3.5 w-3.5" />
               Refresh
             </Button>
@@ -110,6 +147,40 @@ export function PrintersPage() {
         <div className="animate-panel-in rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           {error}
         </div>
+      )}
+
+      {!loading && printers.length > 0 && (
+        <section aria-label="Fleet summary" className="animate-panel-in space-y-3">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[
+              { label: "Active jobs", value: dashboard?.active_jobs ?? 0, icon: Play, tone: "text-primary" },
+              { label: "Printing", value: statusCounts.printing ?? 0, icon: PrinterIcon, tone: "text-primary" },
+              { label: "Needs attention", value: attentionCount, icon: CircleAlert, tone: attentionCount ? "text-destructive" : "text-muted-foreground" },
+              { label: "Ready", value: statusCounts.ready ?? 0, icon: Check, tone: "text-success" },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.label} className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-medium text-muted-foreground">{item.label}</span>
+                    <Icon className={`h-4 w-4 ${item.tone}`} />
+                  </div>
+                  <p className="mt-2 font-mono text-2xl font-semibold tabular-nums text-foreground">{item.value}</p>
+                </div>
+              );
+            })}
+          </div>
+          {printerGroups.length > 1 && (
+            <div className="flex flex-wrap items-center gap-2" aria-label="Filter printers by group">
+              <Button type="button" variant={selectedGroup === null ? "secondary" : "outline"} size="xs" onClick={() => setSelectedGroup(null)}>All groups</Button>
+              {printerGroups.map((group) => (
+                <Button key={group.name} type="button" variant={selectedGroup === group.name ? "secondary" : "outline"} size="xs" onClick={() => setSelectedGroup(group.name)}>
+                  <Layers3 className="h-3.5 w-3.5" />{group.name === "__ungrouped" ? "Ungrouped" : group.name}<span className="text-muted-foreground">{group.count}</span>
+                </Button>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       {loading ? (
@@ -139,7 +210,7 @@ export function PrintersPage() {
         />
       ) : (
         <div className="stagger-children grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {printers.map((p) => (
+          {visiblePrinters.map((p) => (
             <article
               key={p.id}
               className="animate-card-in flex min-h-72 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm"

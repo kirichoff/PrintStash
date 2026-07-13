@@ -40,6 +40,7 @@ export const queryKeys = {
   collections: ["collections"] as const,
   tags: ["tags"] as const,
   printers: ["printers"] as const,
+  printerDashboard: ["printers", "dashboard"] as const,
   printer: (id: number) => ["printers", id] as const,
   filamentProfiles: ["filament-profiles"] as const,
   printerProfiles: ["printer-profiles"] as const,

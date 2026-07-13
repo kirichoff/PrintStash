@@ -5,6 +5,7 @@ import { Link } from "@/lib/navigation";
 import { usePathname, useRouter } from "@/lib/navigation";
 import {
   BarChart3,
+  Bell,
   BookOpen,
   Box,
   SlidersHorizontal,
@@ -19,6 +20,13 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { Drawer } from "@/components/ui/drawer";
+import { TaskList } from "@/components/task-list";
+import {
+  clearCompletedTasks,
+  listTasks,
+  subscribeTasks,
+  type TaskItem,
+} from "@/lib/task-center";
 
 type NavItem = {
   href: string;
@@ -61,6 +69,7 @@ export function BottomNavBar() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
 
   const visibleItems = NAV_ITEMS.filter(
     (item) => !item.adminOnly || user?.is_superuser,
@@ -70,6 +79,11 @@ export function BottomNavBar() {
   useEffect(() => {
     setMoreOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    setTasks(listTasks());
+    return subscribeTasks(() => setTasks(listTasks()));
+  }, []);
 
   const tabs = visibleItems.slice(0, MAX_TABS);
   const overflow = visibleItems.slice(MAX_TABS);
@@ -109,6 +123,11 @@ export function BottomNavBar() {
         items={overflow}
         pathname={pathname}
         username={user?.username}
+        tasks={tasks}
+        onClearTasks={() => {
+          clearCompletedTasks();
+          setTasks(listTasks());
+        }}
         onLogout={user ? handleLogout : undefined}
         onClose={() => setMoreOpen(false)}
       />
@@ -178,6 +197,8 @@ function MoreSheet({
   items,
   pathname,
   username,
+  tasks,
+  onClearTasks,
   onLogout,
   onClose,
 }: {
@@ -185,9 +206,14 @@ function MoreSheet({
   items: NavItem[];
   pathname: string;
   username?: string;
+  tasks: TaskItem[];
+  onClearTasks: () => void;
   onLogout?: () => void;
   onClose: () => void;
 }) {
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const activeTasks = tasks.filter((task) => task.status === "pending" || task.status === "running").length;
+
   return (
     <Drawer
       open={open}
@@ -195,7 +221,7 @@ function MoreSheet({
       side="bottom"
       ariaLabel="More"
       containerClassName="md:hidden"
-      className="rounded-t-2xl border-t border-border bg-card px-4 pt-3 pb-safe shadow-2xl"
+      className="max-h-[85dvh] overflow-y-auto rounded-t-2xl border-t border-border bg-card px-4 pt-3 pb-safe shadow-2xl"
     >
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-muted-foreground/25" />
         <div className="mb-3 flex items-center justify-between">
@@ -239,6 +265,22 @@ function MoreSheet({
             })}
           </div>
         )}
+
+        <div className="mt-3 overflow-hidden rounded-lg border border-border bg-background">
+          <button
+            type="button"
+            onClick={() => setTasksOpen((open) => !open)}
+            aria-expanded={tasksOpen}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          >
+            <Bell className="h-4 w-4 text-muted-foreground" />
+            <span className="flex-1">Tasks</span>
+            <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-3xs text-muted-foreground">
+              {activeTasks ? `${activeTasks} active` : tasks.length}
+            </span>
+          </button>
+          {tasksOpen && <TaskList tasks={tasks} onClear={onClearTasks} compact />}
+        </div>
 
         {onLogout && (
           <div className="mt-3 flex items-center gap-3 border-t border-border pt-3 pb-2">

@@ -22,6 +22,7 @@
 ### Fixed
 
 - Artifact comparison rounds percentages and filament totals to readable precision instead of exposing floating-point artifacts, and the vault sort picker now uses the shared styled menu.
+- Header and recent-folder menus now stay above adjacent vault surfaces instead of being obscured by sticky controls or the collection sidebar.
 
 ## 0.9.0
 

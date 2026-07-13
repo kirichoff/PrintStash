@@ -91,10 +91,28 @@ test("printer list route loads configured printers through the frontend proxy", 
   await expect(page.getByRole("link", { name: /ender/i })).toBeVisible();
   await expect(page.getByText("Moonraker", { exact: true })).toBeVisible();
   await expect(page.getByText("ready", { exact: true }).first()).toBeVisible();
+  await expect(page.getByLabel("Fleet summary").getByText("Ready")).toBeVisible();
   await expect(page.getByText("No printers configured yet.")).toHaveCount(0);
   await expect(page.getByText("Failed to fetch")).toHaveCount(0);
   await expect(page.getByText("This page could not be found")).toHaveCount(0);
   expect(problems).toEqual([]);
+});
+
+test("vault display choice survives reload", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Display" }).click();
+  await page.getByRole("menuitem", { name: "List View" }).click();
+  await expect(page.getByText("Thumb", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Thumb", { exact: true })).toBeVisible();
+});
+
+test("settings sections are deep-linkable and preserve navigation state", async ({ page }) => {
+  await page.goto("/settings?section=trash");
+  await expect(page.getByRole("heading", { name: "Trash retention" })).toBeVisible();
+  await page.getByRole("button", { name: "About" }).click();
+  await expect(page).toHaveURL(/\/settings\?section=about$/);
+  await expect(page.getByRole("heading", { name: "Latest changes" })).toBeVisible();
 });
 
 test("profiles route renders detected filament and printer presets", async ({ page }) => {
@@ -106,6 +124,7 @@ test("profiles route renders detected filament and printer presets", async ({ pa
   await expect(page.getByRole("heading", { name: "Filament presets" })).toBeVisible();
   await expect(page.getByLabel("Filament preset name 1")).toHaveValue("Generic PLA");
   await expect(page.getByLabel("Filament brand 1")).toHaveValue("Generic");
+  await page.getByRole("tab", { name: /Printers/ }).click();
   await expect(page.getByRole("heading", { name: "Printer presets" })).toBeVisible();
   await expect(page.getByLabel("Printer preset name 1")).toHaveValue("Creality Ender-3 V3 SE");
   await expect(page.getByText("Failed to fetch")).toHaveCount(0);
@@ -170,6 +189,21 @@ test("reduced motion drops the grid stagger entirely", async ({ page }) => {
   for (const delay of await gridDelays(page)) {
     expect(delay).toBe("0s");
   }
+});
+
+test("header and recent-folder menus stay above adjacent vault surfaces", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("ps-recent-folders", JSON.stringify(["maraio"])));
+  await page.goto("/");
+
+  const headerZ = await page.locator("header").evaluate((element) => Number(getComputedStyle(element).zIndex));
+  const stickyZ = await page.locator(".sticky.top-0").evaluate((element) => Number(getComputedStyle(element).zIndex));
+  expect(headerZ).toBeGreaterThan(stickyZ);
+
+  await page.getByRole("button", { name: "Recent" }).click();
+  const menuBox = await page.getByRole("menu").boundingBox();
+  const sidebarBox = await page.locator("aside").boundingBox();
+  expect(menuBox).not.toBeNull(); expect(sidebarBox).not.toBeNull();
+  expect(menuBox!.x).toBeGreaterThanOrEqual(sidebarBox!.x + sidebarBox!.width);
 });
 
 test("gallery upload queues a task and tracks it to completion", async ({ page }) => {

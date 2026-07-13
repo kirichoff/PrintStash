@@ -33,7 +33,6 @@ import {
   Plus,
   CheckSquare,
   Star,
-  BookmarkPlus,
   ArrowUpDown,
   Rows3,
   History,
@@ -184,9 +183,10 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState("");
   const [saveViewBusy, setSaveViewBusy] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [viewMode, setViewMode] = useState<ViewMode>(() => readVaultPreference("ps-vault-view") === "list" ? "list" : "grid");
   const [sortKey, setSortKey] = useState<SortKey>(() => (readVaultPreference("ps-vault-sort") as SortKey | null) ?? "date-desc");
   const [sortOpen, setSortOpen] = useState(false);
+  const [displayOpen, setDisplayOpen] = useState(false);
   const [compact, setCompact] = useState(() => readVaultPreference("ps-vault-density") === "compact");
   const [recentFolders, setRecentFolders] = useState<string[]>(readRecentFolders);
   const [recentFoldersOpen, setRecentFoldersOpen] = useState(false);
@@ -262,6 +262,34 @@ async function onMainDrop(e: React.DragEvent) {
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
   const { open: filterDrawerOpen, openDrawer, closeDrawer } = useMobileFilterDrawer();
+
+  useEffect(() => {
+    function restoreFiltersFromHistory() {
+      const params = new URLSearchParams(window.location.search);
+      setSelectedTags(params.getAll("tag"));
+      const printerId = params.get("printer_id");
+      setSelectedPrinterId(printerId ? Number(printerId) : null);
+      const presence = params.get("printer_presence");
+      setSelectedPrinterPresence(presence === "any" || presence === "none" ? presence : null);
+      setFavoritesOnly(params.get("favorites") === "true");
+    }
+    window.addEventListener("popstate", restoreFiltersFromHistory);
+    return () => window.removeEventListener("popstate", restoreFiltersFromHistory);
+  }, []);
+
+  // Keep every filter URL-backed. Saved views, reload, Back, and copied links now
+  // restore the same result set instead of only preserving search/folder state.
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("tag");
+    selectedTags.forEach((tag) => params.append("tag", tag));
+    if (selectedPrinterId !== null) params.set("printer_id", String(selectedPrinterId));
+    else params.delete("printer_id");
+    if (selectedPrinterPresence !== null) params.set("printer_presence", selectedPrinterPresence);
+    else params.delete("printer_presence");
+    const next = params.toString();
+    if (next !== searchParams.toString()) router.replace(next ? `/?${next}` : "/", { scroll: false });
+  }, [router, searchParams, selectedPrinterId, selectedPrinterPresence, selectedTags]);
 
   useEffect(() => {
     if (!auth.isAuthenticated) { setSavedViews([]); return; }
@@ -366,6 +394,19 @@ async function onMainDrop(e: React.DragEvent) {
   function currentViewFilters(): SavedViewRead["filters"] {
     return { collection: selectedCollection, direct: !searchQuery, tag: selectedTags, q: searchQuery ?? null, printer_id: selectedPrinterId, printer_presence: selectedPrinterPresence, favorites: favoritesOnly };
   }
+
+  const activeSavedView = savedViews.find((view) => view.id === activeSavedViewId) ?? null;
+  const savedViewModified = activeSavedView !== null && JSON.stringify({
+    ...activeSavedView.filters,
+    collection: activeSavedView.filters.collection ?? null,
+    q: activeSavedView.filters.q ?? null,
+    printer_id: activeSavedView.filters.printer_id ?? null,
+    printer_presence: activeSavedView.filters.printer_presence ?? null,
+    tag: [...activeSavedView.filters.tag].sort(),
+  }) !== JSON.stringify({
+    ...currentViewFilters(),
+    tag: [...selectedTags].sort(),
+  });
 
   async function manageSavedView(action: () => Promise<SavedViewRead | void>, success: string) {
     try { await action(); setSavedViews(await listSavedViews()); toast.success(success); }
@@ -640,6 +681,9 @@ async function onMainDrop(e: React.DragEvent) {
     }
     return childCollections(collections, selectedCollection);
   })();
+  const availableRecentFolders = recentFolders.filter(
+    (path) => path !== selectedCollection && collections.some((collection) => collection.path === path),
+  );
   const breadcrumbs = useMemo(
     () => collectionBreadcrumbs(collections, selectedCollection),
     [collections, selectedCollection],
@@ -754,12 +798,6 @@ async function onMainDrop(e: React.DragEvent) {
 
   const activeFilterItems: { label: string; onRemove: () => void }[] = (() => {
     const items: { label: string; onRemove: () => void }[] = [];
-    if (selectedCollection) {
-      items.push({
-        label: `Collection: ${selectedName ?? selectedCollection}`,
-        onRemove: () => handleCollectionChange(null),
-      });
-    }
     if (query.trim()) {
       items.push({ label: `Search: ${query.trim()}`, onRemove: clearSearch });
     }
@@ -898,13 +936,16 @@ async function onMainDrop(e: React.DragEvent) {
               All Models
             </button>
           )}
-          {recentFolders.length > 0 && <DropdownMenu
+          {availableRecentFolders.length > 0 && <DropdownMenu
             open={recentFoldersOpen}
             onOpenChange={setRecentFoldersOpen}
+            align="start"
             trigger={<button type="button" data-menu-trigger aria-haspopup="menu" aria-expanded={recentFoldersOpen} onClick={() => setRecentFoldersOpen(!recentFoldersOpen)} className="ml-auto flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><History className="h-3.5 w-3.5" /> Recent</button>}
             contentClassName="w-64 rounded border border-border bg-popover p-1 text-popover-foreground shadow-lg"
           >
-            {recentFolders.map((path) => <button key={path} role="menuitem" type="button" onClick={() => { handleCollectionChange(path); setRecentFoldersOpen(false); }} className="block w-full truncate rounded px-2.5 py-2 text-left text-xs transition-colors hover:bg-popover-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{path}</button>)}
+            <p className="px-2.5 py-1.5 font-mono text-3xs uppercase tracking-wider text-muted-foreground">Recent folders</p>
+            {availableRecentFolders.map((path) => <button key={path} role="menuitem" type="button" onClick={() => { handleCollectionChange(path); setRecentFoldersOpen(false); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs transition-colors hover:bg-popover-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /><span className="truncate">{path}</span></button>)}
+            <button type="button" role="menuitem" onClick={() => { setRecentFolders([]); localStorage.removeItem("ps-recent-folders"); setRecentFoldersOpen(false); }} className="mt-1 w-full border-t border-border px-2.5 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-popover-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Clear recent folders</button>
           </DropdownMenu>}
         </nav>
 
@@ -920,7 +961,7 @@ async function onMainDrop(e: React.DragEvent) {
                 {refreshing && <span className="ml-2 font-mono text-xs text-muted-foreground">Updating...</span>}
               </p>
             </div>
-            <div className="flex items-center justify-between gap-3 sm:justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={openDrawer}
@@ -952,8 +993,9 @@ async function onMainDrop(e: React.DragEvent) {
               {auth.isAuthenticated && (
                 <>
                   <Button
-                    variant={favoritesOnly ? "default" : "outline"}
+                    variant={favoritesOnly ? "secondary" : "outline"}
                     size="xs"
+                    aria-pressed={favoritesOnly}
                     onClick={() => {
                       const next = !favoritesOnly;
                       setFavoritesOnly(next);
@@ -967,18 +1009,19 @@ async function onMainDrop(e: React.DragEvent) {
                   <SavedViewSelector
                     views={savedViews}
                     activeId={activeSavedViewId}
+                    modified={savedViewModified}
                     onSelect={applySavedView}
+                    onCreate={() => setSaveViewOpen(true)}
                     onUpdate={(view) => manageSavedView(() => updateSavedView(view.id, { filters: currentViewFilters() }), "Saved view updated")}
                     onRename={(view, name) => manageSavedView(() => updateSavedView(view.id, { name }), "Saved view renamed")}
                     onDuplicate={(view) => manageSavedView(() => createSavedView(duplicateViewName(view.name), view.filters), "Saved view duplicated")}
                     onDelete={(view) => manageSavedView(async () => { await deleteSavedView(view.id); if (activeSavedViewId === view.id) setActiveSavedViewId(null); }, "Saved view deleted")}
                   />
-                  <Button variant="outline" size="xs" onClick={() => setSaveViewOpen(true)}>
-                    <BookmarkPlus className="h-4 w-4" /> Save view
-                  </Button>
                   <Button
-                    variant={selectMode ? "default" : "outline"}
+                    variant={selectMode ? "secondary" : "outline"}
                     size="xs"
+                    aria-pressed={selectMode}
+                    title="Select Models and folders (S)"
                     onClick={() => {
                       if (selectMode) clearSelection();
                       else setSelectMode(true);
@@ -999,23 +1042,18 @@ async function onMainDrop(e: React.DragEvent) {
               >
                 {SORT_OPTIONS.map((option) => <button key={option.value} type="button" role="menuitem" onClick={() => { setSortKey(option.value); localStorage.setItem("ps-vault-sort", option.value); setSortOpen(false); }} className={`flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs transition-colors hover:bg-popover-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${sortKey === option.value ? "bg-accent text-accent-foreground" : ""}`}><span className="flex-1">{option.label}</span>{sortKey === option.value && <Check className="h-3.5 w-3.5" />}</button>)}
               </DropdownMenu>
-              <Button variant={compact ? "secondary" : "ghost"} size="xs" className="w-8 px-0" aria-label={compact ? "Use comfortable density" : "Use compact density"} title={compact ? "Comfortable density" : "Compact density"} onClick={() => { const next = !compact; setCompact(next); localStorage.setItem("ps-vault-density", next ? "compact" : "comfortable"); }}><Rows3 className="h-4 w-4" /></Button>
-              <div className="flex items-center bg-muted p-1 rounded">
-                <button
-                  onClick={() => setViewMode("grid")}
-                  className={`p-1.5 rounded transition-[color,background-color,box-shadow] ${viewMode === "grid" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                  title="Grid View"
-                >
-                  <Grid className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setViewMode("list")}
-                  className={`p-1.5 rounded transition-[color,background-color,box-shadow] ${viewMode === "list" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                  title="List View"
-                >
-                  <List className="w-4 h-4" />
-                </button>
-              </div>
+              <DropdownMenu
+                open={displayOpen}
+                onOpenChange={setDisplayOpen}
+                align="end"
+                trigger={<Button type="button" variant="outline" size="xs" data-menu-trigger aria-haspopup="menu" aria-expanded={displayOpen} onClick={() => setDisplayOpen(!displayOpen)}><Rows3 className="h-3.5 w-3.5" />Display<ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /></Button>}
+                contentClassName="w-48 rounded border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+              >
+                <p className="px-2.5 py-1.5 font-mono text-3xs uppercase tracking-wider text-muted-foreground">Layout</p>
+                {([ ["grid", "Grid", Grid], ["list", "List", List] ] as const).map(([mode, label, Icon]) => <button key={mode} type="button" role="menuitem" aria-label={`${label} View`} onClick={() => { setViewMode(mode); localStorage.setItem("ps-vault-view", mode); setDisplayOpen(false); }} className={`flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs transition-colors hover:bg-popover-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-accent text-accent-foreground" : ""}`}><Icon className="h-3.5 w-3.5" /><span className="flex-1">{label}</span>{viewMode === mode && <Check className="h-3.5 w-3.5" />}</button>)}
+                <p className="mt-1 border-t border-border px-2.5 py-1.5 font-mono text-3xs uppercase tracking-wider text-muted-foreground">Density</p>
+                {([ [false, "Comfortable"], [true, "Compact"] ] as const).map(([isCompact, label]) => <button key={label} type="button" role="menuitem" onClick={() => { setCompact(isCompact); localStorage.setItem("ps-vault-density", isCompact ? "compact" : "comfortable"); setDisplayOpen(false); }} className={`flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs transition-colors hover:bg-popover-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${compact === isCompact ? "bg-accent text-accent-foreground" : ""}`}><span className="flex-1">{label}</span>{compact === isCompact && <Check className="h-3.5 w-3.5" />}</button>)}
+              </DropdownMenu>
             </div>
           </div>
         </div>

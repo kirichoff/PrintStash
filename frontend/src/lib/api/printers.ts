@@ -32,8 +32,8 @@ export function listPrinters(
   return getJson<PrinterRead[]>(`/api/v1/printers${query}`, options);
 }
 
-export function getDashboard(): Promise<Dashboard> {
-  return getJson<Dashboard>("/api/v1/printers/dashboard");
+export function getDashboard(options?: GetJsonOptions): Promise<Dashboard> {
+  return getJson<Dashboard>("/api/v1/printers/dashboard", options);
 }
 
 export function getPrinter(id: number): Promise<PrinterRead> {

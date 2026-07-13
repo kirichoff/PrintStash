@@ -7,21 +7,20 @@ import {
   BarChart3,
   Bell,
   Box,
-  CheckCircle2,
   ChevronDown,
   BookOpen,
-  SlidersHorizontal,
   LogOut,
-  Loader2,
   Printer,
   Search,
   Settings,
+  SlidersHorizontal,
   XCircle,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { lastVaultHref } from "@/lib/last-collection";
 import { BrandMark } from "@/components/brand-mark";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { TaskList } from "@/components/task-list";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import {
   clearCompletedTasks,
@@ -151,7 +150,7 @@ export function TopBar() {
   }
 
   return (
-    <header className="h-16 bg-background border-b border-border flex items-center justify-between px-4 z-40 relative">
+    <header className="h-16 bg-background border-b border-border flex items-center justify-between px-4 z-dropdown relative">
       {/* Logo */}
       <Link href={homeHref} className="flex items-center space-x-2 hover:opacity-80 transition-opacity">
         <div className="w-8 h-8 bg-primary rounded flex items-center justify-center flex-shrink-0">
@@ -199,7 +198,7 @@ export function TopBar() {
             </button>
           }
         >
-          <TaskPopover
+          <TaskList
             tasks={tasks}
             onClear={() => {
               clearCompletedTasks();
@@ -313,70 +312,6 @@ function ProfileMenu({
         <LogOut className="h-4 w-4" />
         <span>Log Out</span>
       </button>
-    </div>
-  );
-}
-
-function TaskPopover({
-  tasks,
-  onClear,
-}: {
-  tasks: TaskItem[];
-  onClear: () => void;
-}) {
-  return (
-    <div className="w-[360px] max-w-[calc(100vw-2rem)] rounded border border-border bg-popover shadow-lg">
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">Tasks</span>
-        {tasks.some((t) => t.status === "completed" || t.status === "failed") && (
-          <button onClick={onClear} className="font-mono text-3xs uppercase tracking-wider text-muted-foreground hover:text-foreground">
-            Clear done
-          </button>
-        )}
-      </div>
-      {tasks.length === 0 ? (
-        <div className="px-4 py-8 text-center font-mono text-xs text-muted-foreground">No active tasks</div>
-      ) : (
-        <div className="max-h-[420px] overflow-y-auto py-2">
-          {tasks.map((task) => (
-            <TaskRow key={task.id} task={task} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TaskRow({ task }: { task: TaskItem }) {
-  const active = task.status === "pending" || task.status === "running";
-  return (
-    <div className="px-4 py-3">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5">
-          {active ? (
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          ) : task.status === "completed" ? (
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-          ) : (
-            <XCircle className="h-4 w-4 text-red-500" />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <p className="truncate text-sm font-medium text-foreground">{task.title}</p>
-            <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">{task.status}</span>
-          </div>
-          {task.detail && (
-            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{task.detail}</p>
-          )}
-          <div className="mt-2 h-1.5 overflow-hidden rounded bg-muted">
-            <div
-              className={`h-full w-full origin-left transition-transform duration-slow ease-linear ${task.status === "failed" ? "bg-red-500" : "bg-primary"}`}
-              style={{ transform: `scaleX(${Math.min(100, task.progress) / 100})` }}
-            />
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
