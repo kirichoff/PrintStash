@@ -130,4 +130,4 @@ def test_uploaded_zip_inspection_runs_as_reconnectable_job(
     assert payload["state"] == "completed"
     assert payload["stage"] == "completed"
     assert payload["result"]["kind"] == "archive_manifest"
-    assert payload["result"]["entries"][0]["name"] == "cube.stl"
+    assert payload["result"]["entries"][0]["name"] == "models/cube.stl"

@@ -51,10 +51,17 @@ def safe_error(value: str | None) -> str | None:
 
 
 def _safe_result(value: Any, key: str | None = None) -> Any:
-    """Sanitize user-facing error/name fields without breaking manifest URLs."""
+    """Sanitize user-facing error/name fields without breaking manifest URLs.
+
+    ``entries[].name`` (archive manifests) is an archive-relative path, not a
+    bare filename — stripping it to a basename would desync the UI from
+    ``extract_selected``, which matches selections against the full path.
+    """
     if isinstance(value, dict):
         return {item_key: _safe_result(item, item_key) for item_key, item in value.items()}
     if isinstance(value, list):
+        if key == "entries":
+            return value
         return [_safe_result(item, key) for item in value]
     if isinstance(value, str) and key in {"error", "errors", "reason"}:
         return safe_error(value)

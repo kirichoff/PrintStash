@@ -42,7 +42,7 @@ it("updates and renames saved views from the selector", async () => {
   await user.click(screen.getByRole("button", { name: "Rename Workshop" }));
   const input = screen.getByDisplayValue("Workshop");
   await user.clear(input); await user.type(input, "Daily prints");
-  await user.click(screen.getByRole("dialog").querySelector('button[type="submit"]')!);
+  await user.click(screen.getByRole("dialog", { name: /rename saved view/i }).querySelector('button[type="submit"]')!);
   expect(onRename).toHaveBeenCalledWith(saved, "Daily prints");
 });
 
