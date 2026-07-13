@@ -124,4 +124,12 @@ describe("first-run setup", () => {
       access_token: "token",
     });
   });
+
+  it("keeps optional off-site backup settings collapsed until requested", async () => {
+    const user = await reachStorage();
+
+    expect(screen.getByLabelText("Backup bucket")).not.toBeVisible();
+    await user.click(screen.getByText("Off-site backup"));
+    expect(screen.getByLabelText("Backup bucket")).toBeVisible();
+  });
 });
