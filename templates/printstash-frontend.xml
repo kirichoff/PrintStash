@@ -8,14 +8,14 @@
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
   <Support>https://github.com/xiao-villamor/PrintStash/issues</Support>
-  <Project>https://github.com/xiao-villamor/PrintStash</Project>
-  <Overview>Web UI for PrintStash, a self-hosted vault for 3D print files. This is the container you open in your browser. It serves the SPA and proxies /api/v1 to the PrintStash-API container at hostname "api", so both MUST run on the same user-defined Docker network named "printstash". Install PrintStash-API first.</Overview>
+  <Project>https://www.printstash.org</Project>
+  <Overview>Browser interface for PrintStash, an open-source self-hosted 3D print library and G-code vault. Browse, search, tag, organize, deduplicate, and preview STL, 3MF, OBJ, STEP/STP, G-code, and BGCODE files from any device on your network. Compare G-code revisions and slicer settings, record known-good or failed outcomes, manage shared NAS folders and collection permissions, review print history and cost, and send files to supported printers. This is the container you open in your browser. Install PrintStash-API first; both containers must use the same user-defined Docker network named "printstash".</Overview>
   <Category>Productivity: Tools:</Category>
   <WebUI>http://[IP]:[PORT:3000]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/xiao-villamor/PrintStash/main/templates/printstash-frontend.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/xiao-villamor/PrintStash/main/icon.svg</Icon>
   <ReadMe>https://raw.githubusercontent.com/xiao-villamor/PrintStash/main/unraid/README.md</ReadMe>
-  <ExtraSearchTerms>3d printing stl gcode 3mf moonraker klipper bambu vault</ExtraSearchTerms>
+  <ExtraSearchTerms>3d printer 3d printing model manager stl library 3mf gcode bgcode step stp obj cad file organizer self hosted docker nas klipper moonraker octoprint prusalink bambu elegoo spoolman orcaslicer prusaslicer cura print history</ExtraSearchTerms>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>
@@ -24,7 +24,7 @@
   <DonateLink/>
   <Date>2026-06-17</Date>
   <MinVer>6.10</MinVer>
-  <License>AGPLv3</License>
+  <License>AGPL-3.0</License>
   <Requires>Requires the PrintStash-API container running on the same "printstash" Docker network (it must be reachable as hostname "api").</Requires>
   <Config Name="WebUI Port" Target="3000" Default="3000" Mode="tcp" Description="Port to open PrintStash in your browser." Type="Port" Display="always" Required="true" Mask="false">3000</Config>
   <Config Name="Max upload size" Target="NGINX_CLIENT_MAX_BODY_SIZE" Default="512m" Mode="" Description="nginx client_max_body_size. Match the API VAULT_MAX_UPLOAD_MB (e.g. 512m)." Type="Variable" Display="always" Required="false" Mask="false">512m</Config>

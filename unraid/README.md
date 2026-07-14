@@ -1,5 +1,42 @@
 # PrintStash on Unraid
 
+PrintStash is an [open-source, self-hosted 3D print library and G-code vault](https://www.printstash.org)
+for keeping models, sliced revisions, printer copies, and real print outcomes in
+one searchable place on your Unraid server. It is a private alternative to
+scattered download folders and cloud-only model lockers: your files remain on
+your own storage, with no subscription or required external account.
+
+## What PrintStash manages
+
+- **Complete 3D print library:** STL, 3MF, OBJ, STEP/STP, G-code, and BGCODE,
+  with collections, tags, search, thumbnails, content-hash duplicate detection,
+  and in-browser mesh and G-code toolpath previews.
+- **G-code revisions and outcomes:** attach multiple slices to one source model,
+  compare parsed slicer settings, add notes, choose a recommended revision, and
+  mark results as known good, failed, or needing testing.
+- **Automatic print metadata:** extract slicer, printer profile, nozzle, layer
+  height, material, temperatures, estimated duration, and filament use from
+  OrcaSlicer, PrusaSlicer, Bambu Studio, and Cura output when available.
+- **NAS and existing folders:** index shared volumes in place, mirror folder
+  structure as collections, detect local changes, and write new uploads or
+  revisions back without overwriting existing files.
+- **Private multi-user access:** accounts, per-collection view/edit/admin roles,
+  API keys, audit logs, expiring read-only share links, and a recoverable trash
+  workflow.
+- **Printer-aware workflows:** stable Moonraker/Klipper support plus beta
+  OctoPrint, PrusaLink, Bambu LAN, and supported Elegoo integrations. Available
+  actions depend on each provider and can include live status, printer-file
+  inventory, upload, start, controls, and job history.
+- **Operations and cost:** measured Moonraker print duration and filament use,
+  print statistics, optional Spoolman synchronization, Prometheus metrics, and
+  local or S3-compatible backup and storage options.
+
+See the [full capabilities](https://www.printstash.org/capabilities),
+[printer compatibility matrix](https://www.printstash.org/compatibility), and
+[documentation](https://www.printstash.org/docs/) before installation.
+
+## How the Unraid application is packaged
+
 PrintStash runs as **two containers**:
 
 | Container | Role | Port |
