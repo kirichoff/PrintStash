@@ -21,6 +21,7 @@ from app.db.models import (
 from app.db.scopes import live
 from app.db.session import get_session_factory
 from app.services.printer_provider import provider_diagnostic_summary
+from app.services.release_check import get_release_status
 from app.services.storage_backend import get_backend
 
 router = APIRouter(tags=["health"])
@@ -240,3 +241,12 @@ def health_details() -> dict:
 @router.get("/health", summary="Minimal liveness probe")
 def health() -> dict:
     return {"status": "ok", "name": settings.app_name}
+
+
+@router.get(
+    "/health/releases/latest",
+    dependencies=[Depends(require_superuser)],
+    summary="Check for a newer PrintStash release",
+)
+async def latest_release(refresh: bool = False) -> dict:
+    return await get_release_status(settings.app_version, force=refresh)

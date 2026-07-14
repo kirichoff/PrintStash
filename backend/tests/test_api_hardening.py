@@ -120,6 +120,33 @@ def test_detailed_health_requires_admin_and_reports_release_components(
     assert centauri["capabilities"]["can_upload"] is False
 
 
+def test_release_check_requires_admin(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch
+) -> None:
+    async def fake_release_status(current_version: str, *, force: bool = False) -> dict:
+        assert force is True
+        return {
+            "status": "up_to_date",
+            "current_version": current_version,
+            "latest_version": current_version,
+            "update_available": False,
+            "release_url": "https://example.test/release",
+            "published_at": "2026-07-14T10:00:00Z",
+            "checked_at": "2026-07-14T11:00:00Z",
+        }
+
+    monkeypatch.setattr("app.api.v1.health.get_release_status", fake_release_status)
+
+    denied = client.get("/api/v1/health/releases/latest")
+    assert denied.status_code == 401
+
+    response = client.get(
+        "/api/v1/health/releases/latest?refresh=true", headers=auth_headers
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "up_to_date"
+
+
 def test_configured_setup_status_redacts_internal_storage_details(
     client: TestClient,
     auth_headers: dict[str, str],

@@ -28,6 +28,21 @@ export function getHealthDetails<T>(): Promise<T> {
   return getJson<T>("/api/v1/health/details", { fresh: true });
 }
 
+export interface ReleaseStatus {
+  status: "update_available" | "up_to_date" | "unavailable";
+  current_version: string;
+  latest_version: string | null;
+  update_available: boolean;
+  release_url: string | null;
+  published_at: string | null;
+  checked_at: string;
+}
+
+export function getLatestRelease(refresh = false): Promise<ReleaseStatus> {
+  const query = refresh ? "?refresh=true" : "";
+  return getJson<ReleaseStatus>(`/api/v1/health/releases/latest${query}`, { fresh: true });
+}
+
 export function updateVaultConfig(body: VaultConfigUpdate): Promise<VaultConfigRead> {
   return sendJson<VaultConfigRead>("/api/v1/config", "PUT", body);
 }

@@ -528,6 +528,18 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     sendJson(res, vaultConfig());
     return;
   }
+  if (url.pathname === "/api/v1/health/releases/latest") {
+    sendJson(res, {
+      status: "update_available",
+      current_version: "0.10.0",
+      latest_version: "0.10.1",
+      update_available: true,
+      release_url: "https://github.com/xiao-villamor/PrintStash/releases/tag/v0.10.1",
+      published_at: "2026-07-14T10:00:00Z",
+      checked_at: "2026-07-14T11:00:00Z",
+    });
+    return;
+  }
   if (url.pathname === "/api/v1/libraries") {
     sendJson(res, state.externalLibrariesEnabled ? [externalLibrary] : []);
     return;

@@ -5,6 +5,7 @@ import {
   Bell,
   Boxes,
   Check,
+  CircleArrowUp,
   Database,
   Download,
   Eraser,
@@ -55,6 +56,7 @@ import {
   downloadLibraryArchive,
   importLibraryArchive,
   getHealthDetails,
+  getLatestRelease,
   getVaultConfig,
   listBackups,
   listCollectionPermissions,
@@ -72,7 +74,7 @@ import {
   updateAdminUser,
   updateVaultConfig,
 } from "@/lib/api";
-import type { BackupMeta } from "@/lib/api";
+import type { BackupMeta, ReleaseStatus } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useVaultStats } from "@/lib/queries";
 import {
@@ -223,6 +225,8 @@ export function SettingsPanel() {
   const latestRelease = CHANGELOG[0];
   const [activeSection, setActiveSection] = useState<SettingsSection>(() => settingsSection(searchParams.get("section")));
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus | null>(null);
+  const [releaseChecking, setReleaseChecking] = useState(false);
   // Vault totals refresh automatically when models change (model writes
   // invalidate queryKeys.vaultStats), so no manual refetch on this screen.
   const stats = useVaultStats().data ?? null;
@@ -312,6 +316,22 @@ export function SettingsPanel() {
     if (!user?.is_superuser) return;
     getHealthDetails<HealthResponse>().then(setHealth).catch(() => {});
   }, [user]);
+
+  const checkForUpdates = useCallback(async (refresh = false) => {
+    if (!user?.is_superuser) return;
+    setReleaseChecking(true);
+    try {
+      setReleaseStatus(await getLatestRelease(refresh));
+    } catch {
+      setReleaseStatus(null);
+    } finally {
+      setReleaseChecking(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void checkForUpdates(false);
+  }, [checkForUpdates]);
 
   useEffect(() => {
     if (!user) {
@@ -872,6 +892,33 @@ export function SettingsPanel() {
         </nav>
 
         <main className="min-w-0">
+      {releaseStatus?.update_available && releaseStatus.latest_version && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-6 flex flex-col gap-4 rounded-lg border border-warning/30 bg-warning/10 p-4 sm:flex-row sm:items-center"
+        >
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <CircleArrowUp className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                PrintStash v{releaseStatus.latest_version} is available
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                This vault is running v{releaseStatus.current_version}. Review release notes before updating your self-hosted installation.
+              </p>
+            </div>
+          </div>
+          <a
+            href={releaseStatus.release_url ?? `https://github.com/${GITHUB_REPO}/releases/latest`}
+            target="_blank"
+            rel="noreferrer noopener"
+            className={BTN_SECONDARY}
+          >
+            View release
+          </a>
+        </div>
+      )}
 
       {activeSection === "overview" && (
         <div className="space-y-6 animate-panel-in">
@@ -1892,6 +1939,15 @@ export function SettingsPanel() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void checkForUpdates(true)}
+                  disabled={releaseChecking}
+                  className={BTN_SECONDARY}
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5", releaseChecking && "animate-spin")} />
+                  {releaseChecking ? "Checking" : "Check for updates"}
+                </button>
                 <a
                   href={`https://github.com/${GITHUB_REPO}`}
                   target="_blank"
@@ -1905,6 +1961,15 @@ export function SettingsPanel() {
                 </a>
               </div>
             </div>
+            {releaseStatus && (
+              <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground sm:px-6">
+                {releaseStatus.status === "up_to_date" && "Latest published release installed."}
+                {releaseStatus.status === "update_available" && releaseStatus.latest_version && (
+                  <>Update available: v{releaseStatus.latest_version}.</>
+                )}
+                {releaseStatus.status === "unavailable" && "Release check unavailable. Try again later."}
+              </div>
+            )}
           </div>
 
           {/* Changelog */}

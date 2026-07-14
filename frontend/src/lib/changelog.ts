@@ -25,6 +25,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: "0.10.0",
     date: "Unreleased — development branch",
     changes: [
+      "Settings now checks the official GitHub release feed and warns administrators when a newer stable PrintStash version is available",
       "Bulk-select Models to move collections, update tags, move to trash, and label several G-code revisions atomically",
       "Save common library filters as per-user views and star favorite Models from cards or Model detail",
       "Compare any two Artifacts in one Model, including file, mesh, slicer, material, revision, and measured print outcomes",

@@ -195,6 +195,16 @@ test("settings sections are deep-linkable and preserve navigation state", async 
   await expect(page.getByRole("heading", { name: "Latest changes" })).toBeVisible();
 });
 
+test("settings warns administrators when a newer release is available", async ({ page }) => {
+  await page.goto("/settings");
+
+  await expect(page.getByText("PrintStash v0.10.1 is available")).toBeVisible();
+  await expect(page.getByRole("link", { name: "View release" })).toHaveAttribute(
+    "href",
+    "https://github.com/xiao-villamor/PrintStash/releases/tag/v0.10.1",
+  );
+});
+
 test("profiles route renders detected filament and printer presets", async ({ page }) => {
   const problems = await collectPageProblems(page);
 
