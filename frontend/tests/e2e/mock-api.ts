@@ -461,6 +461,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     sendJson(res, printer);
     return;
   }
+  if (url.pathname === "/api/v1/printers/3/ws-ticket" && req.method === "POST") {
+    drainRequest(req, () => sendJson(res, { ticket: "mock-ticket", expires_in: 30 }));
+    return;
+  }
   if (url.pathname === "/api/v1/printers/3/diagnostics") {
     sendJson(res, printerDiagnostics);
     return;

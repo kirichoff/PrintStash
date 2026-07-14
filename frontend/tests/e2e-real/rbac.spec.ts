@@ -1,5 +1,5 @@
 import { test, expect, authBundleFor, authedContext } from "./helpers";
-import { createCollectionViaVault, modelCard, uploadModel } from "./util";
+import { clickModelAction, createCollectionViaVault, modelActionItem, modelCard, uploadModel } from "./util";
 
 const USER_PW = "userpass123";
 
@@ -104,8 +104,9 @@ test("collection role gates whether a user can edit or delete a model", async ({
   try {
     await v.page.goto(modelUrl);
     await expect(v.page.getByRole("heading", { name: model })).toBeVisible();
-    await expect(v.page.getByRole("button", { name: "Edit", exact: true })).toBeDisabled();
-    await expect(v.page.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
+    await v.page.getByRole("button", { name: "Model actions" }).click();
+    await expect(modelActionItem(v.page, "Edit details")).toBeDisabled();
+    await expect(modelActionItem(v.page, "Delete model")).toBeDisabled();
   } finally {
     await v.context.close();
   }
@@ -115,7 +116,7 @@ test("collection role gates whether a user can edit or delete a model", async ({
   const e = await authedContext(browser, editBundle);
   try {
     await e.page.goto(modelUrl);
-    await e.page.getByRole("button", { name: "Edit", exact: true }).click();
+    await clickModelAction(e.page, "Edit details");
     const renamed = `${model}-edited`;
     await e.page.getByPlaceholder("Model name").fill(renamed);
     await e.page.getByRole("button", { name: /^Save$/ }).click();
@@ -123,7 +124,7 @@ test("collection role gates whether a user can edit or delete a model", async ({
 
     // Delete is enabled for an edit-role user; deleting sends it to trash and
     // navigates away from the (now-gone) detail page.
-    await e.page.getByRole("button", { name: "Delete", exact: true }).click();
+    await clickModelAction(e.page, "Delete model");
     await e.page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
     await expect(e.page).not.toHaveURL(/\/models\//);
     await expect(e.page.getByRole("heading", { name: renamed })).toHaveCount(0);

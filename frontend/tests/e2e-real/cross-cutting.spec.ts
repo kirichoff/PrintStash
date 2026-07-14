@@ -12,8 +12,10 @@ test("theme toggle flips and persists across reload", async ({ page }) => {
   await expect.poll(isDark).toBe(!before);
 });
 
+// The public /health is liveness-only (no version, to limit disclosure); the
+// version lives on /health/details, gated to admins.
 test("health endpoint reports the app version", async ({ page }) => {
-  const res = await page.request.get("/api/v1/health");
+  const res = await page.request.get("/api/v1/health/details");
   expect(res.ok()).toBeTruthy();
   const body = await res.json();
   expect(body.status).toBe("ok");

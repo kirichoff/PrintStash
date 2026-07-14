@@ -31,7 +31,7 @@ RUN uv run patchright install --with-deps chromium
 
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin printstash \
  && mkdir -p /data/files /data/thumbs /data/staging /data/backups /data/db \
- && chown -R printstash:printstash /data /opt/pw-browsers
+ && chown -R printstash:printstash /data /opt/pw-browsers "$UV_CACHE_DIR"
 
 COPY app ./app
 COPY alembic.ini ./alembic.ini

@@ -1,5 +1,5 @@
 import { test, expect } from "./helpers";
-import { modelCard, uploadModel } from "./util";
+import { clickModelAction, modelCard, uploadModel } from "./util";
 
 test("delete an assigned tag from model editing (with confirm)", async ({ page }) => {
   const tag = `e2e-assigned-${Date.now()}`;
@@ -7,7 +7,7 @@ test("delete an assigned tag from model editing (with confirm)", async ({ page }
 
   await uploadModel(page, model, { tag });
   await modelCard(page, model).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await clickModelAction(page, "Edit details");
   await page.getByRole("button", { name: `Remove ${tag}` }).click();
   await page.getByPlaceholder("Search or create — press Enter").fill(tag);
   const del = page.getByRole("button", { name: `Delete tag ${tag}` });

@@ -31,6 +31,21 @@ export function modelCard(page: Page, name: string) {
   return page.locator('a[href^="/models/"]').filter({ hasText: name });
 }
 
+// Share/Edit details/Delete model live behind the "Model actions" dropdown on
+// the model detail page. Opens it and returns the named menu item locator
+// (still closed/disabled-checkable — call .click() to also close the menu).
+export function modelActionItem(page: Page, name: "Share" | "Edit details" | "Delete model") {
+  return page.getByRole("menuitem", { name, exact: true });
+}
+
+export async function clickModelAction(
+  page: Page,
+  name: "Share" | "Edit details" | "Delete model",
+): Promise<void> {
+  await page.getByRole("button", { name: "Model actions" }).click();
+  await modelActionItem(page, name).click();
+}
+
 export async function createCollectionViaVault(
   page: Page,
   name: string,
