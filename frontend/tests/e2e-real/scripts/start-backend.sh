@@ -19,6 +19,7 @@ export VAULT_THUMB_DIR="$DATA_ROOT/thumbs"
 export VAULT_STAGING_DIR="$DATA_ROOT/staging"
 export VAULT_BACKUP_DIR="$DATA_ROOT/backups"
 export VAULT_JWT_SECRET="e2e-real-secret"
+export VAULT_SECRETS_KEY="e2e-real-secrets-key"
 
 cd "$BACKEND_DIR"
 if [ -x .venv/bin/python ]; then
