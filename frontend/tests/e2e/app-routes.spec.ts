@@ -303,7 +303,7 @@ test("gallery upload queues a task and tracks it to completion", async ({ page }
   await page.goto("/");
 
   await expect(page.getByRole("link", { name: /upload/i })).toHaveCount(0);
-  await page.getByRole("button", { name: "Upload" }).click();
+  await page.getByRole("button", { name: "Upload", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Upload model" })).toBeVisible();
 
   await page.locator('input[accept=".gcode,.g,.gco"]').setInputFiles({
@@ -333,7 +333,7 @@ test.describe("shared volumes enabled", () => {
     const problems = await collectPageProblems(page);
 
     await page.goto("/");
-    await page.getByRole("button", { name: "Upload" }).click();
+    await page.getByRole("button", { name: "Upload", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Upload model" })).toBeVisible();
 
     // With mirroring on and a volume present, the "Store in" selector appears,

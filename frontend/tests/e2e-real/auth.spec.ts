@@ -10,7 +10,7 @@ test("sign in through the real login form", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click();
 
   await expect(page).toHaveURL(/\/(\?.*)?$/);
-  await expect(page.getByRole("button", { name: "Upload" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeVisible();
 });
 
 test("the login form rejects a wrong password", async ({ page }) => {

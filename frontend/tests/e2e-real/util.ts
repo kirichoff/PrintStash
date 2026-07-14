@@ -70,7 +70,7 @@ type UploadOpts = { mesh?: boolean; gcode?: boolean; collection?: string; tag?: 
 export async function uploadModel(page: Page, name: string, opts: UploadOpts = {}): Promise<void> {
   const { mesh = false, gcode = true, collection, tag } = opts;
   await page.goto("/");
-  await page.getByRole("button", { name: "Upload" }).click();
+  await page.getByRole("button", { name: "Upload", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Upload model" });
   await expect(dialog).toBeVisible();
 

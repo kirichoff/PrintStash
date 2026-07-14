@@ -22,7 +22,7 @@ test("upload, edit, trash, restore, and purge a model", async ({ page }) => {
 
   // ── Upload ────────────────────────────────────────────────────────────────
   await page.goto("/");
-  await page.getByRole("button", { name: "Upload" }).click();
+  await page.getByRole("button", { name: "Upload", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Upload model" })).toBeVisible();
   await page.locator('input[accept=".gcode,.g,.gco"]').setInputFiles({
     name: "part.gcode",
