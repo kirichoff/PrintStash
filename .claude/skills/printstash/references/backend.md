@@ -29,7 +29,8 @@ library/trash/storage code.
 `backend/app/core/config.py` `Settings` is the source of truth for every env
 var; prefix is `VAULT_` (e.g. `VAULT_DB_URL`, `VAULT_DATA_DIR`). Add new
 settings there with a safe local-first default; document user-facing ones in
-README/wiki. Compose files: `docker-compose.yml` (build),
+README/docs (docs live in the `printstash-landing` repo, not this one).
+Compose files: `docker-compose.yml` (build),
 `docker-compose.light.yml` (prebuilt GHCR image), `.prod`, `.test`.
 
 ## Migration checklist
