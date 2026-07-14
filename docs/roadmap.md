@@ -8,11 +8,7 @@ Roadmap feedback belongs in
 [the public roadmap discussion](https://github.com/xiao-villamor/PrintStash/discussions/1).
 Issues are better for confirmed bugs or scoped implementation work.
 
-## Current Release: 0.9.0 — Provider Maturity
-
-The `0.10.0` development branch contains work not present in the latest public
-tag or GitHub release. Items under 0.10 remain development work until a public
-`v0.10.0` release exists.
+## Current Release: 0.10.0 — Library Workflow Polish
 
 Production hardening is in place. The app is useful for local-first 3D print
 library workflows, installable through Docker Compose (the default compose pulls
@@ -46,6 +42,10 @@ Developed features in the current app:
 - Bambu LAN beta provider with local status, upload/send with explicit opt-in start, and pause/resume/cancel controls; remote file inventory remains unsupported
 - PrusaLink and OctoPrint beta providers (status, upload/send, file inventory, pause/resume/cancel), plus Elegoo Neptune 4-family and Centauri Carbon/Carbon 2 support; every provider declares its capabilities, and the UI disables what a printer cannot do
 - Responsive Vite/React UI with a light/dark theme toggle (system-preference aware) and a refreshed mobile layout: a five-slot bottom navigation with an overflow "More" sheet, on-canvas mobile search, slide-out filter drawers, and a floating action button across the library, model detail, upload, taxonomy, profiles, settings, setup, and printer workflows
+- Atomic bulk editing for tags, collections, trash, and revision labels across selected Models
+- Per-user saved views and favorite/starred Models, with canonical URL-restorable filters
+- Mixed-Artifact comparison with metadata and actual measured print outcomes (success rate, duration, filament, cost)
+- Versioned full-library archive export/import (`printstash-library-v1`) and configured-root folder import
 
 The releases below are intentionally small: each is meant to be a single,
 shippable step rather than a multi-month epic. Versions are indicative, not
@@ -143,7 +143,7 @@ Not in 0.9, added on demand: Prusa Connect (cloud, unlike the local PrusaLink
 support that shipped here) and Elegoo models beyond the Neptune 4 and Centauri
 Carbon families.
 
-## 0.10 — Library Workflow Polish (implemented on development branch; not shipped)
+## 0.10 — Library Workflow Polish (delivered in 0.10.0)
 
 Goal: make the vault better as a daily-use 3D print library.
 
