@@ -408,6 +408,14 @@ def run_ingestion_pipeline(
             total_steps=total_steps,
             label=label,
             progress=(step - 1) / total_steps * 100 if step else None,
+            stage=(
+                "hashing"
+                if label == "hashing"
+                else "thumbnailing"
+                if "thumbnail" in label
+                else "ingesting"
+            ),
+            current_item=original_filename,
         )
 
     registry.update(job_id, state="running", total_steps=total_steps)
@@ -489,6 +497,11 @@ def run_ingestion_pipeline(
                 state="completed",
                 model_id=model.id,
                 file_id=file_row.id,
+                processed=1,
+                total=1,
+                succeeded=1,
+                deduplicated=0 if created else 1,
+                result={"created": created, "name": original_filename},
             )
             logger.info(
                 "ingest[%s] done model_id=%s file_id=%s v=%s",

@@ -34,15 +34,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ? "Statistics"
                 : pathname.startsWith("/settings")
                   ? "Settings"
-                  : pathname.startsWith("/organize")
-                    ? "Catalog"
-                    : pathname.startsWith("/profiles")
-                      ? "Profiles"
-                      : pathname.startsWith("/login")
-                        ? "Sign in"
-                        : pathname.startsWith("/setup")
-                          ? "Setup"
-                          : "PrintStash";
+                  : pathname.startsWith("/profiles")
+                    ? "Profiles"
+                    : pathname.startsWith("/login")
+                      ? "Sign in"
+                      : pathname.startsWith("/setup")
+                        ? "Setup"
+                        : "PrintStash";
     document.title = `${title} · PrintStash`;
   }, [pathname]);
 

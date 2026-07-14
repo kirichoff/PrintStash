@@ -6,6 +6,7 @@ import {
 
 import {
   getPrintStatistics,
+  getDashboard,
   getSpoolmanStatus,
   getVaultConfig,
   getVaultStats,
@@ -21,6 +22,7 @@ import {
 import { queryKeys } from "@/lib/query-client";
 import type {
   CollectionRead,
+  Dashboard,
   FilamentProfileRead,
   ListModelsParams,
   ModelListItem,
@@ -70,11 +72,21 @@ export function useTags() {
  * `fresh: true` bypasses the legacy in-memory cache in `request.ts` so TanStack
  * Query stays the single source of truth, matching `useCollections`/`useTags`.
  */
-export function usePrinters(options?: { enabled?: boolean }) {
+export function usePrinters(options?: { enabled?: boolean; refetchInterval?: number }) {
   return useQuery<PrinterRead[]>({
     queryKey: queryKeys.printers,
     queryFn: () => listPrinters(undefined, { fresh: true }),
     enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
+  });
+}
+
+export function usePrinterDashboard(options?: { enabled?: boolean; refetchInterval?: number }) {
+  return useQuery<Dashboard>({
+    queryKey: queryKeys.printerDashboard,
+    queryFn: () => getDashboard({ fresh: true }),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval,
   });
 }
 

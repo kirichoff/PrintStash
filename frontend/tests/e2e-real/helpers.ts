@@ -1,13 +1,14 @@
 import { test as base, expect, request as pwRequest, type Browser, type Page } from "@playwright/test";
 
 // Talks straight to the real backend to seed the first admin (once) and mint a
-// real JWT, then injects that token into the browser the same way the app does
-// after login (localStorage). Order-independent: this runs in the test phase,
+// real JWT, then installs it as the same HttpOnly cookie used by the app.
+// Order-independent: this runs in the test phase,
 // after Playwright has confirmed both web servers are up.
 const apiPort = Number(process.env.PLAYWRIGHT_REAL_API_PORT ?? 8410);
 const API = `http://127.0.0.1:${apiPort}`;
 
 export const ADMIN = { username: "admin", password: "admin1234" };
+const SETUP_TOKEN = "playwright-setup-token-123";
 
 let cachedToken: string | null = null;
 let cachedUser: string | null = null;
@@ -20,7 +21,7 @@ async function ensureAuth(): Promise<{ token: string; user: string }> {
     const status = await (await ctx.get(`${API}/api/v1/setup/status`)).json();
     if (!status.configured) {
       const res = await ctx.post(`${API}/api/v1/setup`, {
-        data: { ...ADMIN, storage_backend: "local" },
+        data: { ...ADMIN, setup_token: SETUP_TOKEN, storage_backend: "local" },
       });
       if (!res.ok() && res.status() !== 409) {
         throw new Error(`setup failed: ${res.status()} ${await res.text()}`);
@@ -40,18 +41,19 @@ async function ensureAuth(): Promise<{ token: string; user: string }> {
   return { token: cachedToken!, user: cachedUser! };
 }
 
-// `page` override seeds the real token into localStorage before any navigation,
-// so the app boots already authenticated against the live backend.
+// `page` override seeds the real HttpOnly cookie before any navigation.
 /* eslint-disable react-hooks/rules-of-hooks -- `use` here is Playwright's fixture callback, not a React hook. */
 export const test = base.extend({
   page: async ({ page }, use) => {
     const { token, user } = await ensureAuth();
+    await page.context().addCookies([
+      { name: "printstash_session", value: token, url: API, httpOnly: true, sameSite: "Strict" },
+    ]);
     await page.addInitScript(
-      ([t, u]) => {
-        localStorage.setItem("printstash.token", t);
+      (u) => {
         localStorage.setItem("printstash.user", u);
       },
-      [token, user] as const,
+      user,
     );
     await use(page);
   },
@@ -59,7 +61,7 @@ export const test = base.extend({
 /* eslint-enable react-hooks/rules-of-hooks */
 
 // Log in as any user against the real backend and return what the app stores in
-// localStorage after login. Used to drive a second browser as a non-admin user.
+// as its HttpOnly cookie + non-secret user metadata.
 export async function authBundleFor(
   username: string,
   password: string,
@@ -85,13 +87,21 @@ export async function authedContext(
   bundle: { token: string; user: string },
 ): Promise<{ context: Awaited<ReturnType<Browser["newContext"]>>; page: Page }> {
   const context = await browser.newContext();
+  await context.addCookies([
+    {
+      name: "printstash_session",
+      value: bundle.token,
+      url: API,
+      httpOnly: true,
+      sameSite: "Strict",
+    },
+  ]);
   const page = await context.newPage();
   await page.addInitScript(
-    ([t, u]) => {
-      localStorage.setItem("printstash.token", t);
+    (u) => {
       localStorage.setItem("printstash.user", u);
     },
-    [bundle.token, bundle.user] as const,
+    bundle.user,
   );
   return { context, page };
 }

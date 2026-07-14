@@ -31,6 +31,10 @@ export function moveCollection(id: number, parentId: number | null): Promise<Col
   return sendJson<CollectionRead>(`/api/v1/collections/${id}`, "PATCH", { parent_id: parentId });
 }
 
+export function renameCollection(id: number, name: string): Promise<CollectionRead> {
+  return sendJson<CollectionRead>(`/api/v1/collections/${id}`, "PATCH", { name });
+}
+
 export function getCollectionReadme(id: number): Promise<{ readme: string | null }> {
   return getJson<{ readme: string | null }>(`/api/v1/collections/${id}/readme`, { fresh: true });
 }

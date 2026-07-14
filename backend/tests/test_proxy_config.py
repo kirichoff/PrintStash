@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 
 def _root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -28,3 +30,32 @@ def test_compose_wires_frontend_proxy_limit_from_upload_setting() -> None:
 
     assert "NGINX_CLIENT_MAX_BODY_SIZE: ${VAULT_MAX_UPLOAD_MB:-512}m" in compose
     assert "VAULT_MAX_UPLOAD_MB: ${VAULT_MAX_UPLOAD_MB:-512}" in compose
+
+
+def test_default_deployments_do_not_publish_api_port() -> None:
+    root = _root()
+    for name in ("docker-compose.yml", "docker-compose.light.yml"):
+        config = yaml.safe_load((root / name).read_text())
+        api = config["services"]["api"]
+        assert "ports" not in api
+        assert api["expose"] == ["8000"]
+
+
+def test_frontend_sets_browser_security_headers() -> None:
+    conf = (_root() / "frontend" / "security-headers.conf").read_text()
+
+    assert "Content-Security-Policy" in conf
+    assert "frame-ancestors 'none'" in conf
+    assert "X-Content-Type-Options \"nosniff\"" in conf
+    assert "Referrer-Policy \"strict-origin-when-cross-origin\"" in conf
+    assert "Permissions-Policy" in conf
+
+
+def test_runtime_images_use_unprivileged_users() -> None:
+    root = _root()
+    backend = (root / "backend" / "Dockerfile").read_text()
+    frontend = (root / "frontend" / "Dockerfile").read_text()
+
+    assert "gosu printstash" in (root / "backend" / "docker-entrypoint.sh").read_text()
+    assert "useradd" in backend
+    assert "nginxinc/nginx-unprivileged:alpine" in frontend

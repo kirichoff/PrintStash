@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.10.0
+
+### Added
+
+- **Bulk library editing.** Select up to 500 Models to move collections, add or remove tags, move to trash, or update labels across selected G-code revisions with atomic permission preflight.
+- **Saved views and favorites.** Star Models per user and save common collection, tag, search, printer-presence, and favorites filters. Applying a saved view restores canonical URL filters.
+- **Richer Artifact comparison.** Compare any two live Artifacts within one Model, including file, mesh, slicer, material, revision, and measured print-outcome differences.
+- **Portable library migration.** Export a versioned ZIP containing accessible Models, original Artifact blobs, metadata, taxonomy, print history, favorites, and saved views; admins can safely import it into another installation with hash validation and deduplication.
+- **Configured-root folder import.** Admins can trigger a targeted external-library scan below an already configured root without granting access to arbitrary server paths.
+
+### Security
+
+- Portable imports reject path traversal, missing blobs, unsupported manifests, oversized archives, and SHA-256 mismatches before database or storage writes.
+
+### Changed
+
+- Model detail now includes actual print counts, success rate, duration, filament, and cost when comparing Artifacts.
+- **Daily library workflow polish.** Saved views now support search, recent ordering, update, rename, duplicate, and delete; mixed Model/folder selection adapts available bulk actions; destination search prevents invalid folder moves; sorting, compact density, keyboard shortcuts, recent folders, and undo reduce repetitive library work.
+- Collection and tag management now lives in Vault, model editing, upload, and Settings; the redundant Catalog page and navigation entry have been removed.
+
+### Fixed
+
+- Artifact comparison rounds percentages and filament totals to readable precision instead of exposing floating-point artifacts, and the vault sort picker now uses the shared styled menu.
+- Header and recent-folder menus now stay above adjacent vault surfaces instead of being obscured by sticky controls or the collection sidebar.
+
 ## 0.9.0
 
 ### Added

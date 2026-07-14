@@ -51,7 +51,8 @@ conformance suite), merged to `main` and tagged. Next: 0.10 — Library Workflow
    frontend `pnpm lint && pnpm typecheck` (+ `pnpm test` if logic changed).
    Report results honestly — never say tests passed without running them.
 4. Update docs the change invalidates (changelog entry, `docs/provider-support.md`,
-   `docs/known-limitations.md`, wiki) — see the routing table.
+   `docs/known-limitations.md`, docs — now in the `printstash-landing` repo,
+   not this one) — see the routing table.
 5. One PR per bug/feature, conventional commit messages, repo git identity.
 
 ## Common mistakes to avoid

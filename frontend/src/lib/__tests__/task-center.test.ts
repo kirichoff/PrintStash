@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { listIngestJobs } = vi.hoisted(() => ({
+  listIngestJobs: vi.fn(),
+}));
+
+vi.mock("@/lib/api/models", () => ({ listIngestJobs }));
+
 // task-center holds module-private state, so each test gets a fresh module via
 // resetModules() + dynamic import. Fake timers (which also fake Date.now in
 // vitest) drive the TTL-based pruning of completed/failed tasks.
@@ -9,6 +15,9 @@ let tc: TaskCenter;
 
 beforeEach(async () => {
   vi.resetModules();
+  listIngestJobs.mockReset();
+  listIngestJobs.mockResolvedValue([]);
+  localStorage.clear();
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-06-14T12:00:00Z"));
   tc = await import("@/lib/task-center");
@@ -81,19 +90,30 @@ describe("listTasks ordering", () => {
 });
 
 describe("TTL pruning", () => {
-  it("drops completed tasks after their TTL elapses", () => {
+  it("keeps completed summaries until the user clears them", () => {
     const id = tc.createTask({ title: "done" });
     tc.updateTask(id, { status: "completed" });
     expect(tc.listTasks()).toHaveLength(1);
 
     vi.advanceTimersByTime(12_000 + 1);
-    expect(tc.listTasks()).toHaveLength(0);
+    expect(tc.listTasks()).toHaveLength(1);
   });
 
   it("keeps running tasks indefinitely (no TTL)", () => {
     tc.createTask({ title: "long", status: "running" });
     vi.advanceTimersByTime(60_000);
     expect(tc.listTasks()).toHaveLength(1);
+  });
+});
+
+describe("import reconnect", () => {
+  it("persists a tracked server job across UI reloads without cancelling it", async () => {
+    const id = tc.trackImportJob("server-job-1", "Import archive");
+    expect(tc.listTasks()[0]).toMatchObject({ id, jobId: "server-job-1", status: "pending" });
+
+    vi.resetModules();
+    tc = await import("@/lib/task-center");
+    expect(tc.listTasks()[0]).toMatchObject({ jobId: "server-job-1", status: "pending" });
   });
 });
 
@@ -107,6 +127,76 @@ describe("clearCompletedTasks", () => {
     const titles = tc.listTasks().map((t) => t.title);
     expect(titles).toEqual(["running"]);
     expect(tc.listTasks()[0].id).toBe(a);
+  });
+
+  it("does not restore a cleared server job during the next sync", async () => {
+    const id = tc.trackImportJob("server-job-1", "Import");
+    tc.updateTask(id, { status: "completed" });
+    tc.clearCompletedTasks();
+
+    listIngestJobs.mockResolvedValue([
+      {
+        job_id: "server-job-1",
+        state: "completed",
+        model_id: 1,
+        file_id: 1,
+        error: null,
+        started_at: null,
+        finished_at: null,
+      },
+    ]);
+    await tc.syncImportJobs();
+
+    expect(tc.listTasks()).toEqual([]);
+
+    vi.resetModules();
+    tc = await import("@/lib/task-center");
+    await tc.syncImportJobs();
+    expect(tc.listTasks()).toEqual([]);
+  });
+});
+
+describe("grouped upload jobs", () => {
+  it("keeps mesh and G-code jobs from one upload in one task", async () => {
+    const taskId = tc.createTask({
+      title: "Upload Benchy",
+      status: "running",
+      expectedJobCount: 2,
+    });
+    tc.linkTaskToJob(taskId, "mesh-job");
+    tc.linkTaskToJob(taskId, "gcode-job");
+    listIngestJobs.mockResolvedValue([
+      {
+        job_id: "mesh-job",
+        state: "completed",
+        model_id: 1,
+        file_id: 1,
+        error: null,
+        started_at: null,
+        finished_at: null,
+        progress: 100,
+      },
+      {
+        job_id: "gcode-job",
+        state: "completed",
+        model_id: 1,
+        file_id: 2,
+        error: null,
+        started_at: null,
+        finished_at: null,
+        progress: 100,
+      },
+    ]);
+
+    await tc.syncImportJobs();
+
+    expect(tc.listTasks()).toHaveLength(1);
+    expect(tc.listTasks()[0]).toMatchObject({
+      id: taskId,
+      status: "completed",
+      progress: 100,
+      jobIds: ["mesh-job", "gcode-job"],
+    });
   });
 });
 

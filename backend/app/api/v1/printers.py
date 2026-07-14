@@ -50,7 +50,7 @@ from app.schemas.printers import (
     SetTemperature,
     StartPrinterFile,
 )
-from app.services import rbac
+from app.services import rbac, ws_tickets
 from app.services.auth import get_user_by_id, verify_access_token
 from app.services.printer_files import (
     build_traceable_remote_filename,
@@ -1103,6 +1103,21 @@ def list_jobs(
     return [PrintJobRead(**j.model_dump()) for j in rows]
 
 
+@router.post("/{printer_id}/ws-ticket")
+def create_ws_ticket(
+    printer_id: int,
+    current_user: User = Depends(require_superuser),
+    session: Session = Depends(get_session),
+) -> dict[str, str | int]:
+    printer = session.get(Printer, printer_id)
+    if printer is None or printer.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="printer_not_found")
+    return {
+        "ticket": ws_tickets.issue(current_user.id, printer_id),
+        "expires_in": ws_tickets.TTL_SECONDS,
+    }
+
+
 @router.websocket("/{printer_id}/ws")
 async def printer_ws(
     websocket: WebSocket,
@@ -1117,22 +1132,26 @@ async def printer_ws(
         {"type": "snapshot", "printer_id": <id>, "data": {...full snapshot...}}
         {"type": "update",   "printer_id": <id>, "data": {...changed objects...}}
     """
-    token = websocket.query_params.get("token")
+    ticket = websocket.query_params.get("ticket")
+    token = None
+    payload = None
     auth_header = websocket.headers.get("authorization")
     if auth_header and auth_header.lower().startswith("bearer "):
         token = auth_header.split(" ", 1)[1].strip()
-    payload = verify_access_token(token) if token else None
-    user = None
-    if payload and payload.get("sub"):
+    user_id = ws_tickets.consume(ticket, printer_id) if ticket else None
+    if user_id is None and token:
+        payload = verify_access_token(token)
         try:
-            user = get_user_by_id(session, int(payload["sub"]))
-        except (TypeError, ValueError):
-            user = None
+            user_id = int(payload["sub"]) if payload and payload.get("sub") else None
+        except (TypeError, ValueError, KeyError):
+            user_id = None
+    user = get_user_by_id(session, user_id) if user_id is not None else None
     p = session.get(Printer, printer_id)
     if (
         user is None
         or not user.is_active
         or not user.is_superuser
+        or (payload is not None and payload.get("auth_version") != user.auth_version)
         or p is None
         or p.deleted_at is not None
     ):

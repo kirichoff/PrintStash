@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FolderInput, Plus, Tag, Trash2, X } from "lucide-react";
+import { FolderInput, Pencil, Plus, Tag, Trash2, X } from "lucide-react";
 import { CollectionRead, TagRead } from "@/types";
 import { Modal } from "@/components/ui/modal";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { Input } from "@/components/ui/input";
 import { useComboboxNav } from "@/lib/use-combobox-nav";
 import { DURATION, useMountTransition } from "@/lib/overlay";
 
@@ -14,29 +15,37 @@ import { DURATION, useMountTransition } from "@/lib/overlay";
  * the actual batch API calls (passed in as handlers).
  */
 export function BatchToolbar({
-  count,
+  modelCount,
+  selectedCollections,
   collections,
   tags,
   busy,
-  onMove,
+  canMoveToRoot = true,
+  onMoveSelection,
+  onRenameCollections,
   onApplyTags,
-  onDelete,
+  onDeleteSelection,
   onClear,
 }: {
-  count: number;
+  modelCount: number;
+  selectedCollections: CollectionRead[];
   collections: CollectionRead[];
   tags: TagRead[];
   busy: boolean;
+  canMoveToRoot?: boolean;
   /** target collection path; "" means move to root */
-  onMove: (target: string) => void;
+  onMoveSelection: (target: string, parentId: number | null) => void;
+  onRenameCollections: (names: Record<number, string>) => void;
   onApplyTags: (add: string[], remove: string[]) => void;
-  onDelete: () => void;
+  onDeleteSelection: () => void;
   onClear: () => void;
 }) {
   const [moveOpen, setMoveOpen] = useState(false);
   const [tagOpen, setTagOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   // Must match the pill's `duration-fast` transition below.
+  const count = modelCount + selectedCollections.length;
   const { mounted, state } = useMountTransition(count > 0, DURATION.fast);
 
   if (!mounted) return null;
@@ -61,7 +70,7 @@ export function BatchToolbar({
             <FolderInput className="h-4 w-4 text-muted-foreground" />
             Move
           </button>
-          <button
+          {modelCount > 0 && selectedCollections.length === 0 && <button
             type="button"
             onClick={() => setTagOpen(true)}
             disabled={busy}
@@ -69,7 +78,15 @@ export function BatchToolbar({
           >
             <Tag className="h-4 w-4 text-muted-foreground" />
             Tag
-          </button>
+          </button>}
+          {selectedCollections.length > 0 && <button
+            type="button"
+            onClick={() => setRenameOpen(true)}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <Pencil className="h-4 w-4 text-muted-foreground" /> Rename
+          </button>}
           <button
             type="button"
             onClick={() => setDeleteOpen(true)}
@@ -96,15 +113,17 @@ export function BatchToolbar({
         open={moveOpen}
         count={count}
         collections={collections}
+        selectedCollections={selectedCollections}
         busy={busy}
+        canMoveToRoot={canMoveToRoot}
         onClose={() => setMoveOpen(false)}
-        onConfirm={(target) => {
+        onConfirm={(target, parentId) => {
           setMoveOpen(false);
-          onMove(target);
+          onMoveSelection(target, parentId);
         }}
       />
 
-      <TagDialog
+      {modelCount > 0 && selectedCollections.length === 0 && <TagDialog
         open={tagOpen}
         count={count}
         tags={tags}
@@ -114,6 +133,14 @@ export function BatchToolbar({
           setTagOpen(false);
           onApplyTags(add, remove);
         }}
+      />}
+
+      <RenameCollectionsDialog
+        open={renameOpen}
+        collections={selectedCollections}
+        busy={busy}
+        onClose={() => setRenameOpen(false)}
+        onConfirm={(names) => { setRenameOpen(false); onRenameCollections(names); }}
       />
 
       <ConfirmModal
@@ -121,10 +148,10 @@ export function BatchToolbar({
         onClose={() => setDeleteOpen(false)}
         onConfirm={() => {
           setDeleteOpen(false);
-          onDelete();
+          onDeleteSelection();
         }}
-        title={`Delete ${count} model${count !== 1 ? "s" : ""}?`}
-        description="They move to the trash and can be restored until purged."
+        title={`Delete ${count} selected item${count !== 1 ? "s" : ""}?`}
+        description={selectedCollections.length ? "Selected folders and their contents move to trash." : "They move to trash and can be restored until purged."}
         confirmLabel="Delete"
         busy={busy}
       />
@@ -136,27 +163,37 @@ function MoveDialog({
   open,
   count,
   collections,
+  selectedCollections,
   busy,
+  canMoveToRoot,
   onClose,
   onConfirm,
 }: {
   open: boolean;
   count: number;
   collections: CollectionRead[];
+  selectedCollections: CollectionRead[];
   busy: boolean;
+  canMoveToRoot: boolean;
   onClose: () => void;
-  onConfirm: (target: string) => void;
+  onConfirm: (target: string, parentId: number | null) => void;
 }) {
   const [target, setTarget] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const blockedPaths = useMemo(() => selectedCollections.map((collection) => collection.path), [selectedCollections]);
   const sorted = useMemo(
-    () => [...collections].sort((a, b) => a.path.localeCompare(b.path)),
-    [collections],
+    () => collections
+      .filter((collection) => !blockedPaths.some((path) => collection.path === path || collection.path.startsWith(`${path}/`)))
+      .filter((collection) => collection.path.toLowerCase().includes(query.trim().toLowerCase()))
+      .sort((a, b) => a.path.localeCompare(b.path)),
+    [blockedPaths, collections, query],
   );
 
   return (
-    <Modal open={open} onClose={onClose} title={`Move ${count} model${count !== 1 ? "s" : ""}`} className="max-w-md">
+    <Modal open={open} onClose={onClose} title={`Move ${count} item${count !== 1 ? "s" : ""}`} className="max-w-md">
+      <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find destination..." aria-label="Find destination" className="mb-2" />
       <div className="max-h-72 overflow-y-auto rounded border border-border">
-        <button
+        {canMoveToRoot && <button
           type="button"
           onClick={() => setTarget("")}
           className={`w-full text-left px-3 py-2 font-mono text-xs transition-colors ${
@@ -164,7 +201,7 @@ function MoveDialog({
           }`}
         >
           None (root)
-        </button>
+        </button>}
         {sorted.map((c) => (
           <button
             key={c.id}
@@ -177,6 +214,7 @@ function MoveDialog({
             {c.path} <span className="opacity-50">({c.model_count})</span>
           </button>
         ))}
+        {sorted.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">No valid destinations</p>}
       </div>
       <div className="mt-5 flex gap-3">
         <button
@@ -189,12 +227,56 @@ function MoveDialog({
         </button>
         <button
           type="button"
-          onClick={() => target !== null && onConfirm(target)}
+          onClick={() => {
+            if (target === null) return;
+            const parentId = target === "" ? null : collections.find((collection) => collection.path === target)?.id ?? null;
+            onConfirm(target, parentId);
+          }}
           disabled={busy || target === null}
           className="flex-1 h-9 rounded bg-primary text-primary-foreground text-sm font-mono uppercase tracking-wider hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Move here
         </button>
+      </div>
+    </Modal>
+  );
+}
+
+function RenameCollectionsDialog({
+  open,
+  collections,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  collections: CollectionRead[];
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: (names: Record<number, string>) => void;
+}) {
+  const [names, setNames] = useState<Record<number, string>>({});
+  const values = Object.fromEntries(collections.map((collection) => [collection.id, names[collection.id] ?? collection.name]));
+  const valid = collections.length > 0 && collections.every((collection) => values[collection.id].trim());
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Rename ${collections.length} folder${collections.length !== 1 ? "s" : ""}`} className="max-w-md">
+      <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+        {collections.map((collection) => (
+          <label key={collection.id} className="block space-y-1">
+            <span className="block truncate font-mono text-3xs text-muted-foreground">{collection.path}</span>
+            <input
+              value={values[collection.id]}
+              onChange={(event) => setNames((current) => ({ ...current, [collection.id]: event.target.value }))}
+              maxLength={100}
+              className="h-9 w-full rounded border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+        ))}
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <button type="button" onClick={onClose} disabled={busy} className="h-9 rounded border border-border px-4 text-sm text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50">Cancel</button>
+        <button type="button" onClick={() => onConfirm(values)} disabled={busy || !valid} className="h-9 rounded bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-50">Rename</button>
       </div>
     </Modal>
   );

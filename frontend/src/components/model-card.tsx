@@ -4,9 +4,10 @@ import { Link } from "@/lib/navigation";
 import { useRouter } from "@/lib/navigation";
 import { memo, useEffect, useState } from "react";
 import { ModelListItem, FileRevisionStatus } from "@/types";
-import { FileText } from "lucide-react";
+import { FileText, Star } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { getAssetUrl } from "@/lib/api";
+import { getAssetUrl, starModel, unstarModel } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { timeAgoShort } from "@/lib/format";
 import { useAuthenticatedAssetUrl } from "@/lib/use-authenticated-asset-url";
 
@@ -78,9 +79,22 @@ const METRIC_CONFIG: Record<CardMetricId, { abbr: string; getValue: (model: Mode
 function RevisionBadge({ status, label }: { status: FileRevisionStatus | null | undefined; label?: string | null }) {
   if (!status) return null;
   const cfg = REVISION_CONFIG[status];
+  const accessibleLabel = label
+    ? `Revision status: ${cfg.label}; label: ${label}`
+    : `Revision status: ${cfg.label}`;
   return (
-    <span className={`text-3xs font-mono font-semibold px-1.5 py-0.5 rounded border uppercase tracking-tight shrink-0 ${cfg.classes}`}>
-      {label ?? cfg.label}
+    <span
+      aria-label={accessibleLabel}
+      title={accessibleLabel}
+      className={`inline-flex items-center gap-1 text-3xs font-mono font-semibold px-1.5 py-0.5 rounded border uppercase tracking-tight shrink-0 ${cfg.classes}`}
+    >
+      <span>{cfg.label}</span>
+      {label && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="max-w-20 truncate">{label}</span>
+        </>
+      )}
     </span>
   );
 }
@@ -107,11 +121,13 @@ function ModelCardInner({
   metrics: CardMetrics;
   selectable?: boolean;
   selected?: boolean;
-  onToggleSelect?: (id: number) => void;
+  onToggleSelect?: (id: number, range?: boolean) => void;
   draggable?: boolean;
 }) {
   const router = useRouter();
   const [dragging, setDragging] = useState(false);
+  const [starred, setStarred] = useState(model.starred);
+  const [starBusy, setStarBusy] = useState(false);
   const thumb = useAuthenticatedAssetUrl(model.thumbnail_url);
   // Lazy thumbnails used to snap in at full opacity the instant their bytes
   // arrived. Fade each one in on load so scrolling/searching settles smoothly
@@ -120,6 +136,23 @@ function ModelCardInner({
   const printerPresence = model.printer_presence ?? [];
   const hasPrinter = printerPresence.length > 0;
   const ps = model.print_summary;
+
+  useEffect(() => setStarred(model.starred), [model.starred]);
+
+  async function toggleStar() {
+    if (starBusy) return;
+    const next = !starred;
+    setStarred(next);
+    setStarBusy(true);
+    try {
+      await (next ? starModel(model.id) : unstarModel(model.id));
+    } catch (error) {
+      setStarred(!next);
+      toast.error(error);
+    } finally {
+      setStarBusy(false);
+    }
+  }
 
   // Hover intent: prefetch the detail route (server-rendered payload) and warm
   // the STL into the browser cache so the 3D viewer opens without a spinner.
@@ -160,6 +193,15 @@ function ModelCardInner({
           />
         </div>
       )}
+      <button
+        type="button"
+        onClick={(event) => { event.preventDefault(); event.stopPropagation(); void toggleStar(); }}
+        disabled={starBusy}
+        aria-label={starred ? `Remove ${model.name} from favorites` : `Add ${model.name} to favorites`}
+        className="absolute right-2 top-2 z-10 rounded bg-card/90 p-2 text-muted-foreground shadow-sm transition-[color,background-color,transform] duration-press ease-out hover:bg-card hover:text-primary active:scale-[0.98] disabled:opacity-50"
+      >
+        <Star className={`h-4 w-4 ${starred ? "fill-current text-primary" : ""}`} />
+      </button>
       <Link
         href={`/models/${model.id}`}
         draggable={false}
@@ -167,7 +209,7 @@ function ModelCardInner({
         onClick={(e) => {
           if (selectable) {
             e.preventDefault();
-            onToggleSelect?.(model.id);
+            onToggleSelect?.(model.id, e.shiftKey);
           }
         }}
       >
@@ -288,7 +330,7 @@ export function ModelCard({
   model: ModelListItem;
   selectable?: boolean;
   selected?: boolean;
-  onToggleSelect?: (id: number) => void;
+  onToggleSelect?: (id: number, range?: boolean) => void;
   draggable?: boolean;
 }) {
   const [metrics, setMetrics] = useState<CardMetrics>(DEFAULT_CARD_METRICS);

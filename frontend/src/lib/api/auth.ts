@@ -14,6 +14,10 @@ export function login(body: LoginRequest): Promise<TokenResponse> {
   return sendJson<TokenResponse>("/api/v1/auth/login", "POST", body);
 }
 
+export function logout(): Promise<void> {
+  return sendAction("/api/v1/auth/logout", "POST");
+}
+
 export async function getMe(): Promise<UserRead> {
   const res = await fetch(getUrl("/api/v1/auth/me"), {
     headers: authHeaders(),

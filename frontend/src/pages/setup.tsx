@@ -16,11 +16,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "@/lib/navigation";
 import {
+  Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Cloud,
   HardDrive,
-  Key,
   Loader2,
   RefreshCw,
   ShieldCheck,
@@ -30,7 +31,11 @@ import {
 import { completeSetup, getSetupStatus } from "@/lib/api";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BrandMark } from "@/components/brand-mark";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { storeLogin, type StoredUser } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 import type { SetupStatus } from "@/types";
 
 type Step = 1 | 2;
@@ -51,6 +56,8 @@ const SETUP_ERROR_MESSAGES: Record<string, string> = {
     "The backend cannot write to the thumbnail directory. Check filesystem permissions.",
   invalid_storage_backend: "Choose either local disk or S3/R2 storage.",
   s3_bucket_required: "S3/R2 storage needs a bucket name.",
+  invalid_setup_token:
+    "That setup token is not valid. Copy the current token from the API container logs.",
 };
 
 function humanizeError(raw: string): string {
@@ -71,6 +78,7 @@ export default function SetupPage() {
   const [step, setStep] = useState<Step>(1);
 
   // Step 1 — account
+  const [setupToken, setSetupToken] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -106,14 +114,14 @@ export default function SetupPage() {
         }
         setStatus(s);
         setStorageBackend(s.current_storage_backend || "local");
-        setDataDir(s.current_data_dir);
-        setThumbDir(s.current_thumb_dir);
-        setS3Bucket(s.current_s3_bucket);
-        setS3Endpoint(s.current_s3_endpoint_url);
+        setDataDir(s.current_data_dir ?? "");
+        setThumbDir(s.current_thumb_dir ?? "");
+        setS3Bucket(s.current_s3_bucket ?? "");
+        setS3Endpoint(s.current_s3_endpoint_url ?? "");
         setS3Region(s.current_s3_region || "auto");
         setBackupDays(s.current_backup_retention_days ?? 30);
-        setBackupS3Bucket(s.current_backup_s3_bucket);
-        setBackupS3Endpoint(s.current_backup_s3_endpoint_url);
+        setBackupS3Bucket(s.current_backup_s3_bucket ?? "");
+        setBackupS3Endpoint(s.current_backup_s3_endpoint_url ?? "");
         setBackupS3Region(s.current_backup_s3_region || "auto");
       })
       .catch((err) => {
@@ -129,6 +137,8 @@ export default function SetupPage() {
   }, [router]);
 
   function validateStep1(): string | null {
+    if (setupToken.trim().length < 16)
+      return "Enter the setup token shown in the API container logs.";
     if (username.trim().length < 3)
       return "Username must be at least 3 characters.";
     if (password.length < 8) return "Password must be at least 8 characters.";
@@ -162,6 +172,7 @@ export default function SetupPage() {
   }
 
   async function handleSubmit() {
+    if (busy) return;
     setError(null);
     const v = validateStep2();
     if (v) {
@@ -173,6 +184,7 @@ export default function SetupPage() {
       const trimmedData = dataDir.trim();
       const trimmedThumb = thumbDir.trim();
       const res = await completeSetup({
+        setup_token: setupToken.trim(),
         username: username.trim(),
         password,
         email: email.trim() || undefined,
@@ -220,161 +232,185 @@ export default function SetupPage() {
 
   if (bootError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-surface-container-lowest px-4">
-        <div className="max-w-md w-full bg-surface-container-low border border-outline-variant rounded p-6 space-y-3">
+      <main className="flex min-h-screen items-center justify-center bg-background px-4">
+        <Card className="w-full max-w-md space-y-4 border-outline-variant bg-surface-container-low p-6">
           <h1 className="text-lg font-semibold text-on-surface">
             Cannot reach the vault
           </h1>
           <p className="text-sm text-on-surface-variant font-mono break-words">
             {bootError}
           </p>
-          <button
+          <Button
+            type="button"
             onClick={() => window.location.reload()}
-            className="h-9 px-4 rounded bg-primary text-primary-foreground font-mono text-xs uppercase tracking-wider hover:opacity-90"
+            className="w-fit"
           >
             Retry
-          </button>
-        </div>
-      </div>
+          </Button>
+        </Card>
+      </main>
     );
   }
 
   if (!status) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-surface-container-lowest">
-        <Loader2 className="h-6 w-6 animate-spin text-on-surface-variant" />
-      </div>
+      <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background" role="status" aria-live="polite">
+        <Loader2 className="h-6 w-6 animate-spin text-on-surface-variant" aria-hidden />
+        <p className="text-sm text-on-surface-variant">Checking vault setup…</p>
+      </main>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface-container-lowest px-4 py-10 relative">
-      <div className="absolute top-4 right-4">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-8 sm:px-6 lg:py-12">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0 top-0 h-80 w-80 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/5 blur-3xl"
+      />
+      <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
         <ThemeToggle />
       </div>
-      <div className="w-full max-w-lg mx-auto space-y-6">
-        {/* Header */}
-        <div className="text-center">
-          <div className="w-14 h-14 mx-auto rounded bg-primary flex items-center justify-center text-primary-foreground mb-4">
-            <BrandMark className="h-10 w-10" />
+
+      <Card className="relative grid w-full max-w-5xl overflow-hidden border-outline-variant bg-card shadow-lg lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        <aside className="flex flex-col border-b border-outline-variant bg-surface-container-low p-6 sm:p-8 lg:border-b-0 lg:border-r lg:p-10">
+          <div className="flex items-center gap-3 lg:block">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm lg:mb-6 lg:h-14 lg:w-14">
+              <BrandMark className="h-8 w-8 lg:h-9 lg:w-9" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-on-surface">
+                Welcome to PrintStash
+              </h1>
+              <p className="mt-1 text-sm text-on-surface-variant">
+                Two quick steps to prepare your self-hosted vault.
+              </p>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-on-surface">
-            Welcome to PrintStash
-          </h1>
-          <p className="text-sm text-on-surface-variant mt-1">
-            Let&apos;s get your self-hosted vault configured.
+
+          <ol className="mt-6 grid grid-cols-2 gap-2 lg:mt-10 lg:grid-cols-1 lg:gap-3" aria-label="Setup progress">
+            <StepIndicator
+              active={step === 1}
+              done={step > 1}
+              label="Account"
+              description="Secure vault access"
+              icon={UserPlus}
+            />
+            <StepIndicator
+              active={step === 2}
+              done={false}
+              label="Storage"
+              description="Choose where files live"
+              icon={HardDrive}
+            />
+          </ol>
+
+          <p className="mt-6 hidden text-xs leading-relaxed text-on-surface-variant lg:mt-auto lg:block">
+            Setup runs once. Additional administrators and storage settings can
+            be managed later.
           </p>
-        </div>
+        </aside>
 
-        {/* Stepper */}
-        <div className="flex items-center justify-center gap-3 text-xs font-mono uppercase tracking-wider">
-          <StepIndicator active={step === 1} done={step > 1} label="Account" icon={UserPlus} />
-          <div className="h-px w-10 bg-outline-variant" />
-          <StepIndicator active={step === 2} done={false} label="Storage" icon={HardDrive} />
-        </div>
-
-        {/* Card */}
-        <div className="bg-surface-container-low border border-outline-variant rounded p-6 space-y-4">
-          {step === 1 ? (
-            <AccountStep
-              username={username}
-              setUsername={setUsername}
-              email={email}
-              setEmail={setEmail}
-              password={password}
-              setPassword={setPassword}
-              confirm={confirm}
-              setConfirm={setConfirm}
-            />
-          ) : (
-            <StorageStep
-              storageBackend={storageBackend}
-              setStorageBackend={setStorageBackend}
-              dataDir={dataDir}
-              setDataDir={setDataDir}
-              thumbDir={thumbDir}
-              setThumbDir={setThumbDir}
-              defaultDataDir={status.default_data_dir}
-              defaultThumbDir={status.default_thumb_dir}
-              s3Bucket={s3Bucket}
-              setS3Bucket={setS3Bucket}
-              s3Endpoint={s3Endpoint}
-              setS3Endpoint={setS3Endpoint}
-              s3Region={s3Region}
-              setS3Region={setS3Region}
-              s3AccessKey={s3AccessKey}
-              setS3AccessKey={setS3AccessKey}
-              s3SecretKey={s3SecretKey}
-              setS3SecretKey={setS3SecretKey}
-              backupDays={backupDays}
-              setBackupDays={setBackupDays}
-              backupS3Bucket={backupS3Bucket}
-              setBackupS3Bucket={setBackupS3Bucket}
-              backupS3Endpoint={backupS3Endpoint}
-              setBackupS3Endpoint={setBackupS3Endpoint}
-              backupS3Region={backupS3Region}
-              setBackupS3Region={setBackupS3Region}
-              backupS3AccessKey={backupS3AccessKey}
-              setBackupS3AccessKey={setBackupS3AccessKey}
-              backupS3SecretKey={backupS3SecretKey}
-              setBackupS3SecretKey={setBackupS3SecretKey}
-            />
-          )}
+        <form
+          noValidate
+          className="flex min-w-0 flex-col p-6 sm:p-8 lg:p-10"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (step === 1) handleNext();
+            else void handleSubmit();
+          }}
+        >
+          <div key={step} className="animate-panel-in">
+            {step === 1 ? (
+              <AccountStep
+                setupToken={setupToken}
+                setSetupToken={setSetupToken}
+                username={username}
+                setUsername={setUsername}
+                email={email}
+                setEmail={setEmail}
+                password={password}
+                setPassword={setPassword}
+                confirm={confirm}
+                setConfirm={setConfirm}
+              />
+            ) : (
+              <StorageStep
+                storageBackend={storageBackend}
+                setStorageBackend={setStorageBackend}
+                dataDir={dataDir}
+                setDataDir={setDataDir}
+                thumbDir={thumbDir}
+                setThumbDir={setThumbDir}
+                defaultDataDir={status.default_data_dir ?? ""}
+                defaultThumbDir={status.default_thumb_dir ?? ""}
+                s3Bucket={s3Bucket}
+                setS3Bucket={setS3Bucket}
+                s3Endpoint={s3Endpoint}
+                setS3Endpoint={setS3Endpoint}
+                s3Region={s3Region}
+                setS3Region={setS3Region}
+                s3AccessKey={s3AccessKey}
+                setS3AccessKey={setS3AccessKey}
+                s3SecretKey={s3SecretKey}
+                setS3SecretKey={setS3SecretKey}
+                backupDays={backupDays}
+                setBackupDays={setBackupDays}
+                backupS3Bucket={backupS3Bucket}
+                setBackupS3Bucket={setBackupS3Bucket}
+                backupS3Endpoint={backupS3Endpoint}
+                setBackupS3Endpoint={setBackupS3Endpoint}
+                backupS3Region={backupS3Region}
+                setBackupS3Region={setBackupS3Region}
+                backupS3AccessKey={backupS3AccessKey}
+                setBackupS3AccessKey={setBackupS3AccessKey}
+                backupS3SecretKey={backupS3SecretKey}
+                setBackupS3SecretKey={setBackupS3SecretKey}
+              />
+            )}
+          </div>
 
           {error && (
-            <div className="text-xs text-error font-mono">{error}</div>
+            <div role="alert" className="mt-5 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
           )}
 
-          <div className="flex items-center justify-between gap-2 pt-2">
+          <div className="mt-6 flex items-center justify-between gap-3 border-t border-outline-variant pt-5">
             {step === 2 ? (
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => {
                   setError(null);
                   setStep(1);
                 }}
                 disabled={busy}
-                className="h-10 px-4 rounded border border-outline-variant text-on-surface-variant font-mono text-xs uppercase tracking-wider hover:bg-surface-container disabled:opacity-50 flex items-center gap-1.5"
               >
                 <ChevronLeft className="h-4 w-4" />
                 Back
-              </button>
+              </Button>
             ) : (
               <span />
             )}
 
             {step === 1 ? (
-              <button
-                type="button"
-                onClick={handleNext}
-                className="h-10 px-4 rounded bg-primary text-primary-foreground font-mono text-xs uppercase tracking-wider hover:opacity-90 flex items-center gap-1.5"
-              >
+              <Button type="submit">
                 Next
                 <ChevronRight className="h-4 w-4" />
-              </button>
+              </Button>
             ) : (
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={busy}
-                className="h-10 px-4 rounded bg-primary text-primary-foreground font-mono text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+              <Button
+                type="submit"
+                loading={busy}
               >
-                {busy ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
+                {!busy && (
                   <ShieldCheck className="h-4 w-4" />
                 )}
                 Complete setup
-              </button>
+              </Button>
             )}
           </div>
-        </div>
-
-        <p className="text-center text-xs text-on-surface-variant font-mono">
-          This wizard only runs once. Subsequent admins can be added later.
-        </p>
-      </div>
-    </div>
+        </form>
+      </Card>
+    </main>
   );
 }
 
@@ -383,6 +419,8 @@ export default function SetupPage() {
 // ---------------------------------------------------------------------------
 
 function AccountStep(props: {
+  setupToken: string;
+  setSetupToken: (v: string) => void;
   username: string;
   setUsername: (v: string) => void;
   email: string;
@@ -393,47 +431,70 @@ function AccountStep(props: {
   setConfirm: (v: string) => void;
 }) {
   return (
-    <>
-      <p className="text-sm text-on-surface-variant">
+    <div className="space-y-5">
+      <StepHeader
+        eyebrow="Step 1 of 2"
+        title="Create your admin account"
+        description="Use this account to manage your library and invite other administrators later."
+      />
+      <Field
+        label="Setup token"
+        id="setup-token"
+        value={props.setupToken}
+        onChange={props.setSetupToken}
+        type="password"
+        autoComplete="off"
+        required
+        hint="Copy it from the API container logs"
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Username"
+          id="setup-username"
+          value={props.username}
+          onChange={props.setUsername}
+          autoFocus
+          autoComplete="username"
+          required
+        />
+        <Field
+          label="Email"
+          optional
+          id="setup-email"
+          value={props.email}
+          onChange={props.setEmail}
+          autoComplete="email"
+          type="email"
+        />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Password"
+          id="setup-password"
+          value={props.password}
+          onChange={props.setPassword}
+          type="password"
+          autoComplete="new-password"
+          required
+          hint="At least 8 characters"
+        />
+        <Field
+          label="Confirm password"
+          id="setup-confirm"
+          value={props.confirm}
+          onChange={props.setConfirm}
+          type="password"
+          autoComplete="new-password"
+          required
+        />
+      </div>
+      <div className="flex gap-3 rounded-md bg-muted p-3 text-sm text-muted-foreground">
+        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+        <p>
         Create the first administrator account. You can add more users later.
-      </p>
-      <Field
-        label="Username"
-        id="setup-username"
-        value={props.username}
-        onChange={props.setUsername}
-        autoFocus
-        autoComplete="username"
-        required
-      />
-      <Field
-        label="Email (optional)"
-        id="setup-email"
-        value={props.email}
-        onChange={props.setEmail}
-        autoComplete="email"
-        type="email"
-      />
-      <Field
-        label="Password"
-        id="setup-password"
-        value={props.password}
-        onChange={props.setPassword}
-        type="password"
-        autoComplete="new-password"
-        required
-        hint="Minimum 8 characters."
-      />
-      <Field
-        label="Confirm password"
-        id="setup-confirm"
-        value={props.confirm}
-        onChange={props.setConfirm}
-        type="password"
-        autoComplete="new-password"
-        required
-      />
-    </>
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -470,59 +531,64 @@ function StorageStep(props: {
   setBackupS3SecretKey: (v: string) => void;
 }) {
   return (
-    <>
-      <p className="text-sm text-on-surface-variant">
-        Choose where the vault stores files and how long local backups should
-        be retained.
-      </p>
+    <div className="space-y-5">
+      <StepHeader
+        eyebrow="Step 2 of 2"
+        title="Choose your storage"
+        description="Keep the recommended local paths, or connect S3-compatible object storage."
+      />
 
-      <div>
-        <label className="block text-xs font-mono uppercase tracking-wider text-on-surface-variant mb-1.5">
+      <fieldset>
+        <legend className="mb-2 block text-xs font-mono uppercase tracking-wider text-on-surface-variant">
           Storage backend
-        </label>
-        <div className="grid grid-cols-2 gap-2">
+        </legend>
+        <div className="grid grid-cols-2 gap-3">
           <ChoiceButton
             active={props.storageBackend === "local"}
             icon={HardDrive}
             label="Local disk"
+            description="Recommended"
             onClick={() => props.setStorageBackend("local")}
           />
           <ChoiceButton
             active={props.storageBackend === "s3"}
             icon={Cloud}
             label="S3 / R2"
+            description="Object storage"
             onClick={() => props.setStorageBackend("s3")}
           />
         </div>
-      </div>
+      </fieldset>
 
       {props.storageBackend === "local" ? (
-        <div className="space-y-3">
-          <Field
-            label="Data directory"
-            id="setup-data-dir"
-            value={props.dataDir}
-            onChange={props.setDataDir}
-            required
-            hint={`Default: ${props.defaultDataDir}`}
-            mono
-          />
-          <Field
-            label="Thumbnail directory"
-            id="setup-thumb-dir"
-            value={props.thumbDir}
-            onChange={props.setThumbDir}
-            required
-            hint={`Default: ${props.defaultThumbDir}`}
-            mono
-          />
-          <div className="text-xs text-on-surface-variant font-mono bg-surface-container-lowest border border-outline-variant rounded p-3">
+        <div className="animate-panel-in space-y-3">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Data directory"
+              id="setup-data-dir"
+              value={props.dataDir}
+              onChange={props.setDataDir}
+              required
+              hint={`Default: ${props.defaultDataDir}`}
+              mono
+            />
+            <Field
+              label="Thumbnail directory"
+              id="setup-thumb-dir"
+              value={props.thumbDir}
+              onChange={props.setThumbDir}
+              required
+              hint={`Default: ${props.defaultThumbDir}`}
+              mono
+            />
+          </div>
+          <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
             The backend will create these directories and probe them for
             writability before completing setup.
           </div>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="animate-panel-in space-y-4">
           <Field
             label="Bucket"
             id="setup-s3-bucket"
@@ -531,24 +597,26 @@ function StorageStep(props: {
             required
             mono
           />
-          <Field
-            label="Endpoint URL"
-            id="setup-s3-endpoint"
-            value={props.s3Endpoint}
-            onChange={props.setS3Endpoint}
-            hint="Leave empty for AWS S3."
-            mono
-          />
-          <Field
-            label="Region"
-            id="setup-s3-region"
-            value={props.s3Region}
-            onChange={props.setS3Region}
-            mono
-          />
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Endpoint URL"
+              optional
+              id="setup-s3-endpoint"
+              value={props.s3Endpoint}
+              onChange={props.setS3Endpoint}
+              hint="Leave empty for AWS S3"
+              mono
+            />
+            <Field
+              label="Region"
+              id="setup-s3-region"
+              value={props.s3Region}
+              onChange={props.setS3Region}
+              mono
+            />
             <Field
               label="Access key"
+              optional
               id="setup-s3-access-key"
               value={props.s3AccessKey}
               onChange={props.setS3AccessKey}
@@ -556,6 +624,7 @@ function StorageStep(props: {
             />
             <Field
               label="Secret key"
+              optional
               id="setup-s3-secret-key"
               value={props.s3SecretKey}
               onChange={props.setS3SecretKey}
@@ -566,65 +635,86 @@ function StorageStep(props: {
         </div>
       )}
 
-      <div className="space-y-3 pt-2 border-t border-outline-variant">
-        <p className="text-xs font-mono uppercase tracking-wider text-on-surface-variant flex items-center gap-1.5">
-          <RefreshCw className="h-3.5 w-3.5" />
-          Backups
-        </p>
-        <Field
-          label="Retention days"
-          id="setup-backup-days"
-          value={String(props.backupDays)}
-          onChange={(v) => props.setBackupDays(Number(v))}
-          type="number"
-          hint="Use 0 to keep backups forever."
-          mono
-        />
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Field
-            label="Backup bucket"
-            id="setup-backup-bucket"
-            value={props.backupS3Bucket}
-            onChange={props.setBackupS3Bucket}
-            hint="Optional off-site S3/R2 copy."
-            mono
-          />
-          <Field
-            label="Backup endpoint"
-            id="setup-backup-endpoint"
-            value={props.backupS3Endpoint}
-            onChange={props.setBackupS3Endpoint}
-            mono
-          />
-          <Field
-            label="Backup region"
-            id="setup-backup-region"
-            value={props.backupS3Region}
-            onChange={props.setBackupS3Region}
-            mono
-          />
-          <div className="flex items-end text-3xs text-on-surface-variant font-mono gap-1.5 pb-1">
-            <Key className="h-3.5 w-3.5" />
-            Credentials are optional when the runtime provides them.
+      <section className="space-y-4 border-t border-outline-variant pt-5" aria-labelledby="backup-heading">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            <RefreshCw className="h-4 w-4" aria-hidden />
           </div>
+          <div>
+            <h3 id="backup-heading" className="text-sm font-semibold text-on-surface">
+              Backup retention
+            </h3>
+            <p className="text-xs text-on-surface-variant">
+              Local backups are kept for this many days.
+            </p>
+          </div>
+        </div>
+        <div className="max-w-48">
           <Field
-            label="Backup access key"
-            id="setup-backup-access-key"
-            value={props.backupS3AccessKey}
-            onChange={props.setBackupS3AccessKey}
-            mono
-          />
-          <Field
-            label="Backup secret key"
-            id="setup-backup-secret-key"
-            value={props.backupS3SecretKey}
-            onChange={props.setBackupS3SecretKey}
-            type="password"
+            label="Retention days"
+            id="setup-backup-days"
+            value={String(props.backupDays)}
+            onChange={(v) => props.setBackupDays(Number(v))}
+            type="number"
+            hint="Use 0 to keep forever"
             mono
           />
         </div>
-      </div>
-    </>
+
+        <details className="group rounded-md border border-outline-variant bg-surface-container-low">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md px-4 py-3 text-sm font-medium text-on-surface transition-colors duration-press hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+            <span>
+              Off-site backup <span className="font-normal text-muted-foreground">(optional)</span>
+            </span>
+            <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-fast group-open:rotate-180" aria-hidden />
+          </summary>
+          <div className="grid gap-4 border-t border-outline-variant p-4 sm:grid-cols-2">
+            <Field
+              label="Backup bucket"
+              id="setup-backup-bucket"
+              value={props.backupS3Bucket}
+              onChange={props.setBackupS3Bucket}
+              mono
+            />
+            <Field
+              label="Backup endpoint"
+              id="setup-backup-endpoint"
+              value={props.backupS3Endpoint}
+              onChange={props.setBackupS3Endpoint}
+              mono
+            />
+            <Field
+              label="Backup region"
+              id="setup-backup-region"
+              value={props.backupS3Region}
+              onChange={props.setBackupS3Region}
+              mono
+            />
+            <div className="hidden sm:block" aria-hidden />
+            <Field
+              label="Backup access key"
+              optional
+              id="setup-backup-access-key"
+              value={props.backupS3AccessKey}
+              onChange={props.setBackupS3AccessKey}
+              mono
+            />
+            <Field
+              label="Backup secret key"
+              optional
+              id="setup-backup-secret-key"
+              value={props.backupS3SecretKey}
+              onChange={props.setBackupS3SecretKey}
+              type="password"
+              mono
+            />
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              Credentials can stay empty when your runtime provides them.
+            </p>
+          </div>
+        </details>
+      </section>
+    </div>
   );
 }
 
@@ -632,22 +722,27 @@ function ChoiceButton(props: {
   active: boolean;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
+  description: string;
   onClick: () => void;
 }) {
   const Icon = props.icon;
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      aria-pressed={props.active}
       onClick={props.onClick}
-      className={`h-10 rounded border px-3 text-sm flex items-center justify-center gap-2 transition-colors ${
-        props.active
-          ? "bg-primary/10 border-primary text-primary"
-          : "border-outline-variant text-on-surface-variant hover:border-outline"
-      }`}
+      className={cn(
+        "h-auto min-w-0 justify-start gap-3 px-3 py-3 text-left whitespace-normal",
+        props.active && "border-transparent bg-accent text-accent-foreground hover:bg-accent",
+      )}
     >
-      <Icon className="h-4 w-4" />
-      {props.label}
-    </button>
+      <Icon className="h-5 w-5 shrink-0" aria-hidden />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">{props.label}</span>
+        <span className="block text-xs font-normal opacity-70">{props.description}</span>
+      </span>
+    </Button>
   );
 }
 
@@ -662,16 +757,22 @@ function Field(props: {
   required?: boolean;
   hint?: string;
   mono?: boolean;
+  optional?: boolean;
 }) {
   return (
-    <div>
+    <div className="space-y-1.5">
       <label
         htmlFor={props.id}
-        className="block text-xs font-mono uppercase tracking-wider text-on-surface-variant mb-1.5"
+        className="flex items-center justify-between gap-2 text-xs font-mono uppercase tracking-wider text-on-surface-variant"
       >
-        {props.label}
+        <span>{props.label}</span>
+        {props.optional && (
+          <span className="font-sans normal-case tracking-normal text-muted-foreground">
+            Optional
+          </span>
+        )}
       </label>
-      <input
+      <Input
         id={props.id}
         type={props.type ?? "text"}
         value={props.value}
@@ -679,12 +780,13 @@ function Field(props: {
         autoComplete={props.autoComplete}
         autoFocus={props.autoFocus}
         required={props.required}
-        className={`w-full h-10 bg-surface-container-lowest text-on-surface ${
-          props.mono ? "font-mono" : ""
-        } text-sm border border-outline-variant rounded px-3 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent`}
+        className={cn(
+          "bg-surface-container-lowest text-on-surface",
+          props.mono && "font-mono",
+        )}
       />
       {props.hint && (
-        <p className="text-3xs text-on-surface-variant font-mono mt-1">
+        <p className="text-3xs font-mono text-on-surface-variant">
           {props.hint}
         </p>
       )}
@@ -696,18 +798,53 @@ function StepIndicator(props: {
   active: boolean;
   done: boolean;
   label: string;
+  description: string;
   icon: React.ComponentType<{ className?: string }>;
 }) {
   const Icon = props.icon;
-  const tone = props.done
-    ? "bg-primary text-primary-foreground border-transparent"
-    : props.active
-      ? "bg-primary-container text-on-primary-container border-primary"
-      : "bg-transparent text-on-surface-variant border-outline-variant";
   return (
-    <div className={`flex items-center gap-1.5 px-2.5 h-7 rounded border ${tone}`}>
-      <Icon className="h-3.5 w-3.5" />
-      <span>{props.label}</span>
-    </div>
+    <li
+      aria-current={props.active ? "step" : undefined}
+      className={cn(
+        "flex min-w-0 items-center gap-3 rounded-md px-3 py-3 text-on-surface-variant",
+        props.active && "bg-accent text-accent-foreground",
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-outline-variant bg-background",
+          props.active && "border-transparent bg-accent text-accent-foreground",
+          props.done && "border-success/30 bg-success/10 text-success",
+        )}
+      >
+        {props.done ? <Check className="h-4 w-4" aria-hidden /> : <Icon className="h-4 w-4" aria-hidden />}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-medium">{props.label}</span>
+        <span className="hidden truncate text-xs opacity-70 sm:block">{props.description}</span>
+      </span>
+    </li>
+  );
+}
+
+function StepHeader(props: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <header className="space-y-2">
+      <p className="text-xs font-mono uppercase tracking-wider text-primary">
+        {props.eyebrow}
+      </p>
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight text-on-surface sm:text-2xl">
+          {props.title}
+        </h2>
+        <p className="mt-1 text-sm leading-relaxed text-on-surface-variant">
+          {props.description}
+        </p>
+      </div>
+    </header>
   );
 }

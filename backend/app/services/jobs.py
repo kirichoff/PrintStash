@@ -6,18 +6,68 @@ so the swap is mechanical.
 
 from __future__ import annotations
 
+import re
 import threading
 import uuid
 from datetime import timedelta
 from typing import Any, Dict, Optional
 
 from app.core.time import utcnow
-from app.schemas.ingest import IngestJobStatus, JobState
+from app.schemas.ingest import (
+    ImportCompletion,
+    ImportFailedItem,
+    ImportStage,
+    IngestJobStatus,
+    JobState,
+)
 
 # Finished jobs are kept around long enough for clients to poll the terminal
 # state, then dropped so the registry cannot grow without bound.
 _FINISHED_TTL = timedelta(hours=1)
 _MAX_JOBS = 1000
+_SECRET_QUERY = re.compile(
+    r"(?i)(token|key|secret|password|cookie|signature|credential)=([^&\s]+)"
+)
+_ABS_PATH = re.compile(r"(?<![\w.-])(?:[A-Za-z]:[\\/]|/)[^\s:]+")
+
+
+def safe_item(value: str | None) -> str | None:
+    """Return display-safe filename only; never expose server paths."""
+    if not value:
+        return None
+    clean = value.replace("\\", "/").split("/")[-1].strip()
+    clean = "".join(ch for ch in clean if ch.isprintable())
+    return clean[:180] or None
+
+
+def safe_error(value: str | None) -> str | None:
+    """Remove paths and secret-bearing query values from user-facing errors."""
+    if not value:
+        return None
+    clean = _SECRET_QUERY.sub(r"\1=[redacted]", value)
+    clean = _ABS_PATH.sub("[path]", clean)
+    clean = " ".join(clean.split())
+    return clean[:500]
+
+
+def _safe_result(value: Any, key: str | None = None) -> Any:
+    """Sanitize user-facing error/name fields without breaking manifest URLs.
+
+    ``entries[].name`` (archive manifests) is an archive-relative path, not a
+    bare filename — stripping it to a basename would desync the UI from
+    ``extract_selected``, which matches selections against the full path.
+    """
+    if isinstance(value, dict):
+        return {item_key: _safe_result(item, item_key) for item_key, item in value.items()}
+    if isinstance(value, list):
+        if key == "entries":
+            return value
+        return [_safe_result(item, key) for item in value]
+    if isinstance(value, str) and key in {"error", "errors", "reason"}:
+        return safe_error(value)
+    if isinstance(value, str) and key == "name":
+        return safe_item(value)
+    return value
 
 
 class JobRegistry:
@@ -44,13 +94,14 @@ class JobRegistry:
             for job_id in finished[: len(self._jobs) - _MAX_JOBS]:
                 del self._jobs[job_id]
 
-    def create(self, owner_user_id: int | None = None) -> str:
+    def create(self, owner_user_id: int | None = None, *, visible: bool = True) -> str:
         job_id = uuid.uuid4().hex
         with self._lock:
             self._prune_locked()
             self._jobs[job_id] = IngestJobStatus(
                 job_id=job_id,
                 owner_user_id=owner_user_id,
+                visible=visible,
                 state="pending",
             )
         return job_id
@@ -68,6 +119,17 @@ class JobRegistry:
         label: Optional[str] = None,
         progress: Optional[float] = None,
         result: Optional[dict[str, Any]] = None,
+        stage: Optional[ImportStage] = None,
+        current_item: Optional[str] = None,
+        processed: Optional[int] = None,
+        total: Optional[int] = None,
+        succeeded: Optional[int] = None,
+        deduplicated: Optional[int] = None,
+        skipped: Optional[int] = None,
+        failed: Optional[int] = None,
+        completion: Optional[ImportCompletion] = None,
+        retryable: Optional[bool] = None,
+        failed_items: Optional[list[dict[str, Any] | ImportFailedItem]] = None,
     ) -> None:
         with self._lock:
             job = self._jobs.get(job_id)
@@ -81,6 +143,7 @@ class JobRegistry:
                 if state in ("completed", "failed"):
                     job.finished_at = utcnow()
                     job.progress = 100.0
+                    job.stage = "completed"
                     if not previously_terminal:
                         from app.core.metrics import record_ingestion_terminal
 
@@ -90,7 +153,7 @@ class JobRegistry:
             if file_id is not None:
                 job.file_id = file_id
             if error is not None:
-                job.error = error
+                job.error = safe_error(error)
             if step is not None:
                 job.step = step
             if total_steps is not None:
@@ -100,11 +163,63 @@ class JobRegistry:
             if progress is not None:
                 job.progress = max(0.0, min(100.0, float(progress)))
             if result is not None:
-                job.result = result
+                job.result = _safe_result(result)
+            if stage is not None:
+                job.stage = stage
+            if current_item is not None:
+                job.current_item = safe_item(current_item)
+            if processed is not None:
+                job.processed = max(0, processed)
+            if total is not None:
+                job.total = max(0, total)
+            if succeeded is not None:
+                job.succeeded = max(0, succeeded)
+            if deduplicated is not None:
+                job.deduplicated = max(0, deduplicated)
+            if skipped is not None:
+                job.skipped = max(0, skipped)
+            if failed is not None:
+                job.failed = max(0, failed)
+            if completion is not None:
+                job.completion = completion
+            elif state == "completed":
+                job.completion = (
+                    "completed_with_warnings" if job.failed or job.skipped else "completed"
+                )
+            elif state == "failed" and not job.succeeded:
+                job.completion = "failed_before_import"
+            if retryable is not None:
+                job.retryable = retryable
+            if failed_items is not None:
+                job.failed_items = [
+                    ImportFailedItem(
+                        name=safe_item(
+                            item.name if isinstance(item, ImportFailedItem) else str(item.get("name", "item"))
+                        )
+                        or "item",
+                        reason=safe_error(
+                            item.reason if isinstance(item, ImportFailedItem) else str(item.get("reason", "import_failed"))
+                        )
+                        or "import_failed",
+                        retryable=(
+                            item.retryable if isinstance(item, ImportFailedItem) else bool(item.get("retryable", False))
+                        ),
+                    )
+                    for item in failed_items[:100]
+                ]
 
     def get(self, job_id: str) -> Optional[IngestJobStatus]:
         with self._lock:
             return self._jobs.get(job_id)
+
+    def list_for_user(self, user_id: int, *, is_superuser: bool = False) -> list[IngestJobStatus]:
+        with self._lock:
+            self._prune_locked()
+            return [
+                job
+                for job in reversed(self._jobs.values())
+                if job.visible and (is_superuser or job.owner_user_id in (None, user_id))
+            ]
 
     def snapshot_counts(self) -> Dict[str, int]:
         """Return a count of tracked jobs by state, plus a total.

@@ -18,7 +18,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any, List, Literal, Optional
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlmodel import Session, select
 
 from app.core.config import settings
@@ -33,6 +33,7 @@ from app.db.models import (
     FileType,
     Metadata,
     Model,
+    ModelStar,
     ModelTagLink,
     Printer,
     PrinterFile,
@@ -62,6 +63,23 @@ from app.schemas.models import (
 from app.services import rbac
 from app.services.storage_backend import get_backend
 from app.services.trash import trash_expires_at
+
+
+def set_revision_labels(
+    session: Session, files: list[File], revision_label: str | None
+) -> None:
+    """Set one label across prevalidated live G-code revisions, without commit."""
+    label = revision_label.strip() if revision_label and revision_label.strip() else None
+    touched_models: set[int] = set()
+    for file_row in files:
+        file_row.revision_label = label
+        session.add(file_row)
+        touched_models.add(file_row.model_id)
+    for model in session.exec(
+        select(Model).where(Model.id.in_(touched_models), live(Model))  # type: ignore[union-attr]
+    ).all():
+        model.updated_at = utcnow()
+        session.add(model)
 
 _EXPORT_CSV_FIELDS = [
     "model_id",
@@ -363,6 +381,7 @@ def list_items(
     q: Optional[str] = None,
     printer_id: Optional[int] = None,
     printer_presence: Optional[Literal["any", "none"]] = None,
+    favorites: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> List[ModelListItem]:
@@ -373,6 +392,10 @@ def list_items(
     # header count and the grid would otherwise disagree).
     stmt = select(Model).where(live(Model), Model.hash != SENTINEL_MODEL_HASH)
     stmt = _apply_model_access(stmt, session, user)
+
+    starred_model_ids = select(ModelStar.model_id).where(ModelStar.user_id == user.id)
+    if favorites:
+        stmt = stmt.where(Model.id.in_(starred_model_ids))  # type: ignore[union-attr]
 
     present_model_ids = (
         select(File.model_id)
@@ -440,6 +463,14 @@ def list_items(
     model_ids = [m.id for m in rows if m.id is not None]
     if not model_ids:
         return []
+    starred_ids = set(
+        session.exec(
+            select(ModelStar.model_id).where(
+                ModelStar.user_id == user.id,
+                ModelStar.model_id.in_(model_ids),  # type: ignore[union-attr]
+            )
+        ).all()
+    )
 
     # Batch the per-model lookups: one grouped/IN query per facet instead of
     # five queries per row (tags + collection already arrive via selectin).
@@ -524,6 +555,24 @@ def list_items(
                 slicer_name=md.slicer_name,
             )
 
+    for model_id, completed, decided, last_printed, average_duration, total_cost in session.exec(
+        select(
+            PrintJob.model_id,
+            func.sum(case((PrintJob.state == PrintJobState.COMPLETED, 1), else_=0)),
+            func.sum(case((PrintJob.state.in_([PrintJobState.COMPLETED, PrintJobState.FAILED]), 1), else_=0)),
+            func.max(PrintJob.finished_at),
+            func.avg(PrintJob.actual_duration_s),
+            func.sum(PrintJob.cost),
+        )
+        .where(PrintJob.model_id.in_(model_ids), live(PrintJob))  # type: ignore[union-attr]
+        .group_by(PrintJob.model_id)
+    ).all():
+        summary = summaries.setdefault(int(model_id), PrintSummaryRead())
+        summary.success_rate = float(completed or 0) / int(decided) if decided else None
+        summary.last_printed_at = ensure_utc(last_printed) if last_printed else None
+        summary.average_duration_s = float(average_duration) if average_duration is not None else None
+        summary.total_cost = float(total_cost) if total_cost is not None else None
+
     # One resolution for the whole page: per-row lookups cost two queries each.
     roles = rbac.effective_roles_for_collections(
         session, user, (m.collection_id for m in rows)
@@ -551,6 +600,7 @@ def list_items(
                 print_summary=summaries.get(m.id),
                 recommended_revision_status=rec_status,
                 recommended_revision_label=rec_label,
+                starred=m.id in starred_ids,
             )
         )
     return out
@@ -577,6 +627,11 @@ def detail(session: Session, model_id: int, user: User) -> ModelRead | None:
         .outerjoin(Metadata, Metadata.file_id == File.id)
         .order_by(File.version.asc())  # type: ignore[attr-defined]
     ).all()
+    starred = session.exec(
+        select(ModelStar.id).where(
+            ModelStar.user_id == user.id, ModelStar.model_id == model_id
+        )
+    ).first() is not None
 
     return ModelRead(
         id=m.id,  # type: ignore[arg-type]
@@ -594,7 +649,49 @@ def detail(session: Session, model_id: int, user: User) -> ModelRead | None:
         created_at=m.created_at,
         updated_at=m.updated_at,
         files=_file_reads_with_revisions(session, files_with_meta),
+        starred=starred,
     )
+
+
+def artifact_outcomes(
+    session: Session, model_id: int, file_ids: list[int]
+) -> list[dict[str, object]]:
+    """Aggregate measured print outcomes for selected live Artifacts."""
+    ids = list(dict.fromkeys(file_ids))
+    files = session.exec(
+        select(File.id).where(File.model_id == model_id, File.id.in_(ids), live(File))
+    ).all()
+    if len(files) != len(ids):
+        return []
+    jobs = session.exec(
+        select(PrintJob).where(
+            PrintJob.model_id == model_id,
+            PrintJob.file_id.in_(ids),
+            live(PrintJob),
+        )
+    ).all()
+    result: list[dict[str, object]] = []
+    for file_id in ids:
+        rows = [job for job in jobs if job.file_id == file_id]
+        completed = [job for job in rows if job.state == PrintJobState.COMPLETED]
+        failed = [job for job in rows if job.state == PrintJobState.FAILED]
+        cancelled = [job for job in rows if job.state == PrintJobState.CANCELLED]
+        decided = len(completed) + len(failed)
+        durations = [job.actual_duration_s for job in rows if job.actual_duration_s is not None]
+        filament = [job.filament_g_effective for job in rows if job.filament_g_effective is not None]
+        costs = [job.cost for job in rows if job.cost is not None]
+        result.append({
+            "file_id": file_id,
+            "print_count": len(rows),
+            "completed_count": len(completed),
+            "failed_count": len(failed),
+            "cancelled_count": len(cancelled),
+            "success_rate": len(completed) / decided if decided else None,
+            "average_duration_s": sum(durations) / len(durations) if durations else None,
+            "total_filament_g": sum(filament) if filament else None,
+            "total_cost": sum(costs) if costs else None,
+        })
+    return result
 
 
 # ---------------------------------------------------------------------------

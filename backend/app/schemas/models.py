@@ -80,6 +80,7 @@ class ModelRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     files: List[FileRead] = []
+    starred: bool = False
 
 
 class ModelPrinterFileRead(BaseModel):
@@ -121,6 +122,18 @@ class ModelPrintJobRead(BaseModel):
     created_at: datetime
 
 
+class ArtifactOutcomeRead(BaseModel):
+    file_id: int
+    print_count: int = 0
+    completed_count: int = 0
+    failed_count: int = 0
+    cancelled_count: int = 0
+    success_rate: Optional[float] = None
+    average_duration_s: Optional[float] = None
+    total_filament_g: Optional[float] = None
+    total_cost: Optional[float] = None
+
+
 class PrintSummaryRead(BaseModel):
     """Aggregated print metadata for a model's most recent G-code file."""
 
@@ -129,6 +142,10 @@ class PrintSummaryRead(BaseModel):
     filament_weight_g: Optional[float] = None
     material_type: Optional[str] = None
     slicer_name: Optional[str] = None
+    success_rate: Optional[float] = None
+    last_printed_at: Optional[datetime] = None
+    average_duration_s: Optional[float] = None
+    total_cost: Optional[float] = None
 
 
 class ModelListItem(BaseModel):
@@ -149,6 +166,7 @@ class ModelListItem(BaseModel):
     print_summary: Optional[PrintSummaryRead] = None
     recommended_revision_status: Optional[FileRevisionStatus] = None
     recommended_revision_label: Optional[str] = None
+    starred: bool = False
 
 
 class TrashedModelRead(BaseModel):
@@ -195,6 +213,18 @@ class ModelBatchTags(BaseModel):
     model_ids: List[int] = Field(min_length=1, max_length=500)
     add: List[str] = Field(default_factory=list, max_length=100)
     remove: List[str] = Field(default_factory=list, max_length=100)
+
+
+class RevisionBatchLabels(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_ids: List[int] = Field(min_length=1, max_length=500)
+    revision_label: Optional[str] = Field(default=None, max_length=128)
+
+
+class RevisionBatchResult(BaseModel):
+    succeeded_ids: List[int]
+    succeeded_count: int
 
 
 class ModelBatchDelete(BaseModel):
@@ -371,6 +401,7 @@ class CollectionMove(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     parent_id: Optional[int] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
 
 
 class CollectionPermissionUpdate(BaseModel):

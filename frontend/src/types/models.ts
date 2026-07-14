@@ -75,6 +75,7 @@ export interface ModelRead {
   created_at: string;
   updated_at: string;
   files: FileRead[];
+  starred: boolean;
 }
 
 export interface ModelPrinterFileRead {
@@ -113,12 +114,28 @@ export interface ModelPrintJobRead {
   created_at: string;
 }
 
+export interface ArtifactOutcomeRead {
+  file_id: number;
+  print_count: number;
+  completed_count: number;
+  failed_count: number;
+  cancelled_count: number;
+  success_rate: number | null;
+  average_duration_s: number | null;
+  total_filament_g: number | null;
+  total_cost: number | null;
+}
+
 export interface PrintSummaryRead {
   layer_height_mm: number | null;
   estimated_time_s: number | null;
   filament_weight_g: number | null;
   material_type: string | null;
   slicer_name: string | null;
+  success_rate?: number | null;
+  last_printed_at?: string | null;
+  average_duration_s?: number | null;
+  total_cost?: number | null;
 }
 
 export interface ModelListItem {
@@ -139,6 +156,7 @@ export interface ModelListItem {
   print_summary: PrintSummaryRead | null;
   recommended_revision_status?: FileRevisionStatus | null;
   recommended_revision_label?: string | null;
+  starred: boolean;
 }
 
 export interface TrashedModelRead {
@@ -169,6 +187,11 @@ export interface ModelBatchResult {
   failed: ModelBatchFailure[];
   succeeded_count: number;
   failed_count: number;
+}
+
+export interface RevisionBatchResult {
+  succeeded_ids: number[];
+  succeeded_count: number;
 }
 
 export interface StorageUsageRead {
@@ -297,6 +320,17 @@ export interface IngestJobStatus {
   label?: string | null;
   progress?: number | null;
   result?: Record<string, unknown> | null;
+  stage?: "resolving" | "downloading" | "inspecting" | "extracting" | "hashing" | "ingesting" | "thumbnailing" | "completed" | null;
+  current_item?: string | null;
+  processed?: number;
+  total?: number | null;
+  succeeded?: number;
+  deduplicated?: number;
+  skipped?: number;
+  failed?: number;
+  completion?: "completed" | "completed_with_warnings" | "failed_before_import" | null;
+  retryable?: boolean;
+  failed_items?: Array<{ name: string; reason: string; retryable: boolean }>;
 }
 
 export interface ArchiveEntry {
@@ -410,9 +444,30 @@ export interface ListModelsParams {
   q?: string;
   printer_id?: number;
   printer_presence?: "any" | "none";
+  favorites?: boolean;
   limit?: number;
   offset?: number;
 }
+
+export interface SavedViewFilters {
+  collection?: string | null;
+  direct: boolean;
+  tag: string[];
+  q?: string | null;
+  printer_id?: number | null;
+  printer_presence?: "any" | "none" | null;
+  favorites: boolean;
+}
+
+export interface SavedViewRead {
+  id: number;
+  name: string;
+  filters: SavedViewFilters;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelStarRead { model_id: number; starred: boolean }
 
 export interface CollectionCreate {
   name: string;

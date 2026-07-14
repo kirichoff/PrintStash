@@ -308,7 +308,9 @@ def _reindex_changed(
     backend = get_backend()
     assert file_row.id is not None
     if thumb_bytes:
-        backend.write_bytes(thumbnail.to_webp(thumb_bytes), backend.thumbnail_key(file_row.id))
+        backend.write_bytes(
+            thumbnail.to_webp(thumb_bytes), backend.thumbnail_key(file_row.id)
+        )
         backend.delete(backend.legacy_thumbnail_key(file_row.id))
 
     md = session.exec(select(Metadata).where(Metadata.file_id == file_row.id)).first()
@@ -361,6 +363,7 @@ def _finish(
 def scan_library(
     library_id: int,
     *,
+    relative_path: str | None = None,
     job_id: Optional[str] = None,
     session_factory: SessionFactory | None = None,
 ) -> dict:
@@ -386,7 +389,7 @@ def scan_library(
         # restart runs reset_orphaned_scans. Instead, always land in a terminal
         # state (#24 follow-up).
         try:
-            root = Path(library.root_path)
+            root = Path(library.root_path).resolve()
 
             # --- Safety guard: never mass-delete on an unmounted/unreadable root.
             if not root.exists() or not root.is_dir() or not os.access(root, os.R_OK):
@@ -408,7 +411,16 @@ def scan_library(
             session.add(library)
             session.commit()
 
-            disk = _walk(root)
+            scan_root = root
+            if relative_path:
+                candidate = (root / relative_path).resolve()
+                if candidate != root and root not in candidate.parents:
+                    raise ValueError("path_outside_library_root")
+                if not candidate.is_dir() or not os.access(candidate, os.R_OK):
+                    raise ValueError("path_missing_or_unreadable")
+                scan_root = candidate
+
+            disk = _walk(scan_root)
 
             live_files = session.exec(
                 select(File).where(
@@ -416,6 +428,13 @@ def scan_library(
                     live(File),
                 )
             ).all()
+            if relative_path:
+                prefix = str(scan_root) + os.sep
+                live_files = [
+                    row
+                    for row in live_files
+                    if row.path == str(scan_root) or row.path.startswith(prefix)
+                ]
             db_by_path = {f.path: f for f in live_files}
 
             if not disk and db_by_path:
@@ -433,7 +452,13 @@ def scan_library(
                 return summary.as_dict()
 
             if job_id:
-                registry.update(job_id, state="running", total_steps=len(disk) or 1)
+                registry.update(
+                    job_id,
+                    state="running",
+                    stage="hashing",
+                    total_steps=len(disk) or 1,
+                    total=len(disk),
+                )
 
             for index, (path, (size, mtime)) in enumerate(disk.items(), start=1):
                 if job_id:
@@ -441,7 +466,10 @@ def scan_library(
                         job_id,
                         step=index,
                         total_steps=len(disk),
-                        label=f"scanning {Path(path).name}",
+                        label="hashing",
+                        stage="hashing",
+                        current_item=Path(path).name,
+                        processed=index,
                         progress=index / len(disk) * 100,
                     )
                 existing = db_by_path.get(path)
@@ -489,7 +517,21 @@ def scan_library(
             if job_id:
                 # The job itself completed even with per-file errors; the PARTIAL
                 # signal lives on the library status and in result.errors.
-                registry.update(job_id, state="completed", result=summary.as_dict())
+                registry.update(
+                    job_id,
+                    state="completed",
+                    result=summary.as_dict(),
+                    processed=len(disk),
+                    total=len(disk),
+                    succeeded=summary.added + summary.updated,
+                    skipped=summary.skipped,
+                    failed=len(summary.errors),
+                    retryable=bool(summary.errors),
+                    failed_items=[
+                        {"name": item.split(":", 1)[0], "reason": item.split(":", 1)[-1], "retryable": True}
+                        for item in summary.errors
+                    ],
+                )
         except Exception as exc:  # noqa: BLE001 — never leave the row RUNNING
             logger.exception("scan[lib=%s] crashed", library_id)
             summary.error = f"scan_failed: {exc}"
@@ -577,7 +619,9 @@ def libraries_due_for_scan(session: Session) -> list[int]:
     """
     now = utcnow()
     due: list[int] = []
-    for lib in session.exec(select(ExternalLibrary).where(ExternalLibrary.enabled == True)).all():  # noqa: E712
+    for lib in session.exec(
+        select(ExternalLibrary).where(ExternalLibrary.enabled)
+    ).all():
         if lib.id is None:
             continue
         if lib.last_scan_status == ExternalLibraryScanStatus.RUNNING:

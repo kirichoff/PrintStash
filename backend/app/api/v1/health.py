@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import func, text
 from sqlalchemy.engine.url import make_url
 from sqlmodel import select
 
 from app.core.config import settings
+from app.core.security import require_superuser
 from app.db.models import (
     ExternalLibrary,
     ExternalLibraryScanStatus,
@@ -20,6 +21,7 @@ from app.db.models import (
 from app.db.scopes import live
 from app.db.session import get_session_factory
 from app.services.printer_provider import provider_diagnostic_summary
+from app.services.release_check import get_release_status
 from app.services.storage_backend import get_backend
 
 router = APIRouter(tags=["health"])
@@ -204,7 +206,8 @@ def _spoolman_probe() -> dict:
 
 
 @router.get(
-    "/health",
+    "/health/details",
+    dependencies=[Depends(require_superuser)],
     summary="Operational health probe",
     description=(
         "Returns service identity, database/storage/backup readiness, and "
@@ -212,7 +215,7 @@ def _spoolman_probe() -> dict:
         "self-hosted release verification."
     ),
 )
-def health() -> dict:
+def health_details() -> dict:
     out = {
         "status": "ok",
         "name": settings.app_name,
@@ -233,3 +236,17 @@ def health() -> dict:
         if not component.get("ok", False):
             _mark_degraded(out)
     return out
+
+
+@router.get("/health", summary="Minimal liveness probe")
+def health() -> dict:
+    return {"status": "ok", "name": settings.app_name}
+
+
+@router.get(
+    "/health/releases/latest",
+    dependencies=[Depends(require_superuser)],
+    summary="Check for a newer PrintStash release",
+)
+async def latest_release(refresh: bool = False) -> dict:
+    return await get_release_status(settings.app_version, force=refresh)

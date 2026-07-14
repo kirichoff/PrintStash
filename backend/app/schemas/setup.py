@@ -16,19 +16,20 @@ class SetupStatus(BaseModel):
     """
 
     configured: bool
-    user_count: int
-    default_data_dir: str
-    default_thumb_dir: str
-    current_data_dir: str
-    current_thumb_dir: str
-    current_storage_backend: str = "local"
-    current_s3_bucket: str = ""
-    current_s3_endpoint_url: str = ""
-    current_s3_region: str = "auto"
-    current_backup_retention_days: int = 30
-    current_backup_s3_bucket: str = ""
-    current_backup_s3_endpoint_url: str = ""
-    current_backup_s3_region: str = "auto"
+    setup_token_required: Optional[bool] = None
+    user_count: int = 0
+    default_data_dir: Optional[str] = None
+    default_thumb_dir: Optional[str] = None
+    current_data_dir: Optional[str] = None
+    current_thumb_dir: Optional[str] = None
+    current_storage_backend: Optional[str] = None
+    current_s3_bucket: Optional[str] = None
+    current_s3_endpoint_url: Optional[str] = None
+    current_s3_region: Optional[str] = None
+    current_backup_retention_days: Optional[int] = None
+    current_backup_s3_bucket: Optional[str] = None
+    current_backup_s3_endpoint_url: Optional[str] = None
+    current_backup_s3_region: Optional[str] = None
     configured_at: Optional[datetime] = None
 
 
@@ -37,6 +38,7 @@ class SetupRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    setup_token: str = Field(min_length=16, max_length=256)
     username: str = Field(min_length=3, max_length=128)
     password: str = Field(min_length=8, max_length=256)
     email: Optional[str] = Field(default=None, max_length=255)

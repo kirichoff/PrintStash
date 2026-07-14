@@ -8,7 +8,6 @@ import {
   useState,
 } from "react";
 import {
-  getToken,
   getUser,
   isLoggedIn,
   storeLogin,
@@ -16,13 +15,13 @@ import {
   onAuthChange,
   type StoredUser,
 } from "@/lib/auth-store";
-import { login as apiLogin, getMe } from "@/lib/api";
+import { login as apiLogin, logout as apiLogout, getMe } from "@/lib/api";
 
 interface AuthState {
   user: StoredUser | null;
   loading: boolean;
   login: (username: string, password: string, remember_me?: boolean) => Promise<void>
-  logout: () => void;
+  logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -30,7 +29,7 @@ const AuthContext = createContext<AuthState>({
   user: null,
   loading: true,
   login: async () => {},
-  logout: () => {},
+  logout: async () => {},
   refresh: async () => {},
 });
 
@@ -58,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: u.email,
           is_superuser: u.is_superuser,
         };
-        storeLogin(getToken()!, stored, { silent: true });
+        storeLogin("", stored, { silent: true });
         setUser(stored);
       })
       .catch(() => {
@@ -94,9 +93,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const logout = useCallback(() => {
-    clearLogin();
-    setUser(null);
+  const logout = useCallback(async () => {
+    try {
+      await apiLogout();
+    } finally {
+      clearLogin();
+      setUser(null);
+    }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -109,7 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: me.email,
         is_superuser: me.is_superuser,
       };
-      storeLogin(getToken()!, stored, { silent: true });
+      storeLogin("", stored, { silent: true });
       setUser(stored);
     } catch {
       clearLogin();

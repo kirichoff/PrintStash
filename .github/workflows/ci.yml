@@ -73,11 +73,7 @@ jobs:
         run: uv run bandit -ll -r app/
 
       - name: Dependency audit (pip-audit)
-        # ecdsa (pulled in by python-jose) has an open, unfixed timing
-        # side-channel advisory (PYSEC-2026-1325) with no patched release.
-        # PrintStash signs JWTs with HS256 (HMAC), never ECDSA, so the
-        # vulnerable code path is unused — see app/core/config.py:jwt_algorithm.
-        run: uv run pip-audit --strict --ignore-vuln PYSEC-2026-1325
+        run: uv run pip-audit --strict
 
   migration-upgrade:
     name: Migration upgrade (oldest supported release -> head)
@@ -112,7 +108,7 @@ jobs:
         run: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build --wait --wait-timeout 180 api frontend
 
       - name: Hit /health
-        run: curl -fsS http://localhost:8000/api/v1/health
+        run: curl -fsS http://localhost:3000/api/v1/health
 
       - name: Compose logs on failure
         if: failure()

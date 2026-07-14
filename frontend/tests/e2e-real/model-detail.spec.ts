@@ -8,7 +8,7 @@ test("log a manual print against an ad-hoc printer; it shows in history", async 
 
   await modelCard(page, name).click();
   await expect(page.getByRole("heading", { name })).toBeVisible();
-  await page.getByRole("tab", { name: "History" }).click();
+  await page.getByRole("tab", { name: /History/ }).click();
   await page.getByRole("button", { name: /Add Record/ }).click();
 
   // Free-text printer name path: pick "Other (not listed)…" and type a name.
@@ -37,14 +37,16 @@ test("edit a model's tags: Cancel discards, Save persists", async ({ page }) => 
   const tagInput = page.getByPlaceholder("Search or create — press Enter");
 
   // Cancel discards: inline-create a tag in edit mode, then cancel.
-  await page.getByRole("button", { name: /^Edit$/ }).click();
+  await page.getByRole("button", { name: "Model actions" }).click();
+  await page.getByRole("menuitem", { name: "Edit details" }).click();
   await tagInput.fill(dropTag);
   await tagInput.press("Enter");
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByText(dropTag, { exact: true })).toHaveCount(0);
 
   // Save persists: inline-create a different tag and save — it shows as a chip.
-  await page.getByRole("button", { name: /^Edit$/ }).click();
+  await page.getByRole("button", { name: "Model actions" }).click();
+  await page.getByRole("menuitem", { name: "Edit details" }).click();
   await tagInput.fill(keepTag);
   await tagInput.press("Enter");
   await page.getByRole("button", { name: /^Save$/ }).click();

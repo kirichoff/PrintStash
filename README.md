@@ -14,7 +14,7 @@ Upload manually or let OrcaSlicer push new G-code after every slice, then find
 files by model name, collection, tags, slicer metadata, material, printer, and
 print history.
 
-![PrintStash demo](screenshots/00-demo.gif)
+![PrintStash demo](screenshots/00-demo-v010.gif)
 
 [![Release](https://img.shields.io/github/v/release/xiao-villamor/PrintStash?style=flat-square&color=22c55e&include_prereleases&sort=semver)](https://github.com/xiao-villamor/PrintStash/releases)
 [![CI](https://github.com/xiao-villamor/PrintStash/actions/workflows/ci.yml/badge.svg)](https://github.com/xiao-villamor/PrintStash/actions/workflows/ci.yml)
@@ -186,7 +186,7 @@ build overlay: `docker compose -f docker-compose.yml -f docker-compose.build.yml
 `PRINTSTASH_VERSION` (the image tag); set it in `.env` and bump it to upgrade:
 
 ```bash
-echo "PRINTSTASH_VERSION=0.6.4" >> .env   # pin; omit to track latest
+echo "PRINTSTASH_VERSION=0.9.0" >> .env   # pin latest shipped release; omit to track latest
 ```
 
 By default the compose files track `latest`. Pin `PRINTSTASH_VERSION` when you
@@ -205,35 +205,23 @@ username or password.
 
 ## Screenshots
 
-### Library & organization
+### Library, inspection, and revisions
 
-| Asset grid | Search | Collections & filters |
+| Vault overview | Model detail | G-code toolpaths |
 | --- | --- | --- |
-| ![Asset grid](screenshots/01-asset-grid.png) | ![Search](screenshots/03-search.png) | ![Collections filter](screenshots/02-collections-filter.png) |
+| ![A populated PrintStash vault with collections, filters, favorites, and saved views](screenshots/01-vault-overview.png) | ![Model detail with the interactive 3D viewer and recommended G-code](screenshots/02-model-detail.png) | ![G-code toolpath preview with layer navigation](screenshots/03-gcode-viewer.png) |
 
-### Model detail
+### Workflow and insights
 
-| Overview | 3D viewer | G-code toolpaths |
+| Artifact comparison | Live printer | Statistics |
 | --- | --- | --- |
-| ![Model detail](screenshots/04-model-detail.png) | ![3D viewer](screenshots/05-3d-viewer.png) | ![G-code viewer](screenshots/06-gcode-viewer.png) |
-
-### Revisions & printers
-
-| G-code revisions | Live printer status | Printer files | Printer diagnostics |
-| --- | --- | --- | --- |
-| ![Revisions](screenshots/07-revisions.png) | ![Printer status](screenshots/09-printers.png) | ![Printer files](screenshots/17-printer-files.png) | ![Printer diagnostics](screenshots/13-printer-diagnostics.png) |
-
-### Settings & administration
-
-| Overview | Users & access | Storage | Design |
-| --- | --- | --- | --- |
-| ![Settings overview](screenshots/10-settings.png) | ![Users & access](screenshots/14-settings-access.png) | ![Storage](screenshots/15-settings-storage.png) | ![Design](screenshots/16-settings-design.png) |
+| ![Side-by-side comparison of two G-code revisions](screenshots/04-artifact-compare.png) | ![Live Moonraker printer progress, temperatures, and controls](screenshots/05-printer-live.png) | ![Print cost, filament, time, and workload statistics](screenshots/06-statistics.png) |
 
 ### In motion
 
-| Compare G-code revisions | Filter by tag |
+| Organize several models | Compare G-code revisions |
 | --- | --- |
-| ![Revision compare](screenshots/11-revision-compare.gif) | ![Tag filter](screenshots/12-tag-filter.gif) |
+| ![Select several models and apply a tag in one action](screenshots/07-organize-library.gif) | ![Open a model's revision history and compare two G-code artifacts](screenshots/08-revision-compare.gif) |
 
 ## Known Limitations & Beta Notes
 

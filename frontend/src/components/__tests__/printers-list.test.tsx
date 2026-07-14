@@ -23,8 +23,13 @@ const mockUsePrinters = vi.fn<
   error: null,
   refetch: vi.fn(),
 }));
+const mockUsePrinterDashboard = vi.fn<() => { data: Dashboard; refetch: () => void }>(() => ({
+  data: { total_printers: 0, status_counts: {}, active_jobs: 0, groups: [] },
+  refetch: vi.fn(),
+}));
 vi.mock("@/lib/queries", () => ({
   usePrinters: () => mockUsePrinters(),
+  usePrinterDashboard: () => mockUsePrinterDashboard(),
 }));
 vi.mock("@/lib/use-require-auth", () => ({
   useRequireAuth: () => ({ isAuthenticated: true, showAuthRequiredToast: vi.fn() }),
@@ -39,7 +44,7 @@ vi.mock("@/lib/toast", () => ({
 }));
 
 import { createPrinter, updatePrinter } from "@/lib/api";
-import type { PrinterRead } from "@/types";
+import type { Dashboard, PrinterRead } from "@/types";
 
 function makePrinter(overrides: Partial<PrinterRead> = {}): PrinterRead {
   return {
@@ -75,6 +80,8 @@ function makePrinter(overrides: Partial<PrinterRead> = {}): PrinterRead {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockUsePrinters.mockReturnValue({ data: [], isLoading: false, error: null, refetch: vi.fn() });
+  mockUsePrinterDashboard.mockReturnValue({ data: { total_printers: 0, status_counts: {}, active_jobs: 0, groups: [] }, refetch: vi.fn() });
   window.localStorage.clear();
 });
 
@@ -175,6 +182,36 @@ describe("printer setup", () => {
 });
 
 describe("printer card", () => {
+  it("summarizes fleet health and filters by printer group", async () => {
+    mockUsePrinters.mockReturnValue({
+      data: [
+        makePrinter({ id: 1, name: "Workshop Voron", group: "Workshop", status: "printing" }),
+        makePrinter({ id: 2, name: "Garage Prusa", group: "Garage", status: "offline" }),
+      ],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    mockUsePrinterDashboard.mockReturnValue({
+      data: {
+        total_printers: 2,
+        status_counts: { printing: 1, offline: 1 },
+        active_jobs: 1,
+        groups: [
+          { name: "Garage", count: 1, status_counts: { offline: 1 } },
+          { name: "Workshop", count: 1, status_counts: { printing: 1 } },
+        ],
+      },
+      refetch: vi.fn(),
+    });
+
+    render(<PrintersPage />);
+    expect(screen.getByLabelText("Fleet summary")).toHaveTextContent("1");
+    await userEvent.click(screen.getByRole("button", { name: /Workshop1/ }));
+    expect(screen.getByRole("link", { name: "Workshop Voron" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Garage Prusa" })).not.toBeInTheDocument();
+  });
+
   it("shows optional printer artwork only when enabled in display settings", () => {
     mockUsePrinters.mockReturnValue({
       data: [makePrinter()],

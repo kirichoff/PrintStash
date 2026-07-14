@@ -1,5 +1,5 @@
 import { test, expect } from "./helpers";
-import { modelCard, uploadModel } from "./util";
+import { createCollectionViaVault, modelCard, uploadModel } from "./util";
 
 test("upload an STL mesh-only model; the mesh lands as the source", async ({ page }) => {
   const name = `e2e-stl-${Date.now()}`;
@@ -17,10 +17,7 @@ test("upload into a chosen collection", async ({ page }) => {
   const col = `e2e-upcol-${Date.now()}`;
   const name = `e2e-upmodel-${Date.now()}`;
 
-  await page.goto("/organize");
-  await page.getByPlaceholder("New collection...").fill(col);
-  await page.getByPlaceholder("New collection...").press("Enter");
-  await expect(page.getByRole("button", { name: `Delete ${col}` })).toBeVisible();
+  await createCollectionViaVault(page, col);
 
   // uploadModel with a collection waits inside that collection's view.
   await uploadModel(page, name, { collection: col });

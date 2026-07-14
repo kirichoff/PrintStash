@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "@/lib/navigation";
-import { CollectionRead, ModelListItem, PrinterRead, TagRead } from "@/types";
+import { CollectionRead, ModelBatchResult, ModelListItem, PrinterRead, SavedViewRead, TagRead } from "@/types";
 import { ModelCard, MODEL_DND_MIME } from "@/components/model-card";
 import { BatchToolbar } from "@/components/batch-toolbar";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,10 +15,13 @@ import { UploadModal, UploadMode } from "@/components/upload-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
+import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { SavedViewSelector } from "@/components/saved-view-selector";
 import { useMobileFilterDrawer } from "@/lib/mobile-filter-context";
 import {
   SlidersHorizontal,
-  BookOpen,
   Grid,
   List,
   FileText,
@@ -28,8 +31,14 @@ import {
   ChevronRight,
   Plus,
   CheckSquare,
+  Star,
+  ArrowUpDown,
+  Rows3,
+  History,
+  Check,
+  ChevronDown,
 } from "lucide-react";
-import { createCollection, updateModel, moveCollection, deleteCollection, batchMoveModels, batchTagModels, batchDeleteModels, } from "@/lib/api";
+import { createCollection, updateModel, moveCollection, renameCollection, deleteCollection, batchMoveModels, batchTagModels, batchDeleteModels, createSavedView, updateSavedView, deleteSavedView, listSavedViews, listModels, restoreModel } from "@/lib/api";
 import { isMeshFile, isGcodeFile, extensionOf, walkEntries, entriesFromDataTransfer, BulkItem } from "@/lib/bulk-upload";
 import { useCollections, useModelList, useOutlinerModels, usePrinters, useTags, useVaultStats, type ModelListFilters, } from "@/lib/queries";
 import { queryKeys, refreshVaultAfterIngest } from "@/lib/query-client";
@@ -41,13 +50,31 @@ import { timeAgo } from "@/lib/format";
 import { rememberLastCollection, readLastView, rememberLastView } from "@/lib/last-collection";
 import { useAuthenticatedAssetUrl } from "@/lib/use-authenticated-asset-url";
 
-type SortKey = "date-desc" | "date-asc" | "name-asc" | "name-desc";
+type SortKey = "date-desc" | "date-asc" | "name-asc" | "name-desc" | "success-desc" | "printed-desc" | "duration-asc" | "filament-asc" | "cost-asc";
 type ViewMode = "grid" | "list";
 
 const PAGE_SIZE = 60;
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "date-desc", label: "Newest" }, { value: "date-asc", label: "Oldest" },
+  { value: "name-asc", label: "Name A–Z" }, { value: "name-desc", label: "Name Z–A" },
+  { value: "success-desc", label: "Best success rate" }, { value: "printed-desc", label: "Recently printed" },
+  { value: "duration-asc", label: "Shortest print" }, { value: "filament-asc", label: "Least filament" },
+  { value: "cost-asc", label: "Lowest cost" },
+];
+
+function readVaultPreference(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(key);
+}
+
+function readRecentFolders(): string[] {
+  try { return JSON.parse(readVaultPreference("ps-recent-folders") ?? "[]") as string[]; }
+  catch { return []; }
+}
 
 function sortModels(models: ModelListItem[], key: SortKey): ModelListItem[] {
   const sorted = [...models];
+  const numeric = (value: number | null | undefined) => value ?? Number.POSITIVE_INFINITY;
   switch (key) {
     case "date-desc":
       sorted.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
@@ -61,6 +88,11 @@ function sortModels(models: ModelListItem[], key: SortKey): ModelListItem[] {
     case "name-desc":
       sorted.sort((a, b) => b.name.localeCompare(a.name));
       break;
+    case "success-desc": sorted.sort((a, b) => (b.print_summary?.success_rate ?? -1) - (a.print_summary?.success_rate ?? -1)); break;
+    case "printed-desc": sorted.sort((a, b) => (b.print_summary?.last_printed_at ? new Date(b.print_summary.last_printed_at).getTime() : 0) - (a.print_summary?.last_printed_at ? new Date(a.print_summary.last_printed_at).getTime() : 0)); break;
+    case "duration-asc": sorted.sort((a, b) => numeric(a.print_summary?.average_duration_s ?? a.print_summary?.estimated_time_s) - numeric(b.print_summary?.average_duration_s ?? b.print_summary?.estimated_time_s)); break;
+    case "filament-asc": sorted.sort((a, b) => numeric(a.print_summary?.filament_weight_g) - numeric(b.print_summary?.filament_weight_g)); break;
+    case "cost-asc": sorted.sort((a, b) => numeric(a.print_summary?.total_cost) - numeric(b.print_summary?.total_cost)); break;
   }
   return sorted;
 }
@@ -137,10 +169,26 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   // and send-to dialog; gated so non-admins don't fetch a list they can't use.
   const printers =
     usePrinters({ enabled: !!user?.is_superuser }).data ?? initial?.printers ?? [];
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(null);
-  const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [selectedTags, setSelectedTags] = useState<string[]>(() => searchParams.getAll("tag"));
+  const [selectedPrinterId, setSelectedPrinterId] = useState<number | null>(() => {
+    const value = searchParams.get("printer_id"); return value ? Number(value) : null;
+  });
+  const [selectedPrinterPresence, setSelectedPrinterPresence] = useState<"any" | "none" | null>(() => {
+    const value = searchParams.get("printer_presence"); return value === "any" || value === "none" ? value : null;
+  });
+  const [favoritesOnly, setFavoritesOnly] = useState(searchParams.get("favorites") === "true");
+  const [savedViews, setSavedViews] = useState<SavedViewRead[]>([]);
+  const [activeSavedViewId, setActiveSavedViewId] = useState<number | null>(null);
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [saveViewName, setSaveViewName] = useState("");
+  const [saveViewBusy, setSaveViewBusy] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => readVaultPreference("ps-vault-view") === "list" ? "list" : "grid");
+  const [sortKey, setSortKey] = useState<SortKey>(() => (readVaultPreference("ps-vault-sort") as SortKey | null) ?? "date-desc");
+  const [sortOpen, setSortOpen] = useState(false);
+  const [displayOpen, setDisplayOpen] = useState(false);
+  const [compact, setCompact] = useState(() => readVaultPreference("ps-vault-density") === "compact");
+  const [recentFolders, setRecentFolders] = useState<string[]>(readRecentFolders);
+  const [recentFoldersOpen, setRecentFoldersOpen] = useState(false);
   // Seed from the URL (`?v=docs`), falling back to the remembered tab, so
   // returning from a document (Back or the logo) lands on the Documents tab
   // instead of resetting to Models.
@@ -149,6 +197,15 @@ export function ModelBrowser({ initial }: { initial?: BrowserInitialData }) {
   );
   const [uploadOpen, setUploadOpen] = useState(false);
   const [dropPreload, setDropPreload] = useState<{ files: File[]; items?: BulkItem[]; mode: UploadMode } | null>(null);
+
+  useEffect(() => {
+    const reviewImport = () => {
+      setDropPreload({ files: [], mode: "url" });
+      setUploadOpen(true);
+    };
+    window.addEventListener("printstash:review-import", reviewImport);
+    return () => window.removeEventListener("printstash:review-import", reviewImport);
+  }, []);
 const [dropCollection, setDropCollection] = useState<string | null>(null);
 const [isDragging, setIsDragging] = useState(false);
 const dragEnterCount = useRef(0);
@@ -214,6 +271,39 @@ async function onMainDrop(e: React.DragEvent) {
   const [newCollectionName, setNewCollectionName] = useState("");
   const { open: filterDrawerOpen, openDrawer, closeDrawer } = useMobileFilterDrawer();
 
+  useEffect(() => {
+    function restoreFiltersFromHistory() {
+      const params = new URLSearchParams(window.location.search);
+      setSelectedTags(params.getAll("tag"));
+      const printerId = params.get("printer_id");
+      setSelectedPrinterId(printerId ? Number(printerId) : null);
+      const presence = params.get("printer_presence");
+      setSelectedPrinterPresence(presence === "any" || presence === "none" ? presence : null);
+      setFavoritesOnly(params.get("favorites") === "true");
+    }
+    window.addEventListener("popstate", restoreFiltersFromHistory);
+    return () => window.removeEventListener("popstate", restoreFiltersFromHistory);
+  }, []);
+
+  // Keep every filter URL-backed. Saved views, reload, Back, and copied links now
+  // restore the same result set instead of only preserving search/folder state.
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("tag");
+    selectedTags.forEach((tag) => params.append("tag", tag));
+    if (selectedPrinterId !== null) params.set("printer_id", String(selectedPrinterId));
+    else params.delete("printer_id");
+    if (selectedPrinterPresence !== null) params.set("printer_presence", selectedPrinterPresence);
+    else params.delete("printer_presence");
+    const next = params.toString();
+    if (next !== searchParams.toString()) router.replace(next ? `/?${next}` : "/", { scroll: false });
+  }, [router, searchParams, selectedPrinterId, selectedPrinterPresence, selectedTags]);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated) { setSavedViews([]); return; }
+    listSavedViews().then(setSavedViews).catch(() => setSavedViews([]));
+  }, [auth.isAuthenticated]);
+
   // Collection selection lives in the URL (`?c=<path>`) so it resets when the
   // user navigates away (e.g. to Settings) and clicks "Vault" again — that link
   // points at "/" with no param. Deriving it straight from the param (instead of
@@ -225,6 +315,11 @@ async function onMainDrop(e: React.DragEvent) {
     // Remember the folder we're in so the logo / post-delete nav can return
     // here instead of resetting to the root once the `?c=` param is dropped.
     rememberLastCollection(selectedCollection);
+    if (selectedCollection) setRecentFolders((current) => {
+      const next = [selectedCollection, ...current.filter((item) => item !== selectedCollection)].slice(0, 6);
+      localStorage.setItem("ps-recent-folders", JSON.stringify(next));
+      return next;
+    });
   }, [selectedCollection]);
 
   // Remember the active tab so the logo / Back return to it (e.g. opening a
@@ -266,7 +361,72 @@ async function onMainDrop(e: React.DragEvent) {
       canViewPrinters && selectedPrinterId === null
         ? selectedPrinterPresence ?? undefined
         : undefined,
+    favorites: favoritesOnly || undefined,
   };
+
+  function writeFilterUrl(filters: SavedViewRead["filters"]) {
+    const params = new URLSearchParams();
+    if (filters.collection) params.set("c", filters.collection);
+    if (filters.q) params.set("q", filters.q);
+    filters.tag.forEach((tag) => params.append("tag", tag));
+    if (filters.printer_id) params.set("printer_id", String(filters.printer_id));
+    if (filters.printer_presence) params.set("printer_presence", filters.printer_presence);
+    if (filters.favorites) params.set("favorites", "true");
+    router.replace(params.size ? `/?${params}` : "/", { scroll: false });
+  }
+
+  function applySavedView(view: SavedViewRead) {
+    setActiveSavedViewId(view.id);
+    setSelectedTags(view.filters.tag);
+    setSelectedPrinterId(view.filters.printer_id ?? null);
+    setSelectedPrinterPresence(view.filters.printer_presence ?? null);
+    setFavoritesOnly(view.filters.favorites);
+    setSelectedIds(new Set());
+    writeFilterUrl(view.filters);
+  }
+
+  async function saveCurrentView() {
+    const name = saveViewName.trim();
+    if (!name) return;
+    setSaveViewBusy(true);
+    try {
+      const created = await createSavedView(name, currentViewFilters());
+      setSavedViews((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setSaveViewOpen(false);
+      setSaveViewName("");
+      toast.success("View saved");
+    } catch (error) { toast.error(error); }
+    finally { setSaveViewBusy(false); }
+  }
+
+  function currentViewFilters(): SavedViewRead["filters"] {
+    return { collection: selectedCollection, direct: !searchQuery, tag: selectedTags, q: searchQuery ?? null, printer_id: selectedPrinterId, printer_presence: selectedPrinterPresence, favorites: favoritesOnly };
+  }
+
+  const activeSavedView = savedViews.find((view) => view.id === activeSavedViewId) ?? null;
+  const savedViewModified = activeSavedView !== null && JSON.stringify({
+    ...activeSavedView.filters,
+    collection: activeSavedView.filters.collection ?? null,
+    q: activeSavedView.filters.q ?? null,
+    printer_id: activeSavedView.filters.printer_id ?? null,
+    printer_presence: activeSavedView.filters.printer_presence ?? null,
+    tag: [...activeSavedView.filters.tag].sort(),
+  }) !== JSON.stringify({
+    ...currentViewFilters(),
+    tag: [...selectedTags].sort(),
+  });
+
+  async function manageSavedView(action: () => Promise<SavedViewRead | void>, success: string) {
+    try { await action(); setSavedViews(await listSavedViews()); toast.success(success); }
+    catch (error) { toast.error(error); throw error; }
+  }
+
+  function duplicateViewName(name: string): string {
+    const used = new Set(savedViews.map((view) => view.name.toLowerCase()));
+    let candidate = `${name} copy`; let suffix = 2;
+    while (used.has(candidate.toLowerCase())) candidate = `${name} copy ${suffix++}`;
+    return candidate;
+  }
   // The paginated grid. `keepPreviousData` (in the hook) holds the current page
   // on screen while a new search/folder loads, and results are cached per filter
   // set so backspacing a query or re-entering a folder is instant.
@@ -294,10 +454,14 @@ async function onMainDrop(e: React.DragEvent) {
   const refreshing = modelQuery.isFetching && !modelQuery.isFetchingNextPage && !loading;
   const loadingMore = modelQuery.isFetchingNextPage;
   const hasMore = modelQuery.hasNextPage ?? false;
+  const fetchNextPage = modelQuery.fetchNextPage;
   const error = modelQuery.error ? (modelQuery.error as Error).message : null;
   function loadMore() {
-    if (hasMore && !loadingMore) modelQuery.fetchNextPage();
+    if (hasMore && !loadingMore) fetchNextPage();
   }
+  useEffect(() => {
+    if (["success-desc", "printed-desc", "duration-asc", "filament-asc", "cost-asc"].includes(sortKey) && hasMore && !loadingMore) void fetchNextPage();
+  }, [fetchNextPage, hasMore, loadingMore, sortKey]);
   function refresh() {
     queryClient.invalidateQueries({ queryKey: queryKeys.models });
   }
@@ -308,53 +472,195 @@ async function onMainDrop(e: React.DragEvent) {
   // off-screen selection doesn't linger.
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState<Set<number>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
+  const lastSelectedModelId = useRef<number | null>(null);
+  const selectedModelSnapshot = useRef<Map<number, ModelListItem>>(new Map());
+  const sortedModels = useMemo(() => sortModels(models, sortKey), [models, sortKey]);
 
-  const toggleSelect = useCallback((id: number) => {
+  const toggleSelect = useCallback((id: number, range = false) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (range && lastSelectedModelId.current !== null) {
+        const from = sortedModels.findIndex((model) => model.id === lastSelectedModelId.current);
+        const to = sortedModels.findIndex((model) => model.id === id);
+        if (from >= 0 && to >= 0) sortedModels.slice(Math.min(from, to), Math.max(from, to) + 1).forEach((model) => { next.add(model.id); selectedModelSnapshot.current.set(model.id, model); });
+      } else if (next.has(id)) next.delete(id); else next.add(id);
+      lastSelectedModelId.current = id;
+      const model = sortedModels.find((item) => item.id === id);
+      if (model) selectedModelSnapshot.current.set(id, model);
       return next;
     });
-  }, []);
+  }, [sortedModels]);
+
+  function toggleCollectionSelect(id: number) {
+    setSelectedCollectionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
+    setSelectedCollectionIds(new Set());
     setSelectMode(false);
   }, []);
 
-  const sortedModels = useMemo(() => sortModels(models, "date-desc"), [models]);
-
   function selectAllVisible() {
     setSelectedIds(new Set(sortedModels.map((m) => m.id)));
+    selectedModelSnapshot.current = new Map(sortedModels.map((model) => [model.id, model]));
+    setSelectedCollectionIds(new Set(visibleCollections.map((collection) => collection.id)));
   }
 
-  function summarizeBatch(verb: string, result: { succeeded_count: number; failed_count: number }) {
-    if (result.succeeded_count > 0) toast.success(`${verb} ${result.succeeded_count}`);
-    if (result.failed_count > 0) {
-      toast.warning(`${result.failed_count} skipped (no permission)`);
+  async function selectAllMatching() {
+    setSelectingAll(true);
+    try {
+      const all: ModelListItem[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const page = await listModels({ ...baseFilters, collection: selectedCollection ?? undefined, direct: !searchQuery, q: searchQuery, limit: 500, offset });
+        all.push(...page);
+        if (page.length < 500) break;
+      }
+      setSelectedIds(new Set(all.map((model) => model.id)));
+      selectedModelSnapshot.current = new Map(all.map((model) => [model.id, model]));
+      toast.info(`${all.length} matching models selected`);
+    } catch (error) { toast.error(error); }
+    finally { setSelectingAll(false); }
+  }
+
+  async function batchInChunks(operation: (ids: number[]) => Promise<ModelBatchResult>): Promise<ModelBatchResult> {
+    const result: ModelBatchResult = { succeeded_ids: [], failed: [], succeeded_count: 0, failed_count: 0 };
+    for (let index = 0; index < selectedIdList.length; index += 500) {
+      const part = await operation(selectedIdList.slice(index, index + 500));
+      result.succeeded_ids.push(...part.succeeded_ids); result.failed.push(...part.failed);
+      result.succeeded_count += part.succeeded_count; result.failed_count += part.failed_count;
     }
+    return result;
+  }
+
+  const selectedIdList = Array.from(selectedIds);
+  const selectedCollections = useMemo(
+    () => collections.filter((collection) => selectedCollectionIds.has(collection.id)),
+    [collections, selectedCollectionIds],
+  );
+  const selectionCount = selectedIds.size + selectedCollectionIds.size;
+
+  useEffect(() => {
+    function onShortcut(event: KeyboardEvent) {
+      const target = event.target as HTMLElement;
+      const typing = target.matches("input, textarea, select, [contenteditable=true]");
+      if (event.key === "/" && !typing) {
+        event.preventDefault(); document.querySelector<HTMLInputElement>('[aria-label="Search models"]')?.focus();
+      } else if (event.key.toLowerCase() === "s" && !typing && auth.isAuthenticated) {
+        event.preventDefault(); setSelectMode(true);
+      } else if (event.key === "Escape" && selectionCount > 0 && !typing) clearSelection();
+    }
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, [auth.isAuthenticated, clearSelection, selectionCount]);
+
+  async function runCollectionBatch(
+    verb: string,
+    operation: (collection: CollectionRead) => Promise<unknown>,
+  ) {
+    setBatchBusy(true);
+    let succeeded = 0;
+    let failed = 0;
+    const failedFolders: string[] = [];
+    for (const collection of selectedCollections) {
+      try { await operation(collection); succeeded += 1; }
+      catch { failed += 1; failedFolders.push(collection.path); }
+    }
+    if (succeeded) toast.success(`${verb} ${succeeded}`);
+    if (failed) toast.warning(`${failed} skipped`, failedFolders.join(" · "));
     refresh();
     clearSelection();
+    setBatchBusy(false);
   }
 
-  async function runBatch<T extends { succeeded_count: number; failed_count: number }>(
-    verb: string,
-    fn: () => Promise<T>,
-  ) {
-    if (!auth.isAuthenticated) { auth.showAuthRequiredToast(); return; }
+  async function moveSelection(target: string, parentId: number | null) {
     setBatchBusy(true);
+    let succeeded = 0;
+    let failed = 0;
+    const movedModelIds: number[] = [];
+    const movedCollections: CollectionRead[] = [];
+    const failureDetails: string[] = [];
+    const originalModels = new Map(selectedModelSnapshot.current);
     try {
-      summarizeBatch(verb, await fn());
-    } catch (e: any) {
-      toast.error(e);
-    } finally {
-      setBatchBusy(false);
-    }
+      if (selectedIdList.length) {
+        const result = await batchInChunks((ids) => batchMoveModels(ids, target));
+        succeeded += result.succeeded_count;
+        failed += result.failed_count;
+        movedModelIds.push(...result.succeeded_ids);
+        failureDetails.push(...result.failed.map((failure) => `Model #${failure.model_id}: ${failure.reason}`));
+      }
+      for (const collection of selectedCollections) {
+        try { await moveCollection(collection.id, parentId); succeeded += 1; movedCollections.push(collection); }
+        catch { failed += 1; failureDetails.push(`Folder: ${collection.path}`); }
+      }
+      if (succeeded) toast.undo(`Moved ${succeeded}`, async () => {
+        const groups = new Map<string, number[]>();
+        for (const id of movedModelIds) {
+          const original = originalModels.get(id)?.collection ?? "";
+          groups.set(original, [...(groups.get(original) ?? []), id]);
+        }
+        for (const [collection, ids] of groups) for (let index = 0; index < ids.length; index += 500) await batchMoveModels(ids.slice(index, index + 500), collection);
+        for (const collection of movedCollections) await moveCollection(collection.id, collection.parent_id);
+        refresh(); toast.success("Move undone");
+      });
+      if (failed) toast.warning(`${failed} skipped`, failureDetails.join(" · "));
+      refresh();
+      clearSelection();
+    } catch (error) { toast.error(error); }
+    finally { setBatchBusy(false); }
   }
 
-  const selectedIdList = useMemo(() => Array.from(selectedIds), [selectedIds]);
+  async function deleteSelection() {
+    setBatchBusy(true);
+    let succeeded = 0;
+    let failed = 0;
+    const deletedModelIds: number[] = [];
+    const failureDetails: string[] = [];
+    try {
+      if (selectedIdList.length) {
+        const result = await batchInChunks(batchDeleteModels);
+        succeeded += result.succeeded_count;
+        failed += result.failed_count;
+        deletedModelIds.push(...result.succeeded_ids);
+        failureDetails.push(...result.failed.map((failure) => `Model #${failure.model_id}: ${failure.reason}`));
+      }
+      for (const collection of selectedCollections) {
+        try { await deleteCollection(collection.id, true); succeeded += 1; }
+        catch { failed += 1; failureDetails.push(`Folder: ${collection.path}`); }
+      }
+      if (deletedModelIds.length) toast.undo(`Moved ${deletedModelIds.length} model${deletedModelIds.length !== 1 ? "s" : ""} to trash`, async () => { await Promise.all(deletedModelIds.map(restoreModel)); refresh(); toast.success("Models restored"); });
+      else if (succeeded) toast.success(`Deleted ${succeeded}`);
+      if (failed) toast.warning(`${failed} skipped`, failureDetails.join(" · "));
+      refresh();
+      clearSelection();
+    } catch (error) { toast.error(error); }
+    finally { setBatchBusy(false); }
+  }
+
+  async function tagSelection(add: string[], remove: string[]) {
+    setBatchBusy(true);
+    const originalModels = new Map(selectedModelSnapshot.current);
+    try {
+      const result = await batchInChunks((ids) => batchTagModels(ids, add, remove));
+      if (result.succeeded_count) toast.undo(`Tagged ${result.succeeded_count}`, async () => {
+        for (const id of result.succeeded_ids) {
+          const original = originalModels.get(id);
+          if (original) await updateModel(id, { tags: original.tags });
+        }
+        refresh(); toast.success("Tags restored");
+      });
+      if (result.failed_count) toast.warning(`${result.failed_count} skipped`, result.failed.map((failure) => `#${failure.model_id}: ${failure.reason}`).join(" · "));
+      refresh(); clearSelection();
+    } catch (error) { toast.error(error); }
+    finally { setBatchBusy(false); }
+  }
   // "All Models" is a folder explorer: at the root the grid shows collection
   // cards plus only the models sitting directly at the root, so models.length is
   // the uncollected handful — 0 for a fully-foldered NAS library. When we're at
@@ -374,7 +680,7 @@ async function onMainDrop(e: React.DragEvent) {
   // only collections whose name matches the query (anywhere in the tree), to
   // mirror the matching models. Without a query we fall back to the normal
   // folder explorer (immediate children of the selected collection).
-  const visibleCollections = useMemo(() => {
+  const visibleCollections = (() => {
     const needle = query.trim().toLowerCase();
     if (needle) {
       return collections
@@ -382,7 +688,10 @@ async function onMainDrop(e: React.DragEvent) {
         .sort((a, b) => a.name.localeCompare(b.name));
     }
     return childCollections(collections, selectedCollection);
-  }, [collections, selectedCollection, query]);
+  })();
+  const availableRecentFolders = recentFolders.filter(
+    (path) => path !== selectedCollection && collections.some((collection) => collection.path === path),
+  );
   const breadcrumbs = useMemo(
     () => collectionBreadcrumbs(collections, selectedCollection),
     [collections, selectedCollection],
@@ -482,22 +791,21 @@ async function onMainDrop(e: React.DragEvent) {
     setSelectedTags([]);
     setSelectedPrinterId(null);
     setSelectedPrinterPresence(null);
+    setFavoritesOnly(false);
     setSelectedIds(new Set());
     const params = new URLSearchParams(searchParams.toString());
     params.delete("q");
     params.delete("c");
+    params.delete("tag");
+    params.delete("printer_id");
+    params.delete("printer_presence");
+    params.delete("favorites");
     const qs = params.toString();
     router.replace(qs ? `/?${qs}` : "/", { scroll: false });
   }
 
   const activeFilterItems: { label: string; onRemove: () => void }[] = (() => {
     const items: { label: string; onRemove: () => void }[] = [];
-    if (selectedCollection) {
-      items.push({
-        label: `Collection: ${selectedName ?? selectedCollection}`,
-        onRemove: () => handleCollectionChange(null),
-      });
-    }
     if (query.trim()) {
       items.push({ label: `Search: ${query.trim()}`, onRemove: clearSearch });
     }
@@ -526,6 +834,36 @@ async function onMainDrop(e: React.DragEvent) {
 
   return (
     <>
+      <Modal
+        open={saveViewOpen}
+        onClose={() => { if (!saveViewBusy) { setSaveViewOpen(false); setSaveViewName(""); } }}
+        title="Save current view"
+        className="max-w-md"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(event) => { event.preventDefault(); void saveCurrentView(); }}
+        >
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium text-foreground">View name</span>
+            <Input
+              autoFocus
+              value={saveViewName}
+              onChange={(event) => setSaveViewName(event.target.value)}
+              maxLength={128}
+              placeholder="Ready to print"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => { setSaveViewOpen(false); setSaveViewName(""); }} disabled={saveViewBusy}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={saveViewBusy} disabled={!saveViewName.trim()}>
+              Save view
+            </Button>
+          </div>
+        </form>
+      </Modal>
       <UploadModal
         open={uploadOpen}
         onClose={() => { setUploadOpen(false); setDropPreload(null); setDropCollection(null); }}
@@ -606,10 +944,21 @@ async function onMainDrop(e: React.DragEvent) {
               All Models
             </button>
           )}
+          {availableRecentFolders.length > 0 && <DropdownMenu
+            open={recentFoldersOpen}
+            onOpenChange={setRecentFoldersOpen}
+            align="start"
+            trigger={<button type="button" data-menu-trigger aria-haspopup="menu" aria-expanded={recentFoldersOpen} onClick={() => setRecentFoldersOpen(!recentFoldersOpen)} className="ml-auto flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><History className="h-3.5 w-3.5" /> Recent</button>}
+            contentClassName="w-64 rounded border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+          >
+            <p className="px-2.5 py-1.5 font-mono text-3xs uppercase tracking-wider text-muted-foreground">Recent folders</p>
+            {availableRecentFolders.map((path) => <button key={path} role="menuitem" type="button" onClick={() => { handleCollectionChange(path); setRecentFoldersOpen(false); }} className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs transition-colors hover:bg-popover-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /><span className="truncate">{path}</span></button>)}
+            <button type="button" role="menuitem" onClick={() => { setRecentFolders([]); localStorage.removeItem("ps-recent-folders"); setRecentFoldersOpen(false); }} className="mt-1 w-full border-t border-border px-2.5 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-popover-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Clear recent folders</button>
+          </DropdownMenu>}
         </nav>
 
         {/* Content Top Bar */}
-        <div className="px-4 sm:px-6 py-5 sm:py-8 bg-background border-b border-border">
+        <div className="sticky top-0 z-40 border-b border-border bg-background/95 px-4 py-4 backdrop-blur sm:px-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 flex-col space-y-1">
               <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight truncate">
@@ -620,7 +969,7 @@ async function onMainDrop(e: React.DragEvent) {
                 {refreshing && <span className="ml-2 font-mono text-xs text-muted-foreground">Updating...</span>}
               </p>
             </div>
-            <div className="flex items-center justify-between gap-3 sm:justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={openDrawer}
@@ -650,35 +999,69 @@ async function onMainDrop(e: React.DragEvent) {
                 </Button>
               </div>
               {auth.isAuthenticated && (
-                <Button
-                  variant={selectMode ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => {
-                    if (selectMode) clearSelection();
-                    else setSelectMode(true);
-                  }}
-                >
-                  <CheckSquare className="w-4 h-4" />
-                  {selectMode ? "Done" : "Select"}
-                </Button>
+                <>
+                  <Button
+                    variant={favoritesOnly ? "secondary" : "outline"}
+                    size="xs"
+                    aria-pressed={favoritesOnly}
+                    onClick={() => {
+                      const next = !favoritesOnly;
+                      setFavoritesOnly(next);
+                      const params = new URLSearchParams(searchParams.toString());
+                      if (next) params.set("favorites", "true"); else params.delete("favorites");
+                      router.replace(params.size ? `/?${params}` : "/", { scroll: false });
+                    }}
+                  >
+                    <Star className={`h-4 w-4 ${favoritesOnly ? "fill-current" : ""}`} /> Favorites
+                  </Button>
+                  <SavedViewSelector
+                    views={savedViews}
+                    activeId={activeSavedViewId}
+                    modified={savedViewModified}
+                    onSelect={applySavedView}
+                    onCreate={() => setSaveViewOpen(true)}
+                    onUpdate={(view) => manageSavedView(() => updateSavedView(view.id, { filters: currentViewFilters() }), "Saved view updated")}
+                    onRename={(view, name) => manageSavedView(() => updateSavedView(view.id, { name }), "Saved view renamed")}
+                    onDuplicate={(view) => manageSavedView(() => createSavedView(duplicateViewName(view.name), view.filters), "Saved view duplicated")}
+                    onDelete={(view) => manageSavedView(async () => { await deleteSavedView(view.id); if (activeSavedViewId === view.id) setActiveSavedViewId(null); }, "Saved view deleted")}
+                  />
+                  <Button
+                    variant={selectMode ? "secondary" : "outline"}
+                    size="xs"
+                    aria-pressed={selectMode}
+                    title="Select Models and folders (S)"
+                    onClick={() => {
+                      if (selectMode) clearSelection();
+                      else setSelectMode(true);
+                    }}
+                  >
+                    <CheckSquare className="w-4 h-4" />
+                    {selectMode ? "Done" : "Select"}
+                  </Button>
+                </>
               )}
               <div className="h-6 w-px bg-muted mx-1 hidden md:block" />
-              <div className="flex items-center bg-muted p-1 rounded">
-                <button
-                  onClick={() => setViewMode("grid")}
-                  className={`p-1.5 rounded transition-[color,background-color,box-shadow] ${viewMode === "grid" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                  title="Grid View"
-                >
-                  <Grid className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setViewMode("list")}
-                  className={`p-1.5 rounded transition-[color,background-color,box-shadow] ${viewMode === "list" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                  title="List View"
-                >
-                  <List className="w-4 h-4" />
-                </button>
-              </div>
+              <DropdownMenu
+                open={sortOpen}
+                onOpenChange={setSortOpen}
+                align="end"
+                trigger={<Button type="button" variant="outline" size="xs" data-menu-trigger aria-haspopup="menu" aria-expanded={sortOpen} aria-label="Sort models" onClick={() => setSortOpen(!sortOpen)}><ArrowUpDown className="h-3.5 w-3.5" /><span>{SORT_OPTIONS.find((option) => option.value === sortKey)?.label}</span><ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /></Button>}
+                contentClassName="w-52 rounded border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+              >
+                {SORT_OPTIONS.map((option) => <button key={option.value} type="button" role="menuitem" onClick={() => { setSortKey(option.value); localStorage.setItem("ps-vault-sort", option.value); setSortOpen(false); }} className={`flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs transition-colors hover:bg-popover-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${sortKey === option.value ? "bg-accent text-accent-foreground" : ""}`}><span className="flex-1">{option.label}</span>{sortKey === option.value && <Check className="h-3.5 w-3.5" />}</button>)}
+              </DropdownMenu>
+              <DropdownMenu
+                open={displayOpen}
+                onOpenChange={setDisplayOpen}
+                align="end"
+                trigger={<Button type="button" variant="outline" size="xs" data-menu-trigger aria-haspopup="menu" aria-expanded={displayOpen} onClick={() => setDisplayOpen(!displayOpen)}><Rows3 className="h-3.5 w-3.5" />Display<ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /></Button>}
+                contentClassName="w-48 rounded border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+              >
+                <p className="px-2.5 py-1.5 font-mono text-3xs uppercase tracking-wider text-muted-foreground">Layout</p>
+                {([ ["grid", "Grid", Grid], ["list", "List", List] ] as const).map(([mode, label, Icon]) => <button key={mode} type="button" role="menuitem" aria-label={`${label} View`} onClick={() => { setViewMode(mode); localStorage.setItem("ps-vault-view", mode); setDisplayOpen(false); }} className={`flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs transition-colors hover:bg-popover-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${viewMode === mode ? "bg-accent text-accent-foreground" : ""}`}><Icon className="h-3.5 w-3.5" /><span className="flex-1">{label}</span>{viewMode === mode && <Check className="h-3.5 w-3.5" />}</button>)}
+                <p className="mt-1 border-t border-border px-2.5 py-1.5 font-mono text-3xs uppercase tracking-wider text-muted-foreground">Density</p>
+                {([ [false, "Comfortable"], [true, "Compact"] ] as const).map(([isCompact, label]) => <button key={label} type="button" role="menuitem" onClick={() => { setCompact(isCompact); localStorage.setItem("ps-vault-density", isCompact ? "compact" : "comfortable"); setDisplayOpen(false); }} className={`flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs transition-colors hover:bg-popover-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${compact === isCompact ? "bg-accent text-accent-foreground" : ""}`}><span className="flex-1">{label}</span>{compact === isCompact && <Check className="h-3.5 w-3.5" />}</button>)}
+              </DropdownMenu>
             </div>
           </div>
         </div>
@@ -768,19 +1151,22 @@ async function onMainDrop(e: React.DragEvent) {
         {selectMode && (
           <div className="px-4 sm:px-6 py-2 bg-muted border-b border-border flex items-center gap-3 text-xs">
             <span className="font-mono text-muted-foreground">
-              {selectedIds.size} selected
+              {selectionCount} selected
             </span>
             <button
               type="button"
               onClick={selectAllVisible}
               className="font-medium text-primary hover:underline"
             >
-              Select all on screen ({sortedModels.length})
+              Select all on screen ({sortedModels.length + visibleCollections.length})
             </button>
-            {selectedIds.size > 0 && (
+            <button type="button" onClick={() => void selectAllMatching()} disabled={selectingAll} className="font-medium text-primary hover:underline disabled:opacity-50">
+              {selectingAll ? "Selecting…" : "Select all matching models"}
+            </button>
+            {selectionCount > 0 && (
               <button
                 type="button"
-                onClick={() => setSelectedIds(new Set())}
+                onClick={() => { setSelectedIds(new Set()); setSelectedCollectionIds(new Set()); }}
                 className="font-medium text-muted-foreground hover:text-foreground"
               >
                 Clear
@@ -818,26 +1204,46 @@ async function onMainDrop(e: React.DragEvent) {
                     Clear all filters
                   </Button>
                 ) : (
-                  <a
-                    href="https://xiao-villamor.github.io/PrintStash/"
-                    className="inline-flex items-center gap-2 rounded border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                  >
-                    <BookOpen className="h-4 w-4 text-muted-foreground" />
-                    Open wiki
-                  </a>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!canUploadToVault}
+                      onClick={() => { setDropPreload({ files: [], mode: "files" }); setUploadOpen(true); }}
+                    >
+                      Upload files
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!canUploadToVault}
+                      onClick={() => { setDropPreload({ files: [], mode: "url" }); setUploadOpen(true); }}
+                    >
+                      Import from URL
+                    </Button>
+                    {user?.is_superuser && (
+                      <Button asChild variant="outline" size="sm">
+                        <Link href="/settings">Connect folder or NAS</Link>
+                      </Button>
+                    )}
+                  </div>
                 )
               }
               className="flex-1 py-20 animate-panel-in"
             />
           ) : viewMode === "grid" ? (
-            <div key="grid" className="p-4 sm:p-6 animate-panel-in">
-              <div className="stagger-children grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(340px,340px))]">
+            <div key="grid" className={`${compact ? "p-3" : "p-4 sm:p-6"} animate-panel-in`}>
+              <div className={`stagger-children grid grid-cols-1 ${compact ? "gap-2 sm:grid-cols-[repeat(auto-fill,minmax(260px,260px))]" : "gap-4 sm:grid-cols-[repeat(auto-fill,minmax(340px,340px))]"}`}>
                 {visibleCollections.map((collection) => (
                   <CollectionFolderCard
                     key={collection.id}
                     collection={collection}
                     onSelect={handleCollectionChange}
                     onDropModel={canUploadToVault ? handleMoveModel : undefined}
+                    selectable={selectMode}
+                    selected={selectedCollectionIds.has(collection.id)}
+                    onToggleSelect={toggleCollectionSelect}
                   />
                 ))}
                 {sortedModels.map((model) => (
@@ -869,6 +1275,9 @@ async function onMainDrop(e: React.DragEvent) {
                     collection={collection}
                     onSelect={handleCollectionChange}
                     onDropModel={canUploadToVault ? handleMoveModel : undefined}
+                    selectable={selectMode}
+                    selected={selectedCollectionIds.has(collection.id)}
+                    onToggleSelect={toggleCollectionSelect}
                   />
                 ))}
                 {sortedModels.map((model) => (
@@ -890,15 +1299,16 @@ async function onMainDrop(e: React.DragEvent) {
       </main>
 
       <BatchToolbar
-        count={selectedIds.size}
+        modelCount={selectedIds.size}
+        selectedCollections={selectedCollections}
         collections={collections}
         tags={tags}
         busy={batchBusy}
-        onMove={(target) => runBatch("Moved", () => batchMoveModels(selectedIdList, target))}
-        onApplyTags={(add, remove) =>
-          runBatch("Tagged", () => batchTagModels(selectedIdList, add, remove))
-        }
-        onDelete={() => runBatch("Deleted", () => batchDeleteModels(selectedIdList))}
+        canMoveToRoot={!!user?.is_superuser}
+        onMoveSelection={moveSelection}
+        onRenameCollections={(names) => runCollectionBatch("Renamed", (collection) => renameCollection(collection.id, names[collection.id]))}
+        onApplyTags={tagSelection}
+        onDeleteSelection={deleteSelection}
         onClear={clearSelection}
       />
     </>
@@ -931,21 +1341,22 @@ function useModelDropTarget(path: string, onDropModel?: (modelId: number, path: 
   return { dragOver, handlers };
 }
 
-function CollectionFolderCard({ collection, onSelect, onDropModel }: { collection: CollectionRead; onSelect: (path: string) => void; onDropModel?: (modelId: number, path: string) => void }) {
+function CollectionFolderCard({ collection, onSelect, onDropModel, selectable, selected, onToggleSelect }: { collection: CollectionRead; onSelect: (path: string) => void; onDropModel?: (modelId: number, path: string) => void; selectable?: boolean; selected?: boolean; onToggleSelect?: (id: number) => void }) {
   const { dragOver, handlers } = useModelDropTarget(collection.path, onDropModel);
   return (
     <button
       type="button"
       data-collection-path={collection.path}
-      onClick={() => onSelect(collection.path)}
+      onClick={() => selectable ? onToggleSelect?.(collection.id) : onSelect(collection.path)}
       {...handlers}
       className={`animate-card-in group flex flex-col text-left bg-muted border rounded-lg hover:shadow-sm transition-[border-color,box-shadow,transform] duration-fast active:scale-[0.99] relative overflow-hidden ${
-        dragOver
+        selected ? "border-primary bg-accent" : dragOver
           ? "border-primary ring-2 ring-primary-soft"
           : "border-border hover:border-primary"
       }`}
     >
       <div className="flex-1 flex items-center justify-center bg-muted/60 dark:bg-surface-container-high min-h-[100px] sm:min-h-[140px]">
+        {selectable && <span className="absolute left-3 top-3"><Checkbox checked={!!selected} onChange={() => onToggleSelect?.(collection.id)} ariaLabel={`Select folder ${collection.name}`} /></span>}
         <Folder className="w-12 h-12 sm:w-16 sm:h-16 text-primary/30" />
       </div>
       <div className="p-3 border-t border-border">
@@ -959,20 +1370,21 @@ function CollectionFolderCard({ collection, onSelect, onDropModel }: { collectio
 }
 
 
-function CollectionListRow({ collection, onSelect, onDropModel }: { collection: CollectionRead; onSelect: (path: string) => void; onDropModel?: (modelId: number, path: string) => void }) {
+function CollectionListRow({ collection, onSelect, onDropModel, selectable, selected, onToggleSelect }: { collection: CollectionRead; onSelect: (path: string) => void; onDropModel?: (modelId: number, path: string) => void; selectable?: boolean; selected?: boolean; onToggleSelect?: (id: number) => void }) {
   const { dragOver, handlers } = useModelDropTarget(collection.path, onDropModel);
   return (
     <button
       type="button"
       data-collection-path={collection.path}
-      onClick={() => onSelect(collection.path)}
+      onClick={() => selectable ? onToggleSelect?.(collection.id) : onSelect(collection.path)}
       {...handlers}
       className={`flex items-center gap-2 md:gap-3 px-4 py-3 border-b text-left transition-colors group ${
-        dragOver
+        selected ? "border-primary bg-accent" : dragOver
           ? "border-primary ring-2 ring-inset ring-primary-soft bg-muted"
           : "border-border hover:bg-muted"
       }`}
     >
+      {selectable && <Checkbox checked={!!selected} onChange={() => onToggleSelect?.(collection.id)} ariaLabel={`Select folder ${collection.name}`} />}
       <span className="w-8 h-8 md:w-10 md:h-10 rounded bg-accent flex-shrink-0 border border-primary-soft flex items-center justify-center text-primary">
         <Folder className="h-4 w-4 md:h-5 md:w-5" />
       </span>
@@ -1000,7 +1412,7 @@ function ModelListRow({
   model: ModelListItem;
   selectable?: boolean;
   selected?: boolean;
-  onToggleSelect?: (id: number) => void;
+  onToggleSelect?: (id: number, range?: boolean) => void;
   draggable?: boolean;
 }) {
   const router = useRouter();
@@ -1022,7 +1434,7 @@ function ModelListRow({
       onClick={(e) => {
         if (selectable) {
           e.preventDefault();
-          onToggleSelect?.(model.id);
+          onToggleSelect?.(model.id, e.shiftKey);
         }
       }}
       className={`flex items-center gap-2 md:gap-3 px-4 py-3 border-b border-border transition-colors group active:bg-muted ${

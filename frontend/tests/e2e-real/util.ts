@@ -31,6 +31,38 @@ export function modelCard(page: Page, name: string) {
   return page.locator('a[href^="/models/"]').filter({ hasText: name });
 }
 
+// Share/Edit details/Delete model live behind the "Model actions" dropdown on
+// the model detail page. Opens it and returns the named menu item locator
+// (still closed/disabled-checkable — call .click() to also close the menu).
+export function modelActionItem(page: Page, name: "Share" | "Edit details" | "Delete model") {
+  return page.getByRole("menuitem", { name, exact: true });
+}
+
+export async function clickModelAction(
+  page: Page,
+  name: "Share" | "Edit details" | "Delete model",
+): Promise<void> {
+  await page.getByRole("button", { name: "Model actions" }).click();
+  await modelActionItem(page, name).click();
+}
+
+export async function createCollectionViaVault(
+  page: Page,
+  name: string,
+  parent?: string,
+): Promise<void> {
+  await page.goto(parent ? `/?c=${encodeURIComponent(parent)}` : "/");
+  await page.getByRole("button", { name: "New collection" }).click();
+  const input = page.getByPlaceholder(parent ? /New subcollection in/ : "Collection name...");
+  await input.fill(name);
+  await input.press("Enter");
+  if (parent) {
+    await expect(page.locator(`[data-collection-path="${parent}/${name}"]`)).toBeVisible();
+  } else {
+    await expect(page.locator("aside").getByRole("button", { name, exact: true })).toBeVisible();
+  }
+}
+
 type UploadOpts = { mesh?: boolean; gcode?: boolean; collection?: string; tag?: string };
 
 // Upload a model through the real upload flow and wait for async ingestion to
@@ -38,7 +70,7 @@ type UploadOpts = { mesh?: boolean; gcode?: boolean; collection?: string; tag?: 
 export async function uploadModel(page: Page, name: string, opts: UploadOpts = {}): Promise<void> {
   const { mesh = false, gcode = true, collection, tag } = opts;
   await page.goto("/");
-  await page.getByRole("button", { name: "Upload" }).click();
+  await page.getByRole("button", { name: "Upload", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Upload model" });
   await expect(dialog).toBeVisible();
 

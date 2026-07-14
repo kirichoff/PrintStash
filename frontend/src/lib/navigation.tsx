@@ -18,7 +18,7 @@ import {
   useNavigate,
   useSearchParams as useRouterSearchParams,
 } from "react-router-dom";
-import type { AnchorHTMLAttributes, ReactNode } from "react";
+import { useMemo, type AnchorHTMLAttributes, type ReactNode } from "react";
 
 /** Next's `NavigateOptions` (e.g. `{ scroll: false }`) — accepted, ignored. */
 interface NavOptions {
@@ -37,14 +37,17 @@ export interface AppRouter {
 
 export function useRouter(): AppRouter {
   const navigate = useNavigate();
-  return {
-    push: (href) => navigate(href),
-    replace: (href) => navigate(href, { replace: true }),
-    back: () => navigate(-1),
-    forward: () => navigate(1),
-    refresh: () => {},
-    prefetch: () => {},
-  };
+  return useMemo(
+    () => ({
+      push: (href: string) => navigate(href),
+      replace: (href: string) => navigate(href, { replace: true }),
+      back: () => navigate(-1),
+      forward: () => navigate(1),
+      refresh: () => {},
+      prefetch: () => {},
+    }),
+    [navigate],
+  );
 }
 
 export function usePathname(): string {

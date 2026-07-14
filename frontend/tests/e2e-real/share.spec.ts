@@ -1,11 +1,11 @@
 import { test, expect } from "./helpers";
-import { modelCard, uploadGcodeModel } from "./util";
+import { clickModelAction, modelCard, uploadGcodeModel } from "./util";
 
 async function openShareDialog(page: import("@playwright/test").Page, name: string) {
   await page.goto("/"); // may be coming back from a public /share page
   await modelCard(page, name).click();
   await expect(page.getByRole("heading", { name })).toBeVisible();
-  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await clickModelAction(page, "Share");
   await expect(page.getByRole("dialog")).toBeVisible();
 }
 

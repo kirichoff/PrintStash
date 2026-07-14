@@ -12,6 +12,7 @@ import {
 } from "@/lib/api/request";
 import {
   ArchiveManifest,
+  ArtifactOutcomeRead,
   FileRevisionUpdate,
   ImportedPrintJobRead,
   IngestJobStatus,
@@ -23,7 +24,9 @@ import {
   ModelPrinterFileRead,
   ModelPrintJobRead,
   ModelRead,
+  ModelStarRead,
   ModelUpdate,
+  RevisionBatchResult,
   TrashPurgeRead,
   TrashedModelRead,
   VaultStatsRead,
@@ -40,12 +43,24 @@ export async function listModels(
   if (params?.offset) search.set("offset", String(params.offset));
   if (params?.printer_id) search.set("printer_id", String(params.printer_id));
   if (params?.printer_presence) search.set("printer_presence", params.printer_presence);
+  if (params?.favorites) search.set("favorites", "true");
   for (const tag of params?.tag ?? []) {
     search.append("tag", tag);
   }
 
   const query = search.toString();
   return getJson<ModelListItem[]>(`/api/v1/models${query ? `?${query}` : ""}`);
+}
+
+export function starModel(id: number): Promise<ModelStarRead> {
+  return sendJson<ModelStarRead>(`/api/v1/models/${id}/star`, "PUT", {});
+}
+
+export async function unstarModel(id: number): Promise<ModelStarRead> {
+  const path = `/api/v1/models/${id}/star`;
+  const res = await fetch(getUrl(path), { method: "DELETE", headers: authHeaders() });
+  invalidateApiCache(path);
+  return handleResponse<ModelStarRead>(res);
 }
 
 export function getModel(id: number): Promise<ModelRead> {
@@ -78,12 +93,33 @@ export async function downloadModelExport(format: "json" | "csv"): Promise<void>
   URL.revokeObjectURL(url);
 }
 
+export async function downloadLibraryArchive(): Promise<void> {
+  const res = await fetch(getUrl("/api/v1/models/library-archive"), { headers: authHeaders(), cache: "no-store" });
+  await expectOk(res);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = "printstash-library-v1.zip";
+  document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+}
+
+export function importLibraryArchive(file: File): Promise<{ created_models: number; created_files: number; skipped_files: number; imported_jobs: number }> {
+  const form = new FormData(); form.append("file", file);
+  return sendForm("/api/v1/models/library-import", form);
+}
+
 export function getModelPrinterFiles(id: number): Promise<ModelPrinterFileRead[]> {
   return getJson<ModelPrinterFileRead[]>(`/api/v1/models/${id}/printer-files`);
 }
 
 export function getModelPrintJobs(id: number): Promise<ModelPrintJobRead[]> {
   return getJson<ModelPrintJobRead[]>(`/api/v1/models/${id}/print-jobs`);
+}
+
+export function getArtifactOutcomes(modelId: number, fileIds: number[]): Promise<ArtifactOutcomeRead[]> {
+  const search = new URLSearchParams();
+  fileIds.forEach((id) => search.append("file_id", String(id)));
+  return getJson<ArtifactOutcomeRead[]>(`/api/v1/models/${modelId}/artifact-outcomes?${search}`);
 }
 
 export function createManualPrintJob(
@@ -135,6 +171,17 @@ export function batchTagModels(
     add,
     remove,
   });
+}
+
+export function batchSetRevisionLabels(
+  fileIds: number[],
+  revisionLabel: string | null,
+): Promise<RevisionBatchResult> {
+  return sendJson<RevisionBatchResult>(
+    "/api/v1/models/batch/revision-labels",
+    "PATCH",
+    { file_ids: fileIds, revision_label: revisionLabel },
+  );
 }
 
 export function batchDeleteModels(
@@ -218,6 +265,10 @@ export function getJobStatus(jobId: string): Promise<IngestJobStatus> {
   return getJson<IngestJobStatus>(`/api/v1/ingest/jobs/${jobId}`, { fresh: true });
 }
 
+export function listIngestJobs(): Promise<IngestJobStatus[]> {
+  return getJson<IngestJobStatus[]>("/api/v1/ingest/jobs", { fresh: true });
+}
+
 export function ingestUrl(payload: {
   url: string;
   collection?: string;
@@ -251,6 +302,10 @@ export function selectCollectionMembers(
 
 export function ingestArchive(formData: FormData): Promise<ArchiveManifest> {
   return sendForm<ArchiveManifest>("/api/v1/ingest/archive", formData);
+}
+
+export function inspectArchive(formData: FormData): Promise<IngestResponse> {
+  return sendForm<IngestResponse>("/api/v1/ingest/archive/inspect", formData);
 }
 
 export function selectArchiveEntries(

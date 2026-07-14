@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlmodel import Session
 
-from app.db.models import Model, User
+from app.db.models import File, FileType, Model, PrintJob, PrintJobState, User
 from app.services import model_views as mv
 
 
@@ -131,6 +131,58 @@ def test_list_items_excludes_external_sentinel(
     assert db_session.exec(
         select(Model).where(Model.hash == SENTINEL_MODEL_HASH)
     ).first() is not None
+
+
+def test_list_items_includes_daily_workflow_print_outcomes(
+    db_session: Session, superuser: User
+) -> None:
+    model = Model(name="Outcome", slug="outcome", hash="o" * 64)
+    db_session.add(model)
+    db_session.commit()
+    db_session.refresh(model)
+    artifact = File(
+        model_id=model.id,
+        path="outcome.gcode",
+        original_filename="outcome.gcode",
+        file_type=FileType.GCODE,
+        size_bytes=10,
+        sha256="f" * 64,
+    )
+    db_session.add(artifact)
+    db_session.commit()
+    db_session.refresh(artifact)
+    finished = datetime(2026, 2, 1, tzinfo=timezone.utc)
+    db_session.add_all(
+        [
+            PrintJob(
+                model_id=model.id,
+                file_id=artifact.id,
+                remote_filename="outcome.gcode",
+                state=PrintJobState.COMPLETED,
+                actual_duration_s=120,
+                cost=1.25,
+                finished_at=finished,
+            ),
+            PrintJob(
+                model_id=model.id,
+                file_id=artifact.id,
+                remote_filename="outcome.gcode",
+                state=PrintJobState.FAILED,
+                actual_duration_s=60,
+                cost=0.25,
+                finished_at=finished,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    item = next(row for row in mv.list_items(db_session, superuser, limit=100) if row.id == model.id)
+
+    assert item.print_summary is not None
+    assert item.print_summary.success_rate == 0.5
+    assert item.print_summary.average_duration_s == 90
+    assert item.print_summary.total_cost == 1.5
+    assert item.print_summary.last_printed_at == finished
 
 
 def test_list_trashed_pagination_is_complete_and_unique(

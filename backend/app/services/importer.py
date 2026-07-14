@@ -247,7 +247,7 @@ def extract_selected(path: Path, names: list[str]) -> list[tuple[Path, str]]:
                 continue
             staged = settings.incoming_dir / f"{uuid.uuid4().hex}{suffix}"
             with zf.open(info) as src:
-                storage.stream_to_path(src, staged)
+                storage.stream_to_path(src, staged, max_bytes=max_entry)
             extracted.append((staged, info.filename.replace("\\", "/")))
     return extracted
 
@@ -340,7 +340,7 @@ def _ingest_one_file(
     original_filename = PurePosixPath(original_filename.replace("\\", "/")).name
     suffix = Path(original_filename).suffix.lower()
     resolved_name = model_name or Path(original_filename).stem
-    child = registry.create(owner_user_id=actor_user_id)
+    child = registry.create(owner_user_id=actor_user_id, visible=False)
     try:
         if suffix in _GCODE_SUFFIXES:
             ingest_orca_gcode(
@@ -379,6 +379,7 @@ def _ingest_one_file(
                 "model_id": child_status.model_id,
                 "file_id": child_status.file_id,
                 "name": original_filename,
+                "deduplicated": child_status.deduplicated > 0,
             }
         err = child_status.error if child_status else "unknown_error"
         return {"name": original_filename, "error": err}
@@ -418,7 +419,7 @@ def import_assets(
         registry.update(job_id, state="failed", error="no_importable_files")
         return
     override = model_name.strip() if model_name and total == 1 else None
-    registry.update(job_id, state="running", total_steps=total)
+    registry.update(job_id, state="running", total_steps=total, total=total, stage="ingesting")
     results: list[dict] = []
     done = 0
     for staged, rel_name in staged_files:
@@ -445,11 +446,25 @@ def import_assets(
         registry.update(job_id, step=done, progress=done / total * 100)
 
     imported = [r for r in results if r.get("model_id")]
+    failures = [r for r in results if r.get("error")]
+    deduplicated = sum(bool(r.get("deduplicated")) for r in imported)
     registry.update(
         job_id,
-        state="completed",
+        state="completed" if imported else "failed",
         model_id=imported[0]["model_id"] if imported else None,
         result={"imported": len(imported), "total": total, "items": results},
+        processed=len(results),
+        total=total,
+        succeeded=len(imported),
+        deduplicated=deduplicated,
+        skipped=max(0, total - len(results)),
+        failed=len(failures),
+        error="import_failed" if not imported else None,
+        retryable=bool(failures),
+        failed_items=[
+            {"name": r.get("name", "item"), "reason": r.get("error", "import_failed"), "retryable": True}
+            for r in failures
+        ],
     )
 
 
@@ -479,7 +494,7 @@ def import_resolved_groups(
     """Ingest many already-staged groups (e.g. collection members) into one
     collection, recording each group's own ``source_url`` on its models."""
     total = sum(len(g.staged_files) for g in groups)
-    registry.update(job_id, state="running", total_steps=max(total, 1))
+    registry.update(job_id, state="running", total_steps=max(total, 1), total=total, stage="ingesting")
     results: list[dict] = []
     done = 0
     for group in groups:
@@ -504,6 +519,8 @@ def import_resolved_groups(
             registry.update(job_id, step=done, progress=done / max(total, 1) * 100)
 
     imported = [r for r in results if r.get("model_id")]
+    failures = [r for r in results if r.get("error")]
+    deduplicated = sum(bool(r.get("deduplicated")) for r in imported)
     result = {
         "kind": "collection_import",
         "collection": collection,
@@ -520,7 +537,20 @@ def import_resolved_groups(
     if not imported:
         member_errors = {r["error"] for r in results if r.get("error")}
         error = member_errors.pop() if len(member_errors) == 1 else "collection_import_failed"
-        registry.update(job_id, state="failed", error=error, result=result)
+        registry.update(
+            job_id,
+            state="failed",
+            error=error,
+            result=result,
+            processed=len(results),
+            total=total,
+            failed=len(failures),
+            retryable=True,
+            failed_items=[
+                {"name": r.get("name", "item"), "reason": r.get("error", error), "retryable": True}
+                for r in failures
+            ],
+        )
         return
 
     registry.update(
@@ -528,4 +558,15 @@ def import_resolved_groups(
         state="completed",
         model_id=imported[0]["model_id"],
         result=result,
+        processed=len(results),
+        total=total,
+        succeeded=len(imported),
+        deduplicated=deduplicated,
+        skipped=max(0, total - len(results)),
+        failed=len(failures),
+        retryable=bool(failures),
+        failed_items=[
+            {"name": r.get("name", "item"), "reason": r.get("error", "import_failed"), "retryable": True}
+            for r in failures
+        ],
     )

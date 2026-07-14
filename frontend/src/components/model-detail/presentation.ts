@@ -3,6 +3,7 @@
  */
 
 import {
+  FileRead,
   FileRevisionStatus,
   MetadataRead,
   PrintJobState,
@@ -27,6 +28,20 @@ export const TABS: { key: TabKey; label: string }[] = [
   { key: "history", label: "History" },
 ];
 
+export function normalizeRecommendedGcodeFiles<
+  T extends Pick<FileRead, "id" | "file_type" | "version" | "is_recommended">,
+>(files: T[]): T[] {
+  const winner = files
+    .filter((file) => file.file_type === "gcode" && file.is_recommended)
+    .sort((a, b) => b.version - a.version)[0];
+  if (!winner) return files;
+  return files.map((file) =>
+    file.file_type === "gcode" && file.is_recommended && file.id !== winner.id
+      ? { ...file, is_recommended: false }
+      : file,
+  );
+}
+
 const REVISION_STATUS_LABELS: Record<FileRevisionStatus, string> = {
   known_good: "Known good",
   needs_test: "Needs test",
@@ -41,11 +56,11 @@ export function revisionStatusClass(status: FileRevisionStatus | null): string {
     case "needs_test":
       return "bg-amber-500/15 text-amber-600 border-amber-500/30";
     case "failed":
-      return "bg-[var(--error-container)]/40 text-[var(--error)] border-[var(--error)]/30";
+      return "border-destructive/30 bg-destructive/10 text-destructive";
     case "archived":
-      return "bg-[var(--surface-container-high)] text-[var(--on-surface-variant)] border-[var(--outline-variant)]";
+      return "border-border bg-muted text-muted-foreground";
     default:
-      return "bg-[var(--surface-container-low)] text-[var(--on-surface-variant)] border-[var(--outline-variant)]";
+      return "border-border bg-muted text-muted-foreground";
   }
 }
 
@@ -78,7 +93,7 @@ export function printJobToneClass(tone: PrintJobTone): string {
     case "success":
       return "bg-emerald-500/15 text-emerald-600 border-emerald-500/30";
     case "error":
-      return "bg-[var(--error-container)]/40 text-[var(--error)] border-[var(--error)]/30";
+      return "border-destructive/30 bg-destructive/10 text-destructive";
     default:
       return "bg-amber-500/15 text-amber-600 border-amber-500/30";
   }

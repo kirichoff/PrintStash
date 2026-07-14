@@ -30,3 +30,7 @@ export function deleteExternalLibrary(id: number): Promise<void> {
 export function scanExternalLibrary(id: number): Promise<IngestResponse> {
   return sendJson<IngestResponse>(`/api/v1/libraries/${id}/scan`, "POST", {});
 }
+
+export function scanExternalLibraryPath(id: number, path: string): Promise<IngestResponse> {
+  return sendJson<IngestResponse>(`/api/v1/libraries/${id}/scan-path`, "POST", { path });
+}

@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.db.models import User
-from app.services.auth import create_api_key, hash_password
+from app.services.auth import ACCESS_BLOCKLIST, create_api_key, hash_password
 
 
 def _create_user(
@@ -42,6 +42,28 @@ class TestAuthFlow:
         assert body["scope"] == "write"
         assert isinstance(body["access_token"], str) and body["access_token"]
         assert isinstance(body["refresh_token"], str) and body["refresh_token"]
+
+    def test_browser_session_uses_httponly_cookie(
+        self, client: TestClient, db_session: Session
+    ):
+        _create_user(db_session, "cookie-user", "Password123", is_superuser=False)
+
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"username": "cookie-user", "password": "Password123"},
+        )
+
+        assert login.status_code == 200
+        cookie = login.headers["set-cookie"]
+        assert "printstash_session=" in cookie
+        assert "HttpOnly" in cookie
+        assert "SameSite=strict" in cookie
+        assert client.get("/api/v1/auth/me").status_code == 200
+
+        logout = client.post("/api/v1/auth/logout")
+        assert logout.status_code == 200
+        assert "printstash_session=\"\"" in logout.headers["set-cookie"]
+        assert client.get("/api/v1/auth/me").status_code == 401
 
     def test_login_accepts_username_and_api_key(
         self, client: TestClient, db_session: Session
@@ -177,6 +199,40 @@ class TestAuthFlow:
         refreshed = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh})
         assert refreshed.status_code == 401
         assert refreshed.json()["detail"] == "invalid_refresh_token"
+
+    def test_logout_without_refresh_token_survives_restart_and_revokes_all_sessions(
+        self, client: TestClient, db_session: Session
+    ):
+        _create_user(db_session, "durable-logout", "Password123", is_superuser=False)
+        first = client.post(
+            "/api/v1/auth/login",
+            json={"username": "durable-logout", "password": "Password123"},
+        ).json()
+        second = client.post(
+            "/api/v1/auth/login",
+            json={"username": "durable-logout", "password": "Password123"},
+        ).json()
+
+        logout = client.post(
+            "/api/v1/auth/logout",
+            headers={"Authorization": f"Bearer {first['access_token']}"},
+        )
+        assert logout.status_code == 200
+
+        # Process-local deny lists disappear on restart. Logout must remain
+        # effective through persisted user/session state.
+        ACCESS_BLOCKLIST.clear()
+        me = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {first['access_token']}"},
+        )
+        assert me.status_code == 401
+
+        for refresh_token in (first["refresh_token"], second["refresh_token"]):
+            refreshed = client.post(
+                "/api/v1/auth/refresh", json={"refresh_token": refresh_token}
+            )
+            assert refreshed.status_code == 401
 
 
 class TestAdminEnforcement:

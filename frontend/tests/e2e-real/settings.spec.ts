@@ -1,5 +1,5 @@
 import { test, expect } from "./helpers";
-import { modelCard, uploadGcodeModel } from "./util";
+import { clickModelAction, modelCard, uploadGcodeModel } from "./util";
 
 test("create and revoke an API key", async ({ page }) => {
   const keyName = `e2e-key-${Date.now()}`;
@@ -84,7 +84,7 @@ test("export library metadata as CSV", async ({ page }) => {
 });
 
 test("About shows the running version", async ({ page }) => {
-  const version = (await (await page.request.get("/api/v1/health")).json()).version;
+  const version = (await (await page.request.get("/api/v1/health/details")).json()).version;
   await page.goto("/settings");
   await page.getByRole("button", { name: "About" }).click();
   await expect(page.getByText(`v${version}`).first()).toBeVisible();
@@ -175,7 +175,7 @@ test("purge-expired empties the trash", async ({ page }) => {
   const name = `e2e-purge-${Date.now()}`;
   await uploadGcodeModel(page, name);
   await modelCard(page, name).click();
-  await page.getByTitle("Delete model").click();
+  await clickModelAction(page, "Delete model");
   await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
 
   await page.goto("/settings");

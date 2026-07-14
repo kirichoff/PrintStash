@@ -17,8 +17,10 @@ from app.services.jobs import JobRegistry
 # --- Item 1: richer /health output --------------------------------------------
 
 
-def test_health_reports_jobs_and_external_libraries(client: TestClient) -> None:
-    body = client.get("/api/v1/health").json()
+def test_health_reports_jobs_and_external_libraries(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    body = client.get("/api/v1/health/details", headers=auth_headers).json()
     components = body["components"]
     assert "jobs" in components
     assert "external_libraries" in components
@@ -28,7 +30,7 @@ def test_health_reports_jobs_and_external_libraries(client: TestClient) -> None:
 
 
 def test_health_external_library_status_counts(
-    client: TestClient, db_session: Session
+    client: TestClient, db_session: Session, auth_headers: dict[str, str]
 ) -> None:
     db_session.add(
         ExternalLibrary(
@@ -39,7 +41,9 @@ def test_health_external_library_status_counts(
     )
     db_session.commit()
 
-    el = client.get("/api/v1/health").json()["components"]["external_libraries"]
+    el = client.get(
+        "/api/v1/health/details", headers=auth_headers
+    ).json()["components"]["external_libraries"]
     assert el["running"] == 1
     assert el["status_counts"].get("running") == 1
     # A genuinely running scan must not flip overall status to degraded.

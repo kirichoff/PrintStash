@@ -365,6 +365,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     sendJson(res, []);
     return;
   }
+  if (url.pathname === "/api/v1/saved-views") {
+    sendJson(res, []);
+    return;
+  }
   if (url.pathname === "/api/v1/models/stats") {
     sendJson(res, {
       model_count: modelList.length,
@@ -440,12 +444,25 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     sendJson(res, [printer]);
     return;
   }
+  if (url.pathname === "/api/v1/printers/dashboard") {
+    sendJson(res, {
+      total_printers: 1,
+      status_counts: { ready: 1 },
+      active_jobs: 0,
+      groups: [{ name: "__ungrouped", count: 1, status_counts: { ready: 1 } }],
+    });
+    return;
+  }
   if (url.pathname === "/api/v1/printers/3") {
     if (req.method === "PATCH") {
       drainRequest(req, () => sendJson(res, { ...printer, name: "Workshop printer" }));
       return;
     }
     sendJson(res, printer);
+    return;
+  }
+  if (url.pathname === "/api/v1/printers/3/ws-ticket" && req.method === "POST") {
+    drainRequest(req, () => sendJson(res, { ticket: "mock-ticket", expires_in: 30 }));
     return;
   }
   if (url.pathname === "/api/v1/printers/3/diagnostics") {
@@ -486,6 +503,11 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     });
     return;
   }
+  if (url.pathname === "/api/v1/ingest/jobs") {
+    sendJson(res, []);
+    return;
+  }
+
   if (url.pathname === "/api/v1/ingest/jobs/gcode-job-1") {
     sendJson(res, {
       job_id: "gcode-job-1",
@@ -504,6 +526,18 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       return;
     }
     sendJson(res, vaultConfig());
+    return;
+  }
+  if (url.pathname === "/api/v1/health/releases/latest") {
+    sendJson(res, {
+      status: "update_available",
+      current_version: "0.10.0",
+      latest_version: "0.10.1",
+      update_available: true,
+      release_url: "https://github.com/xiao-villamor/PrintStash/releases/tag/v0.10.1",
+      published_at: "2026-07-14T10:00:00Z",
+      checked_at: "2026-07-14T11:00:00Z",
+    });
     return;
   }
   if (url.pathname === "/api/v1/libraries") {

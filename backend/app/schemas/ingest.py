@@ -6,6 +6,27 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 JobState = Literal["pending", "running", "completed", "failed"]
+ImportStage = Literal[
+    "resolving",
+    "downloading",
+    "inspecting",
+    "extracting",
+    "hashing",
+    "ingesting",
+    "thumbnailing",
+    "completed",
+]
+ImportCompletion = Literal[
+    "completed",
+    "completed_with_warnings",
+    "failed_before_import",
+]
+
+
+class ImportFailedItem(BaseModel):
+    name: str
+    reason: str
+    retryable: bool = False
 
 
 class IngestResponse(BaseModel):
@@ -107,6 +128,7 @@ class CollectionSelectRequest(BaseModel):
 class IngestJobStatus(BaseModel):
     job_id: str
     owner_user_id: Optional[int] = Field(default=None, exclude=True)
+    visible: bool = Field(default=True, exclude=True)
     state: JobState
     model_id: Optional[int] = None
     file_id: Optional[int] = None
@@ -120,3 +142,14 @@ class IngestJobStatus(BaseModel):
     label: Optional[str] = None
     progress: Optional[float] = None  # 0–100
     result: Optional[dict[str, Any]] = None
+    stage: Optional[ImportStage] = None
+    current_item: Optional[str] = None
+    processed: int = 0
+    total: Optional[int] = None
+    succeeded: int = 0
+    deduplicated: int = 0
+    skipped: int = 0
+    failed: int = 0
+    completion: Optional[ImportCompletion] = None
+    retryable: bool = False
+    failed_items: list[ImportFailedItem] = Field(default_factory=list)

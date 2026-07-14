@@ -10,6 +10,21 @@
 # app serves a single request, which is exactly when you want to find out.
 set -e
 
+if [ "$(id -u)" = "0" ]; then
+  marker=/data/db/.printstash-nonroot-v1
+  if [ ! -f "$marker" ]; then
+    chown -R printstash:printstash \
+      "${VAULT_DATA_DIR:-/data/files}" \
+      "${VAULT_THUMB_DIR:-/data/thumbs}" \
+      "${VAULT_STAGING_DIR:-/data/staging}" \
+      "${VAULT_BACKUP_DIR:-/data/backups}" \
+      /data/db
+    touch "$marker"
+    chown printstash:printstash "$marker"
+  fi
+  exec gosu printstash "$0" "$@"
+fi
+
 uv run python -m app.db.migrate
 
 exec "$@"

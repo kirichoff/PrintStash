@@ -19,6 +19,7 @@ import {
   updateVaultConfig,
 } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { trackImportJob } from "@/lib/task-center";
 import type {
   ExternalLibrary,
   ExternalLibraryCollectionMode,
@@ -228,6 +229,7 @@ export function ExternalLibrariesPanel({ canEdit }: { canEdit: boolean }) {
     setBusyId(lib.id);
     try {
       const resp = await scanExternalLibrary(lib.id);
+      trackImportJob(resp.job_id, `Scan ${lib.name}`);
       await pollScanJob(resp.job_id);
       toast.success(`Scan complete for "${lib.name}".`);
       await refresh();

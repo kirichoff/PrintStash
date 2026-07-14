@@ -23,7 +23,9 @@ sweep). This file is the ordered checklist that ties it together.
       "needs real-world hardware validation" note in
       `docs/known-limitations.md`. Never leave it silently implied as done.
 - [ ] Docs sweep: `docs/provider-support.md`, `docs/known-limitations.md`,
-      `docs/roadmap.md`, wiki pages the release invalidates (plus the
+      `docs/roadmap.md`, docs pages the release invalidates — docs now live
+      in the `printstash-landing` repo's `src/content/docs/docs/` (built as
+      `/docs` on the same site, not a separate wiki repo) — (plus the
       gitignored `docs/feature-inventory.md` if you have it locally).
 
 ## Publish

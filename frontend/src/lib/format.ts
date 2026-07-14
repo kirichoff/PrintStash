@@ -29,11 +29,15 @@ export function formatMillimeters(value: number | null | undefined): string {
 export function formatPercent(value: number | null | undefined): string {
   // 0 is a real value (vase mode prints at 0% infill); only null/undefined
   // means "unknown". Metadata uses null for missing, never 0, so this is safe.
-  return value == null ? "—" : `${value}%`;
+  return value == null ? "—" : `${formatDecimal(value)}%`;
 }
 
 export function formatGrams(value: number | null | undefined): string {
-  return value ? `${value}g` : "—";
+  return value ? `${formatDecimal(value)}g` : "—";
+}
+
+function formatDecimal(value: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value);
 }
 
 export function formatTemperature(value: number | null | undefined): string {

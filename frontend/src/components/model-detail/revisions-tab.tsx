@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   Download,
@@ -13,11 +13,12 @@ import {
   Wifi,
 } from "lucide-react";
 
-import { downloadAuthenticatedFile } from "@/lib/api";
+import { batchSetRevisionLabels, downloadAuthenticatedFile, getArtifactOutcomes, getModel } from "@/lib/api";
 import { formatBytes, formatDuration, timeAgo } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import {
   FileRead,
+  ArtifactOutcomeRead,
   FileRevisionStatus,
   ModelPrinterFileRead,
   ModelRead,
@@ -28,16 +29,21 @@ import { RevisionCompare } from "./revision-compare";
 import { useRevisionUpdater } from "./use-revision-updater";
 import { SlicerOpenButton } from "@/components/slicer-open-button";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 
 export function RevisionsTab({
   modelId,
   gcodeFiles,
+  allFiles,
   printerFilesByFileId,
   onModel,
   onAddRevision,
 }: {
   modelId: number;
   gcodeFiles: FileRead[];
+  allFiles: FileRead[];
   printerFilesByFileId: Map<number, ModelPrinterFileRead[]>;
   onModel: (model: ModelRead) => void;
   onAddRevision: () => void;
@@ -52,14 +58,24 @@ export function RevisionsTab({
   const [revisionRecommended, setRevisionRecommended] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FileRead | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedRevisionIds, setSelectedRevisionIds] = useState<Set<number>>(new Set());
+  const [batchLabel, setBatchLabel] = useState("");
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [outcomes, setOutcomes] = useState<ArtifactOutcomeRead[]>([]);
 
   // Compare selection — local to this tab.
-  const [compareLeftId, setCompareLeftId] = useState<number>(gcodeFiles.at(-1)?.id ?? 0);
+  const [compareLeftId, setCompareLeftId] = useState<number>(allFiles.at(-1)?.id ?? 0);
   const [compareRightId, setCompareRightId] = useState<number>(
-    gcodeFiles.at(-2)?.id ?? gcodeFiles.at(-1)?.id ?? 0,
+    allFiles.at(-2)?.id ?? allFiles.at(-1)?.id ?? 0,
   );
-  const compareLeft = gcodeFiles.find((f) => f.id === compareLeftId) ?? gcodeFiles[gcodeFiles.length - 1] ?? null;
-  const compareRight = gcodeFiles.find((f) => f.id === compareRightId) ?? gcodeFiles[gcodeFiles.length - 2] ?? null;
+  const compareLeft = allFiles.find((f) => f.id === compareLeftId) ?? allFiles[allFiles.length - 1] ?? null;
+  const compareRight = allFiles.find((f) => f.id === compareRightId) ?? allFiles[allFiles.length - 2] ?? null;
+
+  useEffect(() => {
+    if (!compareLeftId || !compareRightId) { setOutcomes([]); return; }
+    getArtifactOutcomes(modelId, [compareLeftId, compareRightId]).then(setOutcomes).catch(() => setOutcomes([]));
+  }, [modelId, compareLeftId, compareRightId]);
 
   function startRevisionEdit(file: FileRead) {
     if (!auth.isAuthenticated) {
@@ -106,6 +122,23 @@ export function RevisionsTab({
     }
   }
 
+  async function applyBatchLabel() {
+    if (selectedRevisionIds.size === 0) return;
+    setBatchBusy(true);
+    try {
+      await batchSetRevisionLabels(Array.from(selectedRevisionIds), batchLabel);
+      onModel(await getModel(modelId));
+      toast.success(`Updated ${selectedRevisionIds.size} revision labels`);
+      setSelectedRevisionIds(new Set());
+      setSelecting(false);
+      setBatchLabel("");
+    } catch (error) {
+      toast.error(error);
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
   return (
     <>
       <ConfirmModal
@@ -123,16 +156,56 @@ export function RevisionsTab({
           <h2 className="text-lg font-semibold text-on-surface">
             G-code Revisions
           </h2>
-          <button
-            onClick={onAddRevision}
-            disabled={!auth.isAuthenticated}
-            title={auth.blockReason ?? "Add G-code revision"}
-            className="inline-flex items-center gap-1.5 rounded border border-outline-variant px-2 py-1 font-mono text-3xs uppercase tracking-wider text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add
-          </button>
+          <div className="flex items-center gap-2">
+            {gcodeFiles.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => {
+                  setSelecting((value) => !value);
+                  setSelectedRevisionIds(new Set());
+                }}
+                disabled={!auth.isAuthenticated}
+              >
+                {selecting ? "Cancel selection" : "Edit labels"}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={onAddRevision}
+              disabled={!auth.isAuthenticated}
+              title={auth.blockReason ?? "Add G-code revision"}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add
+            </Button>
+          </div>
         </div>
+        {selecting && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-outline-variant bg-surface-container-low p-2">
+            <span className="font-mono text-xs text-on-surface-variant">
+              {selectedRevisionIds.size} selected
+            </span>
+            <Input
+              value={batchLabel}
+              onChange={(event) => setBatchLabel(event.target.value)}
+              maxLength={128}
+              placeholder="Label (blank clears)"
+              className="min-w-48 flex-1"
+            />
+            <Button
+              type="button"
+              size="xs"
+              loading={batchBusy}
+              disabled={selectedRevisionIds.size === 0}
+              onClick={applyBatchLabel}
+            >
+              Apply label
+            </Button>
+          </div>
+        )}
         <div className="space-y-3">
           {gcodeFiles.length === 0 && (
             <p className="font-mono text-xs text-on-surface-variant">
@@ -146,6 +219,20 @@ export function RevisionsTab({
             return (
               <div key={f.id} className="p-3 border border-primary/30 bg-primary-fixed/15 rounded space-y-3">
                 <div className="flex items-start justify-between gap-3">
+                  {selecting && (
+                    <Checkbox
+                      checked={selectedRevisionIds.has(f.id)}
+                      onChange={(checked) => {
+                        setSelectedRevisionIds((current) => {
+                          const next = new Set(current);
+                          if (checked) next.add(f.id);
+                          else next.delete(f.id);
+                          return next;
+                        });
+                      }}
+                      ariaLabel={`Select revision ${f.gcode_revision_number ?? f.version}`}
+                    />
+                  )}
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 mb-1">
                       <span className="font-mono text-2xs text-primary font-bold uppercase tracking-wider">
@@ -295,10 +382,10 @@ export function RevisionsTab({
         </div>
       </section>
 
-      {gcodeFiles.length >= 2 && compareLeft && compareRight && (
+      {allFiles.length >= 2 && compareLeft && compareRight && (
         <section>
           <h2 className="text-lg font-semibold text-on-surface mb-4 pb-1 border-b border-outline-variant flex items-center gap-2">
-            <GitCompare className="h-4 w-4" /> Compare Revisions
+            <GitCompare className="h-4 w-4" /> Compare Artifacts
           </h2>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
@@ -307,8 +394,8 @@ export function RevisionsTab({
                 onChange={(e) => setCompareLeftId(Number(e.target.value))}
                 className="bg-surface border border-outline-variant rounded px-2 py-2 font-mono text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                {gcodeFiles.map((f) => (
-                  <option key={f.id} value={f.id}>Rev {f.gcode_revision_number ?? f.version}</option>
+                {allFiles.map((f) => (
+                  <option key={f.id} value={f.id}>{f.file_type.toUpperCase()} v{f.version} — {f.original_filename}</option>
                 ))}
               </select>
               <select
@@ -316,12 +403,12 @@ export function RevisionsTab({
                 onChange={(e) => setCompareRightId(Number(e.target.value))}
                 className="bg-surface border border-outline-variant rounded px-2 py-2 font-mono text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                {gcodeFiles.map((f) => (
-                  <option key={f.id} value={f.id}>Rev {f.gcode_revision_number ?? f.version}</option>
+                {allFiles.map((f) => (
+                  <option key={f.id} value={f.id}>{f.file_type.toUpperCase()} v{f.version} — {f.original_filename}</option>
                 ))}
               </select>
             </div>
-            <RevisionCompare left={compareLeft} right={compareRight} />
+            <RevisionCompare left={compareLeft} right={compareRight} outcomes={outcomes} />
           </div>
         </section>
       )}

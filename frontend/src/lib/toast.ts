@@ -33,6 +33,13 @@ export const toast = {
     sonner.success(message, { duration: 3000 });
   },
 
+  undo(message: string, onUndo: () => void | Promise<void>): void {
+    sonner.success(message, {
+      duration: 6000,
+      action: { label: "Undo", onClick: () => { void onUndo(); } },
+    });
+  },
+
   /** Show an amber warning toast. */
   warning(message: string, description?: string): void {
     sonner.warning(message, { description, duration: 5000 });

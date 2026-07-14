@@ -1,15 +1,12 @@
 import { test, expect, type Page } from "./helpers";
+import { createCollectionViaVault } from "./util";
 
 // Collection documents (new in 0.8.0): markdown editor, collection README, and
 // the pdf.js viewer. All real — every save/upload hits the backend DB + storage.
 
 // Create a top-level collection (name == path for slug-safe names).
 async function makeCollection(page: Page, name: string): Promise<void> {
-  await page.goto("/organize");
-  const input = page.getByPlaceholder("New collection...");
-  await input.fill(name);
-  await input.press("Enter");
-  await expect(page.getByRole("button", { name: `Delete ${name}` })).toBeVisible();
+  await createCollectionViaVault(page, name);
 }
 
 // Land on a collection's Documents tab with the collection actually *selected*.
@@ -94,7 +91,7 @@ test("edit a collection README and have it persist", async ({ page }) => {
   await page
     .getByPlaceholder(/short description of this collection/i)
     .fill("## Printed parts\n\nDownload, slice, print.");
-  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Printed parts" })).toBeVisible();
 
   // Survives a reload — proves it persisted, not just optimistic UI.

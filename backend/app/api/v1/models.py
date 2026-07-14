@@ -6,7 +6,10 @@ Read-model assembly lives in ``services/model_views``; trash lifecycle in
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import uuid
+import zipfile
 from pathlib import Path
 from typing import List, Literal, Optional
 
@@ -22,8 +25,9 @@ from fastapi import (
 from fastapi import (
     File as UploadFileParam,
 )
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, delete, select
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
@@ -38,6 +42,7 @@ from app.db.models import (
     FileType,
     Metadata,
     Model,
+    ModelStar,
     ModelTagLink,
     Printer,
     PrinterFile,
@@ -49,6 +54,7 @@ from app.db.models import (
 from app.db.scopes import live
 from app.db.session import get_session
 from app.schemas.models import (
+    ArtifactOutcomeRead,
     FileRevisionUpdate,
     ImportedPrintJobRead,
     ManualPrintJobCreate,
@@ -63,11 +69,22 @@ from app.schemas.models import (
     ModelRead,
     ModelUpdate,
     PrintStatisticsRead,
+    RevisionBatchLabels,
+    RevisionBatchResult,
     TrashedModelRead,
     TrashPurgeRead,
     VaultStatsRead,
 )
-from app.services import job_import, model_views, print_results, rbac, storage, taxonomy
+from app.schemas.saved_views import ModelStarRead
+from app.services import (
+    job_import,
+    library_transfer,
+    model_views,
+    print_results,
+    rbac,
+    storage,
+    taxonomy,
+)
 from app.services.ingestion import add_gcode_revision_to_model
 from app.services.moonraker import MoonrakerError
 from app.services.trash import (
@@ -87,20 +104,22 @@ _GCODE_SUFFIXES = {".gcode", ".g", ".gco", ".bgcode"}
 
 def _stage_gcode_upload(upload: UploadFile, suffix: str) -> Path:
     staged = settings.incoming_dir / f"{uuid.uuid4().hex}{suffix}"
-    written = storage.stream_to_path(upload.file, staged)
-    if written > settings.max_upload_bytes:
-        staged.unlink(missing_ok=True)
+    try:
+        storage.stream_to_path(
+            upload.file, staged, max_bytes=settings.max_upload_bytes
+        )
+    except storage.UploadTooLarge as exc:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="upload_too_large",
-        )
+        ) from exc
     return staged
 
 
 def _live_model(session: Session, model_id: int) -> Model:
     """Like ``get_or_404`` but also rejects soft-deleted rows."""
-    m = session.get(Model, model_id)
-    if m is None or m.deleted_at is not None:
+    m = session.exec(select(Model).where(Model.id == model_id, live(Model))).first()
+    if m is None:
         raise HTTPException(status_code=404, detail="model_not_found")
     return m
 
@@ -156,6 +175,7 @@ def list_models(
     printer_presence: Optional[Literal["any", "none"]] = Query(
         None, description="Filter models by whether they exist on any printer"
     ),
+    favorites: bool = Query(False, description="Only models starred by current user"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(require_user),
@@ -174,9 +194,52 @@ def list_models(
         q=q,
         printer_id=printer_id,
         printer_presence=printer_presence,
+        favorites=favorites,
         limit=limit,
         offset=offset,
     )
+
+
+@router.put(
+    "/{model_id}/star",
+    response_model=ModelStarRead,
+    dependencies=[Depends(require_auth)],
+)
+def star_model(
+    model_id: int,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> ModelStarRead:
+    _require_model_role(session, current_user, model_id, CollectionRole.VIEW)
+    existing = session.exec(
+        select(ModelStar).where(
+            ModelStar.user_id == current_user.id, ModelStar.model_id == model_id
+        )
+    ).first()
+    if existing is None:
+        session.add(ModelStar(user_id=current_user.id, model_id=model_id))
+        session.commit()
+    return ModelStarRead(model_id=model_id, starred=True)
+
+
+@router.delete(
+    "/{model_id}/star",
+    response_model=ModelStarRead,
+    dependencies=[Depends(require_auth)],
+)
+def unstar_model(
+    model_id: int,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> ModelStarRead:
+    _require_model_role(session, current_user, model_id, CollectionRole.VIEW)
+    session.exec(
+        delete(ModelStar).where(
+            ModelStar.user_id == current_user.id, ModelStar.model_id == model_id
+        )
+    )
+    session.commit()
+    return ModelStarRead(model_id=model_id, starred=False)
 
 
 @router.get(
@@ -214,6 +277,48 @@ def export_models(
             "Content-Disposition": 'attachment; filename="printstash-model-export.json"'
         },
     )
+
+
+@router.get(
+    "/library-archive",
+    dependencies=[Depends(require_auth)],
+    summary="Export a portable full-library archive",
+)
+def export_library_archive(
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> FileResponse:
+    path = library_transfer.create_archive(session, current_user)
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename="printstash-library-v1.zip",
+        background=BackgroundTask(path.unlink, missing_ok=True),
+    )
+
+
+@router.post(
+    "/library-import",
+    dependencies=[Depends(require_superuser)],
+    summary="Import a portable full-library archive",
+)
+async def import_library_archive(
+    file: UploadFile = UploadFileParam(...),
+    current_user: User = Depends(require_superuser),
+    session: Session = Depends(get_session),
+) -> dict[str, int]:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix != ".zip":
+        raise HTTPException(status_code=400, detail="archive_zip_required")
+    fd, name = tempfile.mkstemp(suffix=".zip")
+    try:
+        with open(fd, "wb", closefd=True) as target:
+            shutil.copyfileobj(file.file, target)
+        return library_transfer.import_archive(session, Path(name), current_user)
+    except (ValueError, zipfile.BadZipFile) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 
 @router.get(
@@ -460,6 +565,24 @@ def get_model_print_jobs(
     ]
 
 
+@router.get(
+    "/{model_id}/artifact-outcomes",
+    response_model=List[ArtifactOutcomeRead],
+    summary="Compare actual print outcomes for Model Artifacts",
+)
+def get_artifact_outcomes(
+    model_id: int,
+    file_id: List[int] = Query(..., min_length=1, max_length=2),
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> List[ArtifactOutcomeRead]:
+    _require_model_role(session, current_user, model_id, CollectionRole.VIEW)
+    rows = model_views.artifact_outcomes(session, model_id, file_id)
+    if len(rows) != len(set(file_id)):
+        raise HTTPException(status_code=404, detail="file_not_found")
+    return [ArtifactOutcomeRead.model_validate(row) for row in rows]
+
+
 @router.post(
     "/{model_id}/print-jobs",
     response_model=ModelPrintJobRead,
@@ -595,7 +718,9 @@ def _partition_editable_models(
     collection set is computed once. Failure reasons match the single-model
     endpoint so the client sees the same ``reason`` strings.
     """
-    rows = session.exec(select(Model).where(Model.id.in_(ids))).all()  # type: ignore[union-attr]
+    rows = session.exec(
+        select(Model).where(Model.id.in_(ids), live(Model))  # type: ignore[union-attr]
+    ).all()
     by_id = {m.id: m for m in rows}
     # Superuser short-circuits inside accessible_collection_ids (returns every
     # collection), so a single call covers both roles.
@@ -604,7 +729,7 @@ def _partition_editable_models(
     failed: List[ModelBatchFailure] = []
     for mid in ids:
         m = by_id.get(mid)
-        if m is None or m.deleted_at is not None:
+        if m is None:
             failed.append(ModelBatchFailure(model_id=mid, reason="model_not_found"))
         elif m.collection_id is None:
             if user.is_superuser:
@@ -624,6 +749,16 @@ def _partition_editable_models(
     return editable, failed
 
 
+def _require_all_editable_models(
+    session: Session, user: User, ids: List[int]
+) -> List[Model]:
+    editable, failed = _partition_editable_models(session, user, _dedupe_ids(ids))
+    if failed:
+        status_code = 404 if failed[0].reason == "model_not_found" else 403
+        raise HTTPException(status_code=status_code, detail=failed[0].reason)
+    return editable
+
+
 @router.post(
     "/batch/move",
     response_model=ModelBatchResult,
@@ -632,8 +767,8 @@ def _partition_editable_models(
     description=(
         "Moves the given models into one destination collection. The destination "
         "is resolved once: an empty path means root (superuser only) and a missing "
-        "path is created (superuser only). Models the caller cannot edit are skipped "
-        "and reported in `failed`; everything else is committed atomically."
+        "path is created (superuser only). Every model is preflighted for existence "
+        "and edit access; any failure rejects the whole request without writes."
     ),
 )
 def batch_move_models(
@@ -664,21 +799,16 @@ def batch_move_models(
                 session, current_user, existing_dest.id, CollectionRole.EDIT
             )
 
-    editable, failed = _partition_editable_models(
-        session, current_user, _dedupe_ids(payload.model_ids)
-    )
-    if not editable:
-        # Nothing will move — return before resolving/creating the destination.
-        return ModelBatchResult(
-            succeeded_ids=[], failed=failed, succeeded_count=0, failed_count=len(failed)
-        )
+    editable = _require_all_editable_models(session, current_user, payload.model_ids)
 
     if dest_is_root:
         dest_id: Optional[int] = None
     elif existing_dest is not None:
         dest_id = existing_dest.id
     else:
-        cat = taxonomy.resolve_or_create_collection(session, payload.collection)
+        cat = taxonomy.resolve_or_create_collection_in_transaction(
+            session, payload.collection
+        )
         rbac.require_collection_role(session, current_user, cat.id, CollectionRole.EDIT)
         dest_id = cat.id
 
@@ -692,9 +822,9 @@ def batch_move_models(
     session.commit()
     return ModelBatchResult(
         succeeded_ids=succeeded,
-        failed=failed,
+        failed=[],
         succeeded_count=len(succeeded),
-        failed_count=len(failed),
+        failed_count=0,
     )
 
 
@@ -706,8 +836,8 @@ def batch_move_models(
     description=(
         "Additive tag editing across a selection: tags in `add` are created if "
         "missing and appended (idempotent); tags in `remove` are detached if "
-        "present. Each model keeps its other tags. Models the caller cannot edit "
-        "are skipped and reported in `failed`."
+        "present. Each model keeps its other tags. Every model is preflighted; any "
+        "missing or non-editable model rejects the whole request without writes."
     ),
 )
 def batch_tag_models(
@@ -715,18 +845,12 @@ def batch_tag_models(
     current_user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ) -> ModelBatchResult:
-    editable, failed = _partition_editable_models(
-        session, current_user, _dedupe_ids(payload.model_ids)
-    )
-    if not editable:
-        # No editable models — return before creating any tags, so a fully-failed
-        # batch never spawns tags as a side effect.
-        return ModelBatchResult(
-            succeeded_ids=[], failed=failed, succeeded_count=0, failed_count=len(failed)
-        )
+    editable = _require_all_editable_models(session, current_user, payload.model_ids)
 
     add_tags = (
-        taxonomy.resolve_or_create_tags(session, payload.add) if payload.add else []
+        taxonomy.resolve_or_create_tags_in_transaction(session, payload.add)
+        if payload.add
+        else []
     )
     # Removal only targets tags that already exist; never create on remove.
     remove_tag_ids: List[int] = []
@@ -734,7 +858,7 @@ def batch_tag_models(
         slug = taxonomy.slugify(raw.strip())
         if not slug:
             continue
-        tag = session.exec(select(Tag).where(Tag.slug == slug)).first()
+        tag = session.exec(select(Tag).where(Tag.slug == slug, live(Tag))).first()
         if tag is not None and tag.id is not None:
             remove_tag_ids.append(tag.id)
 
@@ -764,10 +888,53 @@ def batch_tag_models(
     session.commit()
     return ModelBatchResult(
         succeeded_ids=succeeded,
-        failed=failed,
+        failed=[],
         succeeded_count=len(succeeded),
-        failed_count=len(failed),
+        failed_count=0,
     )
+
+
+@router.patch(
+    "/batch/revision-labels",
+    response_model=RevisionBatchResult,
+    dependencies=[Depends(require_auth)],
+    summary="Set the label on several G-code revisions",
+)
+def batch_set_revision_labels(
+    payload: RevisionBatchLabels,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> RevisionBatchResult:
+    file_ids = _dedupe_ids(payload.file_ids)
+    rows = session.exec(
+        select(File).where(File.id.in_(file_ids), live(File))  # type: ignore[union-attr]
+    ).all()
+    by_id = {row.id: row for row in rows}
+    ordered: List[File] = []
+    for file_id in file_ids:
+        row = by_id.get(file_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="file_not_found")
+        if row.file_type != FileType.GCODE:
+            raise HTTPException(status_code=400, detail="revision_not_supported")
+        ordered.append(row)
+
+    models_by_id = {
+        model.id: model
+        for model in _require_all_editable_models(
+            session, current_user, [row.model_id for row in ordered]
+        )
+    }
+    if any(row.model_id not in models_by_id for row in ordered):
+        raise HTTPException(status_code=404, detail="model_not_found")
+
+    try:
+        model_views.set_revision_labels(session, ordered, payload.revision_label)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return RevisionBatchResult(succeeded_ids=file_ids, succeeded_count=len(file_ids))
 
 
 @router.post(
@@ -776,8 +943,8 @@ def batch_tag_models(
     dependencies=[Depends(require_auth)],
     summary="Soft-delete several models",
     description=(
-        "Moves the given models to the trash. Models the caller cannot edit are "
-        "skipped and reported in `failed`; the rest are deleted atomically."
+        "Moves the given models to the trash. Every model is preflighted; any missing "
+        "or non-editable model rejects the whole request without writes."
     ),
 )
 def batch_delete_models(
@@ -785,16 +952,14 @@ def batch_delete_models(
     current_user: User = Depends(require_user),
     session: Session = Depends(get_session),
 ) -> ModelBatchResult:
-    editable, failed = _partition_editable_models(
-        session, current_user, _dedupe_ids(payload.model_ids)
-    )
+    editable = _require_all_editable_models(session, current_user, payload.model_ids)
     soft_delete_models(session, editable)
     session.commit()
     return ModelBatchResult(
         succeeded_ids=[m.id for m in editable],  # type: ignore[misc]
-        failed=failed,
+        failed=[],
         succeeded_count=len(editable),
-        failed_count=len(failed),
+        failed_count=0,
     )
 
 

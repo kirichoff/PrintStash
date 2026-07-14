@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.config import _overlay
-from app.db.models import SystemConfig
+from app.db.models import SystemConfig, User
+from app.services.setup_token import current_setup_token
 
 
 class TestFirstRunSetup:
@@ -24,6 +25,7 @@ class TestFirstRunSetup:
         resp = client.post(
             "/api/v1/setup",
             json={
+                "setup_token": current_setup_token(),
                 "username": "admin",
                 "password": "Password123",
                 "email": "admin@example.com",
@@ -62,6 +64,7 @@ class TestFirstRunSetup:
         resp = client.post(
             "/api/v1/setup",
             json={
+                "setup_token": current_setup_token(),
                 "username": "admin",
                 "password": "Password123",
                 "storage_backend": "s3",
@@ -70,3 +73,41 @@ class TestFirstRunSetup:
 
         assert resp.status_code == 400
         assert resp.json()["detail"] == "s3_bucket_required"
+
+    def test_repeated_setup_submission_does_not_duplicate_state(
+        self, client: TestClient, db_session: Session, tmp_path: Path
+    ):
+        self._isolate_runtime_dirs(tmp_path)
+        payload = {
+            "setup_token": current_setup_token(),
+            "username": "admin",
+            "password": "Password123",
+            "storage_backend": "local",
+        }
+
+        first = client.post("/api/v1/setup", json=payload)
+        second = client.post("/api/v1/setup", json=payload)
+
+        assert first.status_code == 201
+        assert second.status_code == 409
+        assert second.json()["detail"] == "already_configured"
+        assert len(db_session.exec(select(User)).all()) == 1
+
+    def test_setup_rejects_request_without_operator_token(
+        self, client: TestClient, db_session: Session, tmp_path: Path
+    ):
+        self._isolate_runtime_dirs(tmp_path)
+
+        response = client.post(
+            "/api/v1/setup",
+            json={
+                "setup_token": "attacker-controlled-token",
+                "username": "attacker",
+                "password": "Password123",
+                "storage_backend": "local",
+            },
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "invalid_setup_token"
+        assert db_session.exec(select(User)).first() is None

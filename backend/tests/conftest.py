@@ -47,6 +47,8 @@ _init_test_db()
 
 
 _TRUNCATE_TABLES_ORDER = [
+    "model_stars",
+    "saved_views",
     "notification_deliveries",
     "notification_channels",
     "printer_files",
@@ -138,6 +140,7 @@ def _patch_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     override_session_factory(_test_factory)
     _overlay.clear()
     _overlay["db_url"] = TEST_DB_URL
+    _overlay["secrets_key"] = "printstash-test-secrets-key"
     _truncate_all()
     # Drop the process-wide httpx client so a test that drives async egress in
     # its own asyncio.run() loop doesn't inherit one bound to a prior (closed)

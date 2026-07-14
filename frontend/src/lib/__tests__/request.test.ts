@@ -104,14 +104,14 @@ describe("getJson caching", () => {
 });
 
 describe("auth headers", () => {
-  it("attaches a bearer token from storage when present", async () => {
+  it("does not attach a browser-readable token from legacy storage", async () => {
     window.localStorage.setItem("printstash.token", "abc123");
     fetchMock.mockResolvedValue(jsonResponse([]));
 
     await getJson("/api/v1/models", { fresh: true });
 
     const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
-    expect(headers.Authorization).toBe("Bearer abc123");
+    expect(headers.Authorization).toBeUndefined();
   });
 
   it("omits the Authorization header when there is no token", async () => {

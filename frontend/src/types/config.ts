@@ -1,22 +1,24 @@
 export interface SetupStatus {
   configured: boolean;
+  setup_token_required?: boolean;
   user_count: number;
-  default_data_dir: string;
-  default_thumb_dir: string;
-  current_data_dir: string;
-  current_thumb_dir: string;
-  current_storage_backend: string;
-  current_s3_bucket: string;
-  current_s3_endpoint_url: string;
-  current_s3_region: string;
-  current_backup_retention_days: number;
-  current_backup_s3_bucket: string;
-  current_backup_s3_endpoint_url: string;
-  current_backup_s3_region: string;
-  configured_at: string | null;
+  default_data_dir?: string;
+  default_thumb_dir?: string;
+  current_data_dir?: string;
+  current_thumb_dir?: string;
+  current_storage_backend?: string;
+  current_s3_bucket?: string;
+  current_s3_endpoint_url?: string;
+  current_s3_region?: string;
+  current_backup_retention_days?: number;
+  current_backup_s3_bucket?: string;
+  current_backup_s3_endpoint_url?: string;
+  current_backup_s3_region?: string;
+  configured_at?: string | null;
 }
 
 export interface SetupRequest {
+  setup_token: string;
   username: string;
   password: string;
   email?: string;

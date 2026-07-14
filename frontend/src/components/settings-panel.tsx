@@ -5,6 +5,7 @@ import {
   Bell,
   Boxes,
   Check,
+  CircleArrowUp,
   Database,
   Download,
   Eraser,
@@ -36,6 +37,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { TabBar } from "@/components/ui/tabs";
 import { inputClasses } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useRouter, useSearchParams } from "@/lib/navigation";
 import { CURRENCY_OPTIONS } from "@/lib/currency";
 import { ExternalLibrariesPanel } from "@/components/external-libraries-panel";
 import { StorageConfigCard } from "@/components/storage-config-card";
@@ -51,6 +53,10 @@ import {
   deleteCollectionPermission,
   downloadBackup,
   downloadModelExport,
+  downloadLibraryArchive,
+  importLibraryArchive,
+  getHealthDetails,
+  getLatestRelease,
   getVaultConfig,
   listBackups,
   listCollectionPermissions,
@@ -68,7 +74,7 @@ import {
   updateAdminUser,
   updateVaultConfig,
 } from "@/lib/api";
-import type { BackupMeta } from "@/lib/api";
+import type { BackupMeta, ReleaseStatus } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useVaultStats } from "@/lib/queries";
 import {
@@ -135,6 +141,12 @@ const SETTINGS_SECTIONS: {
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "about", label: "About", icon: Info },
 ];
+
+function settingsSection(value: string | null): SettingsSection {
+  return SETTINGS_SECTIONS.some((section) => section.id === value)
+    ? value as SettingsSection
+    : "overview";
+}
 
 // Shared button styles — keep settings actions visually uniform and theme-aware.
 const BTN_PRIMARY = cn(buttonVariants({ size: "xs" }), "uppercase tracking-wider");
@@ -208,13 +220,18 @@ function SettingsCard({
 
 export function SettingsPanel() {
   const { user } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const latestRelease = CHANGELOG[0];
-  const [activeSection, setActiveSection] = useState<SettingsSection>("overview");
+  const [activeSection, setActiveSection] = useState<SettingsSection>(() => settingsSection(searchParams.get("section")));
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus | null>(null);
+  const [releaseChecking, setReleaseChecking] = useState(false);
   // Vault totals refresh automatically when models change (model writes
   // invalidate queryKeys.vaultStats), so no manual refetch on this screen.
   const stats = useVaultStats().data ?? null;
   const [exporting, setExporting] = useState<"json" | "csv" | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState<"export" | "import" | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeyRead[]>([]);
   const [users, setUsers] = useState<UserRead[]>([]);
   const [usersBusy, setUsersBusy] = useState<number | "create" | null>(null);
@@ -245,6 +262,7 @@ export function SettingsPanel() {
   const [backupsLoading, setBackupsLoading] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<BackupMeta | null>(null);
   const [restoringBackup, setRestoringBackup] = useState(false);
+
   const [downloadingBackup, setDownloadingBackup] = useState<string | null>(null);
   const [metadataPrefs, setMetadataPrefs] = useState<MetadataPreferences>(
     DEFAULT_METADATA_PREFERENCES,
@@ -252,6 +270,19 @@ export function SettingsPanel() {
   const [cardMetrics, setCardMetrics] = useState<CardMetrics>(DEFAULT_CARD_METRICS);
   const [showPrinterCardImage, setShowPrinterCardImage] = useState(false);
   const [printerImageWarningOpen, setPrinterImageWarningOpen] = useState(false);
+
+  useEffect(() => {
+    setActiveSection(settingsSection(searchParams.get("section")));
+  }, [searchParams]);
+
+  function changeSection(section: SettingsSection) {
+    setActiveSection(section);
+    const params = new URLSearchParams(searchParams.toString());
+    if (section === "overview") params.delete("section");
+    else params.set("section", section);
+    const query = params.toString();
+    router.replace(query ? `/settings?${query}` : "/settings", { scroll: false });
+  }
 
   const refreshUsers = useCallback(async () => {
     if (!user?.is_superuser) return;
@@ -276,14 +307,31 @@ export function SettingsPanel() {
   }, [user]);
 
   useEffect(() => {
-    fetch("/api/v1/health")
-      .then((r) => r.json())
-      .then(setHealth)
-      .catch(() => {});
     setMetadataPrefs(readMetadataPreferences());
     setCardMetrics(readCardMetrics());
     setShowPrinterCardImage(readPrinterCardImagePreference());
   }, []);
+
+  useEffect(() => {
+    if (!user?.is_superuser) return;
+    getHealthDetails<HealthResponse>().then(setHealth).catch(() => {});
+  }, [user]);
+
+  const checkForUpdates = useCallback(async (refresh = false) => {
+    if (!user?.is_superuser) return;
+    setReleaseChecking(true);
+    try {
+      setReleaseStatus(await getLatestRelease(refresh));
+    } catch {
+      setReleaseStatus(null);
+    } finally {
+      setReleaseChecking(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void checkForUpdates(false);
+  }, [checkForUpdates]);
 
   useEffect(() => {
     if (!user) {
@@ -445,6 +493,22 @@ export function SettingsPanel() {
     } finally {
       setExporting(null);
     }
+  }
+
+  async function exportArchive() {
+    setArchiveBusy("export");
+    try { await downloadLibraryArchive(); }
+    catch (e) { toast.error(e); }
+    finally { setArchiveBusy(null); }
+  }
+
+  async function importArchive(file: File) {
+    setArchiveBusy("import");
+    try {
+      const result = await importLibraryArchive(file);
+      toast.success(`Imported ${result.created_models} models and ${result.created_files} artifacts`);
+    } catch (e) { toast.error(e); }
+    finally { setArchiveBusy(null); }
   }
 
   async function generateApiKey() {
@@ -794,7 +858,7 @@ export function SettingsPanel() {
             };
           })}
           active={activeSection}
-          onChange={setActiveSection}
+          onChange={changeSection}
           className="gap-1 overflow-x-auto"
           tabClassName="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-[color,background-color,transform] duration-press active:scale-[0.99] hover:bg-popover-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
           activeTabClassName="bg-accent text-accent-foreground"
@@ -812,7 +876,7 @@ export function SettingsPanel() {
                 key={section.id}
                 type="button"
                 aria-current={isActive ? "page" : undefined}
-                onClick={() => setActiveSection(section.id)}
+                onClick={() => changeSection(section.id)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium transition-[color,background-color,transform] duration-press active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   isActive
@@ -828,6 +892,33 @@ export function SettingsPanel() {
         </nav>
 
         <main className="min-w-0">
+      {releaseStatus?.update_available && releaseStatus.latest_version && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-6 flex flex-col gap-4 rounded-lg border border-warning/30 bg-warning/10 p-4 sm:flex-row sm:items-center"
+        >
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <CircleArrowUp className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                PrintStash v{releaseStatus.latest_version} is available
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                This vault is running v{releaseStatus.current_version}. Review release notes before updating your self-hosted installation.
+              </p>
+            </div>
+          </div>
+          <a
+            href={releaseStatus.release_url ?? `https://github.com/${GITHUB_REPO}/releases/latest`}
+            target="_blank"
+            rel="noreferrer noopener"
+            className={BTN_SECONDARY}
+          >
+            View release
+          </a>
+        </div>
+      )}
 
       {activeSection === "overview" && (
         <div className="space-y-6 animate-panel-in">
@@ -879,6 +970,31 @@ export function SettingsPanel() {
                     </span>
                   </div>
                 ))}
+              </div>
+            </SettingsCard>
+
+            <SettingsCard
+              icon={Download}
+              title="Library migration"
+              description="Portable archive with models, metadata, print history, and original artifacts"
+            >
+              <div className="p-4 sm:p-5 space-y-4">
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Export a versioned archive for migration to another PrintStash installation. Accounts, credentials, settings, and trash are excluded.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void exportArchive()} disabled={archiveBusy !== null} className={BTN_SECONDARY}>
+                    <Download className="h-3.5 w-3.5" /> {archiveBusy === "export" ? "Exporting" : "Export full library"}
+                  </button>
+                  {user?.is_superuser && (
+                    <label className={`${BTN_SECONDARY} ${archiveBusy !== null ? "pointer-events-none opacity-50" : "cursor-pointer"}`}>
+                      <Download className="h-3.5 w-3.5 rotate-180" /> {archiveBusy === "import" ? "Importing" : "Import archive"}
+                      <input type="file" accept=".zip,application/zip" className="sr-only" disabled={archiveBusy !== null} onChange={(event) => {
+                        const file = event.target.files?.[0]; if (file) void importArchive(file); event.target.value = "";
+                      }} />
+                    </label>
+                  )}
+                </div>
               </div>
             </SettingsCard>
 
@@ -1823,6 +1939,15 @@ export function SettingsPanel() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void checkForUpdates(true)}
+                  disabled={releaseChecking}
+                  className={BTN_SECONDARY}
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5", releaseChecking && "animate-spin")} />
+                  {releaseChecking ? "Checking" : "Check for updates"}
+                </button>
                 <a
                   href={`https://github.com/${GITHUB_REPO}`}
                   target="_blank"
@@ -1836,6 +1961,15 @@ export function SettingsPanel() {
                 </a>
               </div>
             </div>
+            {releaseStatus && (
+              <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground sm:px-6">
+                {releaseStatus.status === "up_to_date" && "Latest published release installed."}
+                {releaseStatus.status === "update_available" && releaseStatus.latest_version && (
+                  <>Update available: v{releaseStatus.latest_version}.</>
+                )}
+                {releaseStatus.status === "unavailable" && "Release check unavailable. Try again later."}
+              </div>
+            )}
           </div>
 
           {/* Changelog */}
