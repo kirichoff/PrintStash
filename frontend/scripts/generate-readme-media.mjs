@@ -395,7 +395,7 @@ async function shot(page, filename) {
   await page.screenshot({ path: join(outputDir, filename), animations: "disabled" });
 }
 
-async function record(page, name, action, { interval = 170, frameDuration = Math.round(interval * 1.5), hold = 500 } = {}) {
+async function record(page, name, action, { interval = 170, frameDuration = Math.round(interval * 4.5), hold = 500 } = {}) {
   const frameDir = join(frameRoot, name);
   await rm(frameDir, { recursive: true, force: true });
   await mkdir(frameDir, { recursive: true });
