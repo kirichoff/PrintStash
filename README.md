@@ -14,7 +14,7 @@ Upload manually or let OrcaSlicer push new G-code after every slice, then find
 files by model name, collection, tags, slicer metadata, material, printer, and
 print history.
 
-![PrintStash demo](screenshots/00-demo.gif)
+![PrintStash demo](screenshots/00-demo-v010.gif)
 
 [![Release](https://img.shields.io/github/v/release/xiao-villamor/PrintStash?style=flat-square&color=22c55e&include_prereleases&sort=semver)](https://github.com/xiao-villamor/PrintStash/releases)
 [![CI](https://github.com/xiao-villamor/PrintStash/actions/workflows/ci.yml/badge.svg)](https://github.com/xiao-villamor/PrintStash/actions/workflows/ci.yml)

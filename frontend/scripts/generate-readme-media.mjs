@@ -395,7 +395,7 @@ async function shot(page, filename) {
   await page.screenshot({ path: join(outputDir, filename), animations: "disabled" });
 }
 
-async function record(page, name, action, { interval = 170, hold = 500 } = {}) {
+async function record(page, name, action, { interval = 170, frameDuration = Math.round(interval * 1.5), hold = 500 } = {}) {
   const frameDir = join(frameRoot, name);
   await rm(frameDir, { recursive: true, force: true });
   await mkdir(frameDir, { recursive: true });
@@ -418,7 +418,7 @@ async function record(page, name, action, { interval = 170, hold = 500 } = {}) {
   const python = resolve(repoDir, "backend/.venv/bin/python");
   const result = spawnSync(python, [
     join(scriptDir, "build-readme-gif.py"), frameDir, join(outputDir, `${name}.gif`),
-    "--duration", String(interval),
+    "--duration", String(frameDuration),
   ], { stdio: "inherit" });
   if (result.status !== 0) throw new Error(`GIF build failed for ${name}`);
 }
@@ -464,9 +464,12 @@ async function captureMedia(page, seed) {
   await page.getByRole("button", { name: "90 days" }).click();
   await shot(page, "06-statistics.png");
 
-  await page.goto(webBase);
+  await page.goto(`${webBase}/?tag=featured`);
   await page.getByRole("heading", { name: "All Models" }).waitFor();
-  await record(page, "00-demo", async () => {
+  await page.addStyleTag({ content: "main [data-collection-path] { display: none !important; }" });
+  await page.locator('a[href^="/models/"]').filter({ hasText: "Mario Coin" }).waitFor();
+  await settle(page);
+  await record(page, "00-demo-v010", async () => {
     const search = page.getByPlaceholder(/Search PrintStash/i);
     await search.fill("Mario");
     await page.waitForTimeout(700);
