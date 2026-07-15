@@ -42,7 +42,7 @@ def _md5(text: str) -> str:
 
 def _parse_digest_header(value: str) -> dict[str, str]:
     parts: dict[str, str] = {}
-    for chunk in value[len("Digest "):].split(","):
+    for chunk in value[len("Digest ") :].split(","):
         if "=" not in chunk:
             continue
         key, _, raw = chunk.strip().partition("=")
@@ -60,14 +60,29 @@ def create_app(
     username: Optional[str] = None,
     password: Optional[str] = None,
 ) -> tuple[FastAPI, PrintSim]:
-    sim = PrintSim(total_mm=total_mm, total_seconds=total_seconds, print_seconds=print_seconds)
+    sim = PrintSim(
+        total_mm=total_mm, total_seconds=total_seconds, print_seconds=print_seconds
+    )
     files: list[dict[str, Any]] = [
-        {"name": "existing.gcode", "path": "existing.gcode", "size": 42, "m_timestamp": time.time()}
+        {
+            "name": "existing.gcode",
+            "path": "existing.gcode",
+            "size": 42,
+            "m_timestamp": time.time(),
+        },
+        {
+            "name": "demo.gcode",
+            "path": "demo.gcode",
+            "size": 42,
+            "m_timestamp": time.time(),
+        },
     ]
     nonce = secrets.token_hex(16)
     app = FastAPI()
 
-    def _check_auth(request: Request, authorization: Optional[str], x_api_key: Optional[str]) -> None:
+    def _check_auth(
+        request: Request, authorization: Optional[str], x_api_key: Optional[str]
+    ) -> None:
         if auth_mode == "api_key":
             if api_key and x_api_key != api_key:
                 raise HTTPException(
@@ -121,7 +136,7 @@ def create_app(
     async def status() -> dict:
         sim.progress()
         active = sim.is_active()
-        return {
+        body: dict[str, Any] = {
             "printer": {
                 "state": {
                     "printing": "PRINTING",
@@ -131,16 +146,27 @@ def create_app(
                     "error": "ERROR",
                     "standby": "IDLE",
                 }[sim.state],
-                "telemetry": {
-                    "temp-bed": {"actual": 60.0 if active else 25.0, "target": 60.0 if active else 0.0},
-                    "temp-nozzle": {"actual": 210.0 if active else 25.0, "target": 210.0 if active else 0.0},
-                },
+                "temp_bed": 60.0 if active else 25.0,
+                "target_bed": 60.0 if active else 0.0,
+                "temp_nozzle": 210.0 if active else 25.0,
+                "target_nozzle": 210.0 if active else 0.0,
             }
         }
+        if sim.filename:
+            body["job"] = {
+                "id": 1,
+                "progress": round(sim.progress() * 100, 2),
+                "time_printing": round(sim.elapsed(), 2),
+            }
+        return body
 
     @app.get("/api/v1/info")
     async def info() -> dict:
-        return {"name": "Mock PrusaLink", "hostname": "mock-prusalink", "nozzle_diameter": 0.4}
+        return {
+            "name": "Mock PrusaLink",
+            "hostname": "mock-prusalink",
+            "nozzle_diameter": 0.4,
+        }
 
     @app.get("/api/v1/job")
     async def job() -> Any:
@@ -155,15 +181,35 @@ def create_app(
             "file": {"name": sim.filename, "path": f"/local/{sim.filename}"},
         }
 
-    @app.get("/api/v1/files/local")
-    async def list_files() -> dict:
-        return {"files": files}
+    @app.get("/api/v1/files/local/{path:path}")
+    async def file_info(path: str) -> dict:
+        if path:
+            for item in files:
+                if item["path"] == path:
+                    return {**item, "type": "PRINT_FILE", "read_only": False}
+            raise HTTPException(status_code=404, detail="file not found")
+        return {
+            "name": "local",
+            "type": "FOLDER",
+            "read_only": False,
+            "m_timestamp": int(time.time()),
+            "children": [
+                {**item, "type": "PRINT_FILE", "read_only": False} for item in files
+            ],
+        }
 
     @app.put("/api/v1/files/local/{path:path}")
     async def upload(path: str, request: Request) -> Response:
         body = await request.body()
         files[:] = [f for f in files if f["path"] != path]
-        files.append({"name": path.rsplit("/", 1)[-1], "path": path, "size": len(body), "m_timestamp": time.time()})
+        files.append(
+            {
+                "name": path.rsplit("/", 1)[-1],
+                "path": path,
+                "size": len(body),
+                "m_timestamp": time.time(),
+            }
+        )
         return Response(status_code=201)
 
     @app.delete("/api/v1/files/local/{path:path}")
@@ -171,11 +217,13 @@ def create_app(
         files[:] = [f for f in files if f["path"] != path]
         return Response(status_code=204)
 
-    @app.post("/api/files/local/{path:path}")
-    async def select_and_print(path: str, request: Request) -> Response:
-        body = await request.json()
-        if body.get("command") == "select" and body.get("print"):
-            sim.start(path)
+    @app.post("/api/v1/files/local/{path:path}")
+    async def start_print(path: str) -> Response:
+        if not any(item["path"] == path for item in files):
+            raise HTTPException(status_code=404, detail="file not found")
+        if sim.is_active():
+            raise HTTPException(status_code=409, detail="print already active")
+        sim.start(path)
         return Response(status_code=204)
 
     @app.put("/api/v1/job/{job_id}/pause")

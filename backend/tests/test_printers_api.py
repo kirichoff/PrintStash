@@ -337,6 +337,57 @@ class TestPrinterControl:
             assert resp.status_code == 200
             assert resp.json() == {"ok": True}
 
+    def test_cancel_marks_active_job_cancelled_without_polling_transition(
+        self, client: TestClient, auth_headers, db_session: Session
+    ):
+        p = Printer(
+            name="OctoPrint",
+            provider="octoprint",
+            octoprint_url="http://octo",
+            octoprint_api_key="key",
+        )
+        db_session.add(p)
+        db_session.commit()
+        db_session.refresh(p)
+        model = Model(name="Cancel", slug="cancel-job", hash="c" * 64)
+        db_session.add(model)
+        db_session.commit()
+        db_session.refresh(model)
+        file = File(
+            model_id=model.id,
+            path="/data/cube.gcode",
+            original_filename="cube.gcode",
+            file_type=FileType.GCODE,
+            version=1,
+            size_bytes=10,
+            sha256="d" * 64,
+        )
+        db_session.add(file)
+        db_session.commit()
+        db_session.refresh(file)
+        job = PrintJob(
+            printer_id=p.id,
+            file_id=file.id,
+            model_id=model.id,
+            remote_filename="cube.gcode",
+            state=PrintJobState.PRINTING,
+        )
+        db_session.add(job)
+        db_session.commit()
+        db_session.refresh(job)
+
+        with patch(
+            "app.services.printer_provider.OctoPrintProvider.cancel",
+            new_callable=AsyncMock,
+            return_value={"ok": True},
+        ):
+            resp = client.post(f"/api/v1/printers/{p.id}/cancel", headers=auth_headers)
+
+        assert resp.status_code == 200
+        db_session.refresh(job)
+        assert job.state == PrintJobState.CANCELLED
+        assert job.finished_at is not None
+
     def test_set_temperature_builds_gcode(
         self, client: TestClient, auth_headers, db_session: Session
     ):
@@ -559,9 +610,7 @@ class TestOctoPrintPrinter:
         row = db_session.exec(select(Printer).where(Printer.name == "OctoPi")).one()
         assert row.octoprint_api_key == "secret-key"
 
-    def test_create_requires_url_and_api_key(
-        self, client: TestClient, auth_headers
-    ):
+    def test_create_requires_url_and_api_key(self, client: TestClient, auth_headers):
         resp = client.post(
             "/api/v1/printers",
             json={"name": "OctoPi", "provider": "octoprint"},

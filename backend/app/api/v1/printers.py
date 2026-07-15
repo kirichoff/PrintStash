@@ -849,6 +849,27 @@ async def _printer_control(printer_id: int, session: Session, action: str) -> di
     except Exception as exc:
         logger.error("printer control failed action=%s printer=%s", action, printer_id)
         raise HTTPException(status_code=502, detail="provider_error") from exc
+    if action == "cancel":
+        now = utcnow()
+        active_jobs = session.exec(
+            select(PrintJob).where(
+                PrintJob.printer_id == printer_id,
+                PrintJob.state.in_(  # type: ignore[union-attr]
+                    [
+                        PrintJobState.STARTED,
+                        PrintJobState.PRINTING,
+                        PrintJobState.PAUSED,
+                    ]
+                ),
+            )
+        ).all()
+        for job in active_jobs:
+            job.state = PrintJobState.CANCELLED
+            job.finished_at = now
+            job.updated_at = now
+            session.add(job)
+        if active_jobs:
+            session.commit()
     return {"ok": True}
 
 

@@ -242,6 +242,46 @@ class TestMoonrakerWS:
         assert first["print_stats"]["state"] == "printing"
 
     @pytest.mark.asyncio
+    async def test_subscribe_identifies_with_api_key_before_subscribing(self):
+        client = MoonrakerClient("http://printer.local:7125", api_key="secret123")
+        sent: list[dict] = []
+        stop = asyncio.Event()
+
+        class MockWS:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def send(self, raw):
+                sent.append(json.loads(raw))
+
+            async def recv(self):
+                request = sent[-1]
+                if request["method"] == "server.connection.identify":
+                    return json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": request["id"],
+                            "result": {"connection_id": 1},
+                        }
+                    )
+                stop.set()
+                return json.dumps(
+                    {"jsonrpc": "2.0", "id": request["id"], "result": {"status": {}}}
+                )
+
+        with patch("websockets.connect", return_value=MockWS()):
+            await client.subscribe(lambda _status: asyncio.sleep(0), stop_event=stop)
+
+        assert [message["method"] for message in sent[:2]] == [
+            "server.connection.identify",
+            "printer.objects.subscribe",
+        ]
+        assert sent[0]["params"]["api_key"] == "secret123"
+
+    @pytest.mark.asyncio
     async def test_subscribe_stops_on_event(self):
         client = MoonrakerClient("http://printer.local:7125")
         stop = asyncio.Event()

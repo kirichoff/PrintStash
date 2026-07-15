@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import time
 
-import httpx
 import pytest
 from sqlmodel import Session, select
 
@@ -38,7 +37,11 @@ PASSWORD = "s3cret"
 
 
 def _seed(db_session: Session, base_url: str, *, auth_mode: str) -> tuple[int, int]:
-    model = Model(name="Mock", slug=f"mock-prusa-{auth_mode}", hash=("q" if auth_mode == "api_key" else "r") * 64)
+    model = Model(
+        name="Mock",
+        slug=f"mock-prusa-{auth_mode}",
+        hash=("q" if auth_mode == "api_key" else "r") * 64,
+    )
     db_session.add(model)
     db_session.commit()
     db_session.refresh(model)
@@ -119,14 +122,20 @@ def test_send_print_completes(db_session: Session, auth_mode: str) -> None:
         else {"username": USERNAME, "password": PASSWORD}
     )
     app, sim = create_app(
-        total_mm=1000.0, total_seconds=10.0, print_seconds=1.5, auth_mode=auth_mode, **kwargs
+        total_mm=1000.0,
+        total_seconds=10.0,
+        print_seconds=1.5,
+        auth_mode=auth_mode,
+        **kwargs,
     )
     running = start_server(app)
     try:
         printer_id, job_id = _seed(db_session, running.base_url, auth_mode=auth_mode)
-        sim.start(REMOTE)
 
         async def _drive() -> None:
+            with get_session_factory().session() as session:
+                provider = get_provider_client(session.get(Printer, printer_id))
+            await provider.start(REMOTE)
             await _run_hub(
                 printer_id, lambda: _wait_job_state(job_id, PrintJobState.COMPLETED)
             )
@@ -142,25 +151,28 @@ def test_send_print_completes(db_session: Session, auth_mode: str) -> None:
 
 def test_pause_then_resume_runs_to_completion(db_session: Session) -> None:
     app, sim = create_app(
-        total_mm=1000.0, total_seconds=10.0, print_seconds=4.0, auth_mode="api_key", api_key=API_KEY
+        total_mm=1000.0,
+        total_seconds=10.0,
+        print_seconds=4.0,
+        auth_mode="api_key",
+        api_key=API_KEY,
     )
     running = start_server(app)
     try:
         printer_id, job_id = _seed(db_session, running.base_url, auth_mode="api_key")
-        sim.start(REMOTE)
 
         async def _drive() -> None:
-            async with httpx.AsyncClient(
-                base_url=running.base_url, headers={"X-Api-Key": API_KEY}
-            ) as http:
+            with get_session_factory().session() as session:
+                provider = get_provider_client(session.get(Printer, printer_id))
+            await provider.start(REMOTE)
 
-                async def body() -> None:
-                    await http.put("/api/v1/job/1/pause")
-                    await _wait_job_state(job_id, PrintJobState.PAUSED)
-                    await http.put("/api/v1/job/1/resume")
-                    await _wait_job_state(job_id, PrintJobState.COMPLETED)
+            async def body() -> None:
+                await provider.pause()
+                await _wait_job_state(job_id, PrintJobState.PAUSED)
+                await provider.resume()
+                await _wait_job_state(job_id, PrintJobState.COMPLETED)
 
-                await _run_hub(printer_id, body)
+            await _run_hub(printer_id, body)
 
         asyncio.run(_drive())
 
@@ -173,24 +185,27 @@ def test_pause_then_resume_runs_to_completion(db_session: Session) -> None:
 
 def test_cancel_marks_job_cancelled(db_session: Session) -> None:
     app, sim = create_app(
-        total_mm=1000.0, total_seconds=10.0, print_seconds=5.0, auth_mode="api_key", api_key=API_KEY
+        total_mm=1000.0,
+        total_seconds=10.0,
+        print_seconds=5.0,
+        auth_mode="api_key",
+        api_key=API_KEY,
     )
     running = start_server(app)
     try:
         printer_id, job_id = _seed(db_session, running.base_url, auth_mode="api_key")
-        sim.start(REMOTE)
 
         async def _drive() -> None:
-            async with httpx.AsyncClient(
-                base_url=running.base_url, headers={"X-Api-Key": API_KEY}
-            ) as http:
+            with get_session_factory().session() as session:
+                provider = get_provider_client(session.get(Printer, printer_id))
+            await provider.start(REMOTE)
 
-                async def body() -> None:
-                    await _wait_job_state(job_id, PrintJobState.PRINTING)
-                    await http.delete("/api/v1/job/1")
-                    await _wait_job_state(job_id, PrintJobState.CANCELLED)
+            async def body() -> None:
+                await _wait_job_state(job_id, PrintJobState.PRINTING)
+                await provider.cancel()
+                await _wait_job_state(job_id, PrintJobState.CANCELLED)
 
-                await _run_hub(printer_id, body)
+            await _run_hub(printer_id, body)
 
         asyncio.run(_drive())
 
@@ -216,7 +231,9 @@ def test_invalid_credentials_raise_authentication_error(
         if auth_mode == "api_key"
         else {"username": USERNAME, "password": PASSWORD}
     )
-    app, _sim = create_app(total_mm=1000.0, total_seconds=10.0, auth_mode=auth_mode, **real_kwargs)
+    app, _sim = create_app(
+        total_mm=1000.0, total_seconds=10.0, auth_mode=auth_mode, **real_kwargs
+    )
     running = start_server(app)
     try:
         printer = Printer(

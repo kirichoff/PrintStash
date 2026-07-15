@@ -17,6 +17,7 @@ import asyncio
 import json
 import socket
 import ssl
+import threading
 from dataclasses import dataclass
 from enum import StrEnum
 from ftplib import FTP_TLS  # nosec B402 - Bambu LAN's implicit-TLS FTPS, not plaintext
@@ -24,7 +25,6 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional, Protocol, runtime_checkable
 from uuid import uuid4
 
-import httpx
 import paho.mqtt.client as mqtt
 
 from app.core.logging import get_logger
@@ -475,10 +475,18 @@ class BambuLanProvider(BaseProvider):
         requires_ready_before_send=True,
     )
 
-    def __init__(self, host: str, serial: str, access_code: str) -> None:
+    def __init__(
+        self,
+        host: str,
+        serial: str,
+        access_code: str,
+        *,
+        mqtt_client_factory: Callable[[], mqtt.Client] | None = None,
+    ) -> None:
         self.host = host
         self.serial = serial
         self.access_code = access_code
+        self._mqtt_client_factory = mqtt_client_factory
         self._request_topic = f"device/{serial}/request"
         self._report_topic = f"device/{serial}/report"
 
@@ -492,32 +500,101 @@ class BambuLanProvider(BaseProvider):
         )
 
     def _mqtt_client(self) -> mqtt.Client:
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        client = (
+            self._mqtt_client_factory()
+            if self._mqtt_client_factory is not None
+            else mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        )
         client.username_pw_set("bblp", self.access_code)
         client.tls_set()
         return client
 
-    async def _send_command(self, payload: dict[str, Any]) -> dict[str, Any]:
-        def _publish() -> None:
-            client = self._mqtt_client()
+    def _mqtt_request(
+        self,
+        payload: dict[str, Any],
+        *,
+        accepts: Callable[[dict[str, Any]], bool],
+        timeout: float = 10.0,
+    ) -> dict[str, Any]:
+        response: dict[str, Any] = {}
+        connected = threading.Event()
+        received = threading.Event()
+        connection_error: list[str] = []
+
+        def on_connect(client, _userdata, _flags, reason_code, _properties=None):  # noqa: ANN001
+            if int(reason_code) != 0:
+                connection_error.append(f"mqtt connection refused: {reason_code}")
+                connected.set()
+                return
+            client.subscribe(self._report_topic, qos=1)
+            connected.set()
+
+        def on_message(_client, _userdata, message):  # noqa: ANN001
+            try:
+                body = json.loads(message.payload.decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                return
+            if isinstance(body, dict) and accepts(body):
+                response.update(body)
+                received.set()
+
+        client = self._mqtt_client()
+        client.on_connect = on_connect
+        client.on_message = on_message
+        try:
             client.connect(self.host, 8883, keepalive=30)
             client.loop_start()
+            if not connected.wait(timeout):
+                raise ProviderError(
+                    "bambu_mqtt_connect_timeout", code="provider_timeout"
+                )
+            if connection_error:
+                raise ProviderError(
+                    connection_error[0], code="provider_authentication_failed"
+                )
             info = client.publish(
                 self._request_topic, json.dumps(payload), qos=1, retain=False
             )
-            try:
-                info.wait_for_publish(timeout=10)
-            finally:
-                client.loop_stop()
-                client.disconnect()
+            info.wait_for_publish(timeout=timeout)
             if not info.is_published():
                 raise ProviderError(
                     "bambu_command_not_published", code="provider_transport_error"
                 )
+            if not received.wait(timeout):
+                raise ProviderError("bambu_response_timeout", code="provider_timeout")
+            return response
+        finally:
+            client.loop_stop()
+            client.disconnect()
+
+    async def _send_command(self, payload: dict[str, Any]) -> dict[str, Any]:
+        request = payload.get("print", {})
+        sequence_id = str(request.get("sequence_id", ""))
+        command = request.get("command")
+
+        def accepts(body: dict[str, Any]) -> bool:
+            report = body.get("print")
+            return bool(
+                isinstance(report, dict)
+                and report.get("command") == command
+                and str(report.get("sequence_id", "")) == sequence_id
+                and "result" in report
+            )
 
         try:
-            await asyncio.to_thread(_publish)
+            response = await asyncio.to_thread(
+                self._mqtt_request, payload, accepts=accepts
+            )
+            report = response.get("print", {})
+            if str(report.get("result", "")).lower() != "success":
+                reason = report.get("reason") or "unknown reason"
+                raise ProviderError(
+                    f"bambu command rejected by printer: {reason}",
+                    code="provider_command_rejected",
+                )
             return {"ok": True}
+        except ProviderError:
+            raise
         except Exception as exc:
             raise ProviderError(str(exc), code="provider_transport_error") from exc
 
@@ -609,24 +686,20 @@ class BambuLanProvider(BaseProvider):
 
     async def query_status(self) -> dict[str, Any]:
         self._check("query_status")
-        url = f"https://{self.host}:6000/api/v1/status"
+        payload = {
+            "pushing": {
+                "sequence_id": uuid4().hex,
+                "command": "pushall",
+                "version": 1,
+                "push_target": 1,
+            }
+        }
         try:
-            # Bambu LAN mode serves a self-signed cert on the printer itself —
-            # there is no CA to verify against, and self.host is a LAN IP the
-            # user configured directly (not a name an attacker could spoof via
-            # DNS). nosec: this is the documented way every Bambu LAN
-            # integration talks to the printer's local API.
-            async with httpx.AsyncClient(
-                timeout=10.0,
-                verify=False,  # nosec B501
-            ) as client:
-                resp = await client.get(url)
-            if resp.status_code >= 400:
-                raise ProviderError(
-                    f"bambu status http {resp.status_code}",
-                    code="provider_transport_error",
-                )
-            body = resp.json()
+            body = await asyncio.to_thread(
+                self._mqtt_request,
+                payload,
+                accepts=lambda report: isinstance(report.get("print"), dict),
+            )
         except ProviderError:
             raise
         except Exception as exc:

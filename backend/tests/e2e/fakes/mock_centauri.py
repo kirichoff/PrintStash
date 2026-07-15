@@ -1,27 +1,24 @@
-"""In-process fake for ``ElegooCentauriClient``'s ``_CentauriConnection`` seam.
+"""Centauri protocol fakes.
 
-Elegoo speaks a proprietary SDCP websocket protocol that ``pycentauri``
-already implements against real hardware; there is no documented way to
-point it at a plain test socket without TLS the way PrusaLink/OctoPrint's
-plain-HTTP transports allow (see ``# ponytail`` note below). Instead this
-fakes the *seam* ``ElegooCentauriClient`` already exposes for testing
-(``connector: Callable[[bool], Awaitable[_CentauriConnection]]``), backed by
-the same wall-clock ``PrintSim`` the HTTP-based emulators use, and returning
-real ``pycentauri.models.Status``/``PrintInfo`` objects so
-``ElegooCentauriClient.normalize_status`` runs unmodified.
-
-# ponytail: seam-level fake, not a real SDCP-over-websocket server — pycentauri
-# offers no test hook to redirect its TLS/handshake to a bare loopback socket.
-# Upgrade path: a real SDCP-WS emulator, if/when pycentauri exposes one.
+CC1 uses real SDCP v3 frames over loopback WebSocket, exercising pycentauri's
+transport, parsing, command envelopes, and status normalization. CC2 remains a
+connection-seam fake because its local protocol requires MQTT registration plus
+an HTTP serial-number bootstrap.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+import socket
+import threading
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any, Callable
 
+from pycentauri import sdcp
 from pycentauri.models import PrintStatus, Status
+from websockets.asyncio.server import serve
 
 from app.services.elegoo_centauri import ElegooCentauriError
 
@@ -39,6 +36,109 @@ _STATE_CODES = {
 
 # How often watch() pushes a status tick.
 PUSH_INTERVAL_S = 0.2
+MAINBOARD_ID = "MOCK-CENTAURI-MAINBOARD"
+
+
+def _status_payload(sim: PrintSim) -> dict[str, Any]:
+    sim.progress()
+    active = sim.is_active()
+    return {
+        "TempOfNozzle": 210.0 if active else 25.0,
+        "TempTargetNozzle": 210.0 if active else 0.0,
+        "TempOfHotbed": 60.0 if active else 25.0,
+        "TempTargetHotbed": 60.0 if active else 0.0,
+        "TempOfBox": 32.0 if active else 22.0,
+        "PrintInfo": {
+            "Status": _STATE_CODES.get(sim.state, int(PrintStatus.ERROR)),
+            "Filename": sim.filename,
+            "Progress": round(sim.progress() * 100),
+            "CurrentTicks": sim.elapsed(),
+        },
+        "Message": sim.message,
+    }
+
+
+@dataclass
+class RunningCentauriServer:
+    port: int
+    _stop: threading.Event
+    _thread: threading.Thread
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=10)
+
+
+def start_cc1_server(sim: PrintSim) -> RunningCentauriServer:
+    """Run SDCP v3 over a real loopback WebSocket for CC1 tests."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = int(sock.getsockname()[1])
+    ready = threading.Event()
+    stop = threading.Event()
+
+    async def handler(ws) -> None:  # noqa: ANN001
+        await ws.send(
+            json.dumps(
+                {
+                    "Id": MAINBOARD_ID,
+                    "Topic": f"sdcp/attributes/{MAINBOARD_ID}",
+                    "Data": {
+                        "MainboardID": MAINBOARD_ID,
+                        "Attributes": {"MainboardID": MAINBOARD_ID},
+                    },
+                }
+            )
+        )
+        async for raw in ws:
+            message = json.loads(raw)
+            data = message.get("Data", {})
+            cmd = int(data.get("Cmd", -1))
+            command_data = data.get("Data", {})
+            if cmd == int(sdcp.Cmd.START_PRINT):
+                sim.start(command_data["Filename"])
+            elif cmd == int(sdcp.Cmd.PAUSE_PRINT):
+                sim.pause()
+            elif cmd == int(sdcp.Cmd.RESUME_PRINT):
+                sim.resume()
+            elif cmd == int(sdcp.Cmd.STOP_PRINT):
+                sim.cancel()
+            await ws.send(
+                json.dumps(
+                    {
+                        "Id": MAINBOARD_ID,
+                        "Topic": f"sdcp/response/{MAINBOARD_ID}",
+                        "Data": {
+                            "Cmd": cmd,
+                            "RequestID": data.get("RequestID"),
+                            "MainboardID": MAINBOARD_ID,
+                            "Data": {"Ack": 0},
+                        },
+                    }
+                )
+            )
+            await ws.send(
+                json.dumps(
+                    {
+                        "Id": MAINBOARD_ID,
+                        "Topic": f"sdcp/status/{MAINBOARD_ID}",
+                        "Data": {"MainboardID": MAINBOARD_ID, **_status_payload(sim)},
+                    }
+                )
+            )
+
+    async def run() -> None:
+        async with serve(handler, "127.0.0.1", port, compression=None):
+            ready.set()
+            while not stop.is_set():
+                await asyncio.sleep(0.05)
+
+    thread = threading.Thread(target=lambda: asyncio.run(run()), daemon=True)
+    thread.start()
+    if not ready.wait(10):
+        stop.set()
+        raise RuntimeError("mock Centauri WebSocket failed to start")
+    return RunningCentauriServer(port=port, _stop=stop, _thread=thread)
 
 
 class FakeCentauriConnection:
@@ -50,24 +150,7 @@ class FakeCentauriConnection:
         self.calls: list[tuple[str, Any]] = []
 
     def _status(self) -> Status:
-        self.sim.progress()  # latch printing -> complete
-        active = self.sim.is_active()
-        return Status.from_payload(
-            {
-                "TempOfNozzle": 210.0 if active else 25.0,
-                "TempTargetNozzle": 210.0 if active else 0.0,
-                "TempOfHotbed": 60.0 if active else 25.0,
-                "TempTargetHotbed": 60.0 if active else 0.0,
-                "TempOfBox": 32.0 if active else 22.0,
-                "PrintInfo": {
-                    "Status": _STATE_CODES.get(self.sim.state, int(PrintStatus.ERROR)),
-                    "Filename": self.sim.filename,
-                    "Progress": round(self.sim.progress() * 100),
-                    "CurrentTicks": self.sim.elapsed(),
-                },
-                "Message": self.sim.message,
-            }
-        )
+        return Status.from_payload(_status_payload(self.sim))
 
     async def status(self) -> Status:
         return self._status()
@@ -107,6 +190,7 @@ def make_connector(
     expected_access_code: str | None = None,
     given_access_code: str | None = None,
     fail_transport: bool = False,
+    fail_after_connects: int | None = None,
 ) -> tuple[Callable[[bool], Any], FakeCentauriConnection]:
     """Build a ``Connector`` closure plus the connection it will hand back.
 
@@ -115,18 +199,26 @@ def make_connector(
     "access code" error); ``fail_transport`` simulates a network-layer drop.
     """
     connection = FakeCentauriConnection(sim)
+    connect_count = 0
 
     async def connector(enable_control: bool) -> FakeCentauriConnection:
+        nonlocal connect_count
         # Mirrors ElegooCentauriClient._connect's own contract: the connector
         # is responsible for translating transport/auth failures into
         # ElegooCentauriError itself — `_with_connection`'s try/except only
         # wraps `action(connection)`, not the connect call.
-        if fail_transport:
+        if fail_transport or (
+            fail_after_connects is not None and connect_count >= fail_after_connects
+        ):
             raise ElegooCentauriError("simulated connection refused")
-        if expected_access_code is not None and given_access_code != expected_access_code:
+        if (
+            expected_access_code is not None
+            and given_access_code != expected_access_code
+        ):
             raise ElegooCentauriError(
                 "access code rejected by printer", code="provider_authentication_failed"
             )
+        connect_count += 1
         return connection
 
     return connector, connection

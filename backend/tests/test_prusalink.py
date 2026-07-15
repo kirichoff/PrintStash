@@ -77,6 +77,28 @@ async def test_low_progress_is_not_misread_as_complete(
     assert result["result"]["status"]["virtual_sdcard"]["progress"] == expected
 
 
+def test_official_v1_status_shape_normalizes_embedded_job_and_temperatures() -> None:
+    normalized = PrusaLinkClient._normalize_status(
+        {
+            "printer": {
+                "state": "PRINTING",
+                "temp_bed": 59.5,
+                "target_bed": 60.0,
+                "temp_nozzle": 214.9,
+                "target_nozzle": 215.0,
+            },
+            "job": {"id": 42, "progress": 25.0, "time_printing": 120},
+        },
+        {},
+    )
+
+    assert normalized["print_stats"]["state"] == "printing"
+    assert normalized["virtual_sdcard"]["progress"] == 0.25
+    assert normalized["heater_bed"] == {"temperature": 59.5, "target": 60.0}
+    assert normalized["extruder"] == {"temperature": 214.9, "target": 215.0}
+    assert normalized["prusalink"]["job_id"] == 42
+
+
 @pytest.mark.asyncio
 async def test_digest_auth_challenge_is_answered() -> None:
     requests: list[httpx.Request] = []
@@ -104,9 +126,16 @@ async def test_file_operations_and_controls(tmp_path: Path) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append((request.method, request.url.path))
-        if request.url.path == "/api/v1/files/local" and request.method == "GET":
+        if request.url.path == "/api/v1/files/local/" and request.method == "GET":
             return httpx.Response(
-                200, json={"files": [{"name": "cube.gcode", "size": 5}]}
+                200,
+                json={
+                    "name": "local",
+                    "type": "FOLDER",
+                    "children": [
+                        {"name": "cube.gcode", "type": "PRINT_FILE", "size": 5}
+                    ],
+                },
             )
         if request.url.path == "/api/v1/job" and request.method == "GET":
             return httpx.Response(200, json={"id": 7, "state": "PAUSED"})
@@ -123,7 +152,8 @@ async def test_file_operations_and_controls(tmp_path: Path) -> None:
     await client.resume()
     await client.cancel()
     assert ("PUT", "/api/v1/files/local/folder/cube.gcode") in seen
-    assert ("POST", "/api/files/local/folder/cube.gcode") in seen
+    assert ("GET", "/api/v1/files/local/") in seen
+    assert ("POST", "/api/v1/files/local/folder/cube.gcode") in seen
     assert ("PUT", "/api/v1/job/7/pause") in seen
     assert ("PUT", "/api/v1/job/7/resume") in seen
     assert ("DELETE", "/api/v1/job/7") in seen

@@ -1,16 +1,10 @@
-"""Integration pack for the Elegoo Centauri provider against the seam fake.
-
-Elegoo's SDCP protocol has no plain-socket test entrypoint (see the
-``# ponytail`` note in ``mock_centauri.py``), so this drives
-``ElegooCentauriClient``/``ElegooCentauriProvider`` for real through the
-``_CentauriConnection`` seam they already expose for testing, backed by the
-same wall-clock ``PrintSim`` the HTTP-based emulators use.
-"""
+"""Integration pack for Centauri CC1 SDCP WebSocket and CC2 connection seam."""
 
 from __future__ import annotations
 
 import asyncio
 
+import pycentauri.client as pycentauri_client
 import pytest
 
 from app.db.models import Printer, PrinterProvider
@@ -20,16 +14,45 @@ from app.services.printer_provider import (
     ProviderError,
     get_provider_client,
 )
-from tests.e2e.fakes.mock_centauri import make_connector
+from tests.e2e.fakes.mock_centauri import make_connector, start_cc1_server
 from tests.e2e.fakes.print_sim import PrintSim
 
 REMOTE = "demo.gcode"
 
 
-def _provider(sim: PrintSim, *, model: str = "elegoo_centauri_carbon", **connector_kwargs):
+def test_cc1_real_sdcp_websocket_round_trip(monkeypatch) -> None:
+    sim = PrintSim(total_mm=1000.0, total_seconds=10.0, print_seconds=5.0)
+    running = start_cc1_server(sim)
+    monkeypatch.setattr(pycentauri_client, "WS_PORT", running.port)
+    provider = ElegooCentauriProvider(
+        ElegooCentauriClient("127.0.0.1", model="elegoo_centauri_carbon")
+    )
+    try:
+
+        async def _run() -> None:
+            await provider.start(REMOTE)
+            await _wait_state(provider, "printing")
+            await provider.pause()
+            await _wait_state(provider, "paused")
+            await provider.resume()
+            await _wait_state(provider, "printing")
+            await provider.cancel()
+            await _wait_state(provider, "cancelled")
+
+        asyncio.run(_run())
+    finally:
+        running.stop()
+
+
+def _provider(
+    sim: PrintSim, *, model: str = "elegoo_centauri_carbon", **connector_kwargs
+):
     connector, connection = make_connector(sim, **connector_kwargs)
     client = ElegooCentauriClient(
-        "192.0.2.10", model=model, access_code=connector_kwargs.get("given_access_code"), connector=connector
+        "192.0.2.10",
+        model=model,
+        access_code=connector_kwargs.get("given_access_code"),
+        connector=connector,
     )
     return ElegooCentauriProvider(client), connection
 
@@ -50,7 +73,10 @@ def test_send_print_completes() -> None:
 
     async def _run() -> None:
         await provider.start(REMOTE)
-        assert connection.calls[0] == ("start_print", (REMOTE, {"storage": "local", "auto_leveling": True, "timelapse": False}))
+        assert connection.calls[0] == (
+            "start_print",
+            (REMOTE, {"storage": "local", "auto_leveling": True, "timelapse": False}),
+        )
         await _wait_state(provider, "complete")
 
     asyncio.run(_run())
@@ -121,9 +147,10 @@ def test_carbon2_missing_access_code_rejected_at_build() -> None:
 
 def test_network_drop_mid_print_raises_transport_error() -> None:
     sim = PrintSim(total_mm=1000.0, total_seconds=10.0, print_seconds=5.0)
-    provider, _connection = _provider(sim, fail_transport=True)
+    provider, _connection = _provider(sim, fail_after_connects=1)
 
     async def _run() -> None:
+        await provider.start(REMOTE)
         with pytest.raises(ProviderError) as exc_info:
             await provider.query_status()
         assert exc_info.value.code == "provider_transport_error"

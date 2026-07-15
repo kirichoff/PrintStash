@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import time
 
-import httpx
 from sqlmodel import Session, select
 
 from app.db.models import (
@@ -24,6 +23,7 @@ from app.db.models import (
 )
 from app.db.session import get_session_factory
 from app.services.printer_hub import PrinterHub
+from app.services.printer_provider import get_provider_client
 from tests.e2e.fakes.mock_octoprint import create_app
 from tests.e2e.fakes.server import start_server
 
@@ -109,9 +109,11 @@ def test_send_print_completes(db_session: Session) -> None:
     running = start_server(app)
     try:
         printer_id, job_id = _seed(db_session, running.base_url)
-        sim.start(REMOTE)
 
         async def _drive() -> None:
+            with get_session_factory().session() as session:
+                provider = get_provider_client(session.get(Printer, printer_id))
+            await provider.start(REMOTE)
             await _run_hub(
                 printer_id, lambda: _wait_job_state(job_id, PrintJobState.COMPLETED)
             )
@@ -132,20 +134,19 @@ def test_pause_then_resume_runs_to_completion(db_session: Session) -> None:
     running = start_server(app)
     try:
         printer_id, job_id = _seed(db_session, running.base_url)
-        sim.start(REMOTE)
 
         async def _drive() -> None:
-            async with httpx.AsyncClient(
-                base_url=running.base_url, headers={"X-Api-Key": API_KEY}
-            ) as http:
+            with get_session_factory().session() as session:
+                provider = get_provider_client(session.get(Printer, printer_id))
+            await provider.start(REMOTE)
 
-                async def body() -> None:
-                    await http.post("/api/job", json={"command": "pause", "action": "pause"})
-                    await _wait_job_state(job_id, PrintJobState.PAUSED)
-                    await http.post("/api/job", json={"command": "pause", "action": "resume"})
-                    await _wait_job_state(job_id, PrintJobState.COMPLETED)
+            async def body() -> None:
+                await provider.pause()
+                await _wait_job_state(job_id, PrintJobState.PAUSED)
+                await provider.resume()
+                await _wait_job_state(job_id, PrintJobState.COMPLETED)
 
-                await _run_hub(printer_id, body)
+            await _run_hub(printer_id, body)
 
         asyncio.run(_drive())
 
@@ -163,19 +164,18 @@ def test_cancel_marks_job_cancelled(db_session: Session) -> None:
     running = start_server(app)
     try:
         printer_id, job_id = _seed(db_session, running.base_url)
-        sim.start(REMOTE)
 
         async def _drive() -> None:
-            async with httpx.AsyncClient(
-                base_url=running.base_url, headers={"X-Api-Key": API_KEY}
-            ) as http:
+            with get_session_factory().session() as session:
+                provider = get_provider_client(session.get(Printer, printer_id))
+            await provider.start(REMOTE)
 
-                async def body() -> None:
-                    await _wait_job_state(job_id, PrintJobState.PRINTING)
-                    await http.post("/api/job", json={"command": "cancel"})
-                    await _wait_job_state(job_id, PrintJobState.CANCELLED)
+            async def body() -> None:
+                await _wait_job_state(job_id, PrintJobState.PRINTING)
+                await provider.cancel()
+                await _wait_job_state(job_id, PrintJobState.CANCELLED)
 
-                await _run_hub(printer_id, body)
+            await _run_hub(printer_id, body)
 
         asyncio.run(_drive())
 

@@ -87,8 +87,11 @@ uv run python -m tests.e2e.fakes.mock_prusalink --port 8080 --auth-mode api_key 
 uv run python -m tests.e2e.fakes.mock_octoprint --port 5000 --print-seconds 5
 ```
 
-Centauri and Bambu are seam-level fakes (no plain-socket transport to point a
-client at), so they run in-process from tests, not standalone.
+Bambu's MQTT/FTPS protocol fakes run in-process and verify credentials, TLS,
+topics, pushall status, command acknowledgements, and upload semantics. Centauri
+Carbon (CC1) runs real SDCP frames over a loopback WebSocket; Carbon 2 remains a
+connection-seam fake because its protocol needs MQTT registration plus HTTP
+serial-number bootstrap. These are test helpers rather than standalone CLIs.
 
 ### The rule
 

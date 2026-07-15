@@ -171,6 +171,16 @@ def create_app(
     )
     app = FastAPI()
 
+    @app.middleware("http")
+    async def moonraker_auth(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if (
+            state.api_key
+            and not request.url.path.startswith("/spoolman")
+            and request.headers.get("X-Api-Key") != state.api_key
+        ):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
     def ok(result: Any) -> JSONResponse:
         return JSONResponse({"result": result})
 
@@ -249,6 +259,7 @@ def create_app(
     @app.websocket("/websocket")
     async def websocket(ws: WebSocket) -> None:
         await ws.accept()
+        authenticated = state.api_key is None
 
         async def pusher() -> None:
             while True:
@@ -274,7 +285,42 @@ def create_app(
                     msg = json.loads(raw)
                 except ValueError:
                     continue
+                if msg.get("method") == "server.connection.identify":
+                    supplied_key = (msg.get("params") or {}).get("api_key")
+                    if state.api_key and supplied_key != state.api_key:
+                        await ws.send_text(
+                            json.dumps(
+                                {
+                                    "jsonrpc": "2.0",
+                                    "id": msg.get("id"),
+                                    "error": {"code": 401, "message": "unauthorized"},
+                                }
+                            )
+                        )
+                        continue
+                    authenticated = True
+                    await ws.send_text(
+                        json.dumps(
+                            {
+                                "jsonrpc": "2.0",
+                                "id": msg.get("id"),
+                                "result": {"connection_id": 1},
+                            }
+                        )
+                    )
+                    continue
                 if msg.get("method") == "printer.objects.subscribe":
+                    if not authenticated:
+                        await ws.send_text(
+                            json.dumps(
+                                {
+                                    "jsonrpc": "2.0",
+                                    "id": msg.get("id"),
+                                    "error": {"code": 401, "message": "unauthorized"},
+                                }
+                            )
+                        )
+                        continue
                     await ws.send_text(
                         json.dumps(
                             {
@@ -314,9 +360,7 @@ def create_app(
     @spool_app.get("/api/v1/spool")
     async def spool_list(allow_archived: bool = False) -> list:
         return [
-            s
-            for s in state.spools.values()
-            if allow_archived or not s.get("archived")
+            s for s in state.spools.values() if allow_archived or not s.get("archived")
         ]
 
     @spool_app.get("/api/v1/spool/{spool_id}")

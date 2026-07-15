@@ -22,7 +22,7 @@ import time
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from .print_sim import PrintSim
 
@@ -47,9 +47,17 @@ def create_app(
     print_seconds: float = 5.0,
     api_key: Optional[str] = None,
 ) -> tuple[FastAPI, PrintSim]:
-    sim = PrintSim(total_mm=total_mm, total_seconds=total_seconds, print_seconds=print_seconds)
+    sim = PrintSim(
+        total_mm=total_mm, total_seconds=total_seconds, print_seconds=print_seconds
+    )
     files: list[dict[str, Any]] = [
-        {"type": "machinecode", "name": "existing.gcode", "path": "existing.gcode", "size": 42, "date": time.time()}
+        {
+            "type": "machinecode",
+            "name": "existing.gcode",
+            "path": "existing.gcode",
+            "size": 42,
+            "date": time.time(),
+        }
     ]
     app = FastAPI()
 
@@ -80,8 +88,14 @@ def create_app(
         return {
             "state": {"text": sim.state, "flags": flags},
             "temperature": {
-                "bed": {"actual": 60.0 if active else 25.0, "target": 60.0 if active else 0.0},
-                "tool0": {"actual": 210.0 if active else 25.0, "target": 210.0 if active else 0.0},
+                "bed": {
+                    "actual": 60.0 if active else 25.0,
+                    "target": 60.0 if active else 0.0,
+                },
+                "tool0": {
+                    "actual": 210.0 if active else 25.0,
+                    "target": 210.0 if active else 0.0,
+                },
             },
         }
 
@@ -91,7 +105,9 @@ def create_app(
         progress = sim.progress()
         return {
             "job": {
-                "file": {"name": sim.filename, "path": sim.filename} if sim.filename else {},
+                "file": {"name": sim.filename, "path": sim.filename}
+                if sim.filename
+                else {},
             },
             "progress": {
                 "completion": round(progress * 100, 2),
@@ -103,7 +119,7 @@ def create_app(
     @app.post("/api/job")
     async def job_command(
         request: Request, x_api_key: Optional[str] = Header(None)
-    ) -> JSONResponse:
+    ) -> Response:
         _check_key(x_api_key)
         body = await request.json()
         command = body.get("command")
@@ -122,10 +138,12 @@ def create_app(
             sim.resume()
         else:
             raise HTTPException(status_code=400, detail="Unknown command")
-        return JSONResponse({"ok": True})
+        return Response(status_code=204)
 
     @app.get("/api/files")
-    async def list_files(recursive: bool = False, x_api_key: Optional[str] = Header(None)) -> dict:
+    async def list_files(
+        recursive: bool = False, x_api_key: Optional[str] = Header(None)
+    ) -> dict:
         _check_key(x_api_key)
         return {"files": files}
 
@@ -142,7 +160,13 @@ def create_app(
         path = f"{subdir}/{name}" if subdir else name
         files[:] = [f for f in files if f["path"] != path]
         files.append(
-            {"type": "machinecode", "name": name, "path": path, "size": size, "date": time.time()}
+            {
+                "type": "machinecode",
+                "name": name,
+                "path": path,
+                "size": size,
+                "date": time.time(),
+            }
         )
         # Security contract: OctoPrintClient.upload always sends select=false,
         # print=false — a plain upload must never start a print.
@@ -156,20 +180,22 @@ def create_app(
         )
 
     @app.delete("/api/files/local/{path:path}")
-    async def delete_file(path: str, x_api_key: Optional[str] = Header(None)) -> JSONResponse:
+    async def delete_file(
+        path: str, x_api_key: Optional[str] = Header(None)
+    ) -> Response:
         _check_key(x_api_key)
         files[:] = [f for f in files if f["path"] != path]
-        return JSONResponse({"ok": True})
+        return Response(status_code=204)
 
     @app.post("/api/files/local/{path:path}")
     async def select_and_print(
         path: str, request: Request, x_api_key: Optional[str] = Header(None)
-    ) -> JSONResponse:
+    ) -> Response:
         _check_key(x_api_key)
         body = await request.json()
         if body.get("command") == "select" and body.get("print"):
             sim.start(path)
-        return JSONResponse({"ok": True})
+        return Response(status_code=204)
 
     return app, sim
 
