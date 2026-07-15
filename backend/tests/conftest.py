@@ -47,11 +47,14 @@ _init_test_db()
 
 
 _TRUNCATE_TABLES_ORDER = [
+    "background_jobs",
     "model_stars",
     "saved_views",
     "notification_deliveries",
     "notification_channels",
     "printer_files",
+    "printer_maintenance_logs",
+    "printer_maintenance_windows",
     "print_jobs",
     "printers",
     "printer_profiles",
