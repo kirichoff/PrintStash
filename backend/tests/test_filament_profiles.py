@@ -28,6 +28,130 @@ def test_filament_profile_crud(
     assert listed.json()[0]["cost_per_kg"] == 20
 
 
+def test_create_duplicate_name_conflict(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    payload = {"name": "PETG Basic", "material_type": "PETG"}
+    first = client.post(
+        "/api/v1/filament-profiles", headers=auth_headers, json=payload
+    )
+    assert first.status_code == 201
+    second = client.post(
+        "/api/v1/filament-profiles", headers=auth_headers, json=payload
+    )
+    assert second.status_code == 409
+    assert second.json()["detail"] == "filament_profile_already_exists"
+
+
+def test_update_not_found(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    resp = client.patch(
+        "/api/v1/filament-profiles/999",
+        headers=auth_headers,
+        json={"cost_per_kg": 25},
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "filament_profile_not_found"
+
+
+def test_update_rename_to_existing_name_conflict(
+    client: TestClient, db_session: Session, auth_headers: dict[str, str]
+) -> None:
+    a = FilamentProfile(name="Profile A", material_type="PLA")
+    b = FilamentProfile(name="Profile B", material_type="PLA")
+    db_session.add(a)
+    db_session.add(b)
+    db_session.commit()
+    db_session.refresh(a)
+    db_session.refresh(b)
+
+    resp = client.patch(
+        f"/api/v1/filament-profiles/{b.id}",
+        headers=auth_headers,
+        json={"name": "Profile A"},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "filament_profile_already_exists"
+
+
+def test_update_all_fields_success(
+    client: TestClient, db_session: Session, auth_headers: dict[str, str]
+) -> None:
+    profile = FilamentProfile(
+        name="Old Name",
+        material_type="PLA",
+        material_brand="Generic",
+        cost_per_kg=20,
+        notes="old notes",
+    )
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+
+    resp = client.patch(
+        f"/api/v1/filament-profiles/{profile.id}",
+        headers=auth_headers,
+        json={
+            "name": "New Name",
+            "material_type": "  PETG  ",
+            "material_brand": "  ",
+            "cost_per_kg": 30,
+            "notes": "  updated  ",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == "New Name"
+    assert body["material_type"] == "PETG"
+    # blank-after-strip clears the field to null via _clean()
+    assert body["material_brand"] is None
+    assert body["cost_per_kg"] == 30
+    assert body["notes"] == "updated"
+
+
+def test_update_same_name_does_not_self_conflict(
+    client: TestClient, db_session: Session, auth_headers: dict[str, str]
+) -> None:
+    profile = FilamentProfile(name="Stays Same", material_type="ABS")
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+
+    resp = client.patch(
+        f"/api/v1/filament-profiles/{profile.id}",
+        headers=auth_headers,
+        json={"name": "Stays Same", "cost_per_kg": 40},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["cost_per_kg"] == 40
+
+
+def test_delete_not_found(client: TestClient, auth_headers: dict[str, str]) -> None:
+    resp = client.delete(
+        "/api/v1/filament-profiles/999", headers=auth_headers
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "filament_profile_not_found"
+
+
+def test_delete_success(
+    client: TestClient, db_session: Session, auth_headers: dict[str, str]
+) -> None:
+    profile = FilamentProfile(name="Deletable", material_type="PLA")
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+    profile_id = profile.id
+
+    resp = client.delete(
+        f"/api/v1/filament-profiles/{profile_id}", headers=auth_headers
+    )
+    assert resp.status_code == 204
+    db_session.expire_all()
+    assert db_session.get(FilamentProfile, profile_id) is None
+
+
 def test_spoolman_linked_profile_is_read_only(
     client: TestClient, db_session: Session, auth_headers: dict[str, str]
 ) -> None:

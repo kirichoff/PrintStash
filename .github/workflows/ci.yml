@@ -8,6 +8,14 @@ on:
   # Callable from the release workflow so a tag can't publish without these
   # checks passing first (see ghcr.yml).
   workflow_call:
+  # Nightly "full-matrix" gate + on-demand run. Every job below already runs
+  # per-PR (backend + coverage, storage-s3/MinIO, e2e-real Playwright, frontend
+  # mock-API Playwright); these two triggers re-run the whole gauntlet off-peak
+  # daily and on manual dispatch, so a comprehensive gate exists without adding
+  # new job definitions or slowing individual PRs.
+  schedule:
+    - cron: "27 4 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -44,7 +52,50 @@ jobs:
         run: uv run ruff check app/ tests/
 
       - name: Test backend
-        run: uv run pytest tests -v
+        run: uv run pytest tests -v --cov=app --cov-report=term-missing --cov-fail-under=85
+
+  storage-s3:
+    name: Storage backend (S3/MinIO)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      minio:
+        image: minio/minio:latest
+        ports:
+          - 9100:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        # `minio server /data` is the container's default CMD; the healthcheck
+        # below is what actually gates readiness before tests run.
+        options: >-
+          --health-cmd "curl -fsS http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: Test S3 storage backend + backup destination against real MinIO
+        env:
+          PRINTSTASH_TEST_S3_ENDPOINT: http://localhost:9100
+        run: uv run pytest tests/test_storage_s3.py tests/test_backup_restore.py -v
 
   security:
     name: Security scan

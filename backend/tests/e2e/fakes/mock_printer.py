@@ -30,6 +30,8 @@ from typing import Any, Optional
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
+from .print_sim import PrintSim
+
 # How often the WebSocket pushes a status update. Real Moonraker is faster; this
 # is snappy enough for tests while keeping log noise down.
 PUSH_INTERVAL_S = 0.5
@@ -46,17 +48,10 @@ class MockState:
         print_seconds: float,
         api_key: Optional[str] = None,
     ) -> None:
-        self.total_mm = total_mm
-        self.total_seconds = total_seconds  # reported print_duration estimate
-        # Sim "printer seconds" advance this many times faster than wall time so a
-        # print reporting ``total_seconds`` completes in ``print_seconds`` real time.
-        self.speed = total_seconds / max(print_seconds, 1e-3)
+        self.sim = PrintSim(
+            total_mm=total_mm, total_seconds=total_seconds, print_seconds=print_seconds
+        )
         self.api_key = api_key
-
-        self.print_state = "standby"
-        self.filename = ""
-        self._started: Optional[float] = None  # monotonic when last (re)started
-        self._accumulated = 0.0  # sim-seconds accrued before a pause
 
         self.files: list[dict] = [
             {"path": "existing.gcode", "size": 42, "modified": time.time()}
@@ -88,32 +83,17 @@ class MockState:
 
     # -- simulation ---------------------------------------------------------
 
-    def _sim_elapsed(self) -> float:
-        if self.print_state == "printing" and self._started is not None:
-            return self._accumulated + (time.monotonic() - self._started) * self.speed
-        return self._accumulated
-
     def start(self, filename: str) -> None:
-        self.filename = filename
-        self.print_state = "printing"
-        self._started = time.monotonic()
-        self._accumulated = 0.0
+        self.sim.start(filename)
 
     def pause(self) -> None:
-        if self.print_state == "printing":
-            self._accumulated = self._sim_elapsed()
-            self._started = None
-            self.print_state = "paused"
+        self.sim.pause()
 
     def resume(self) -> None:
-        if self.print_state == "paused":
-            self._started = time.monotonic()
-            self.print_state = "printing"
+        self.sim.resume()
 
     def cancel(self) -> None:
-        self._accumulated = self._sim_elapsed()
-        self._started = None
-        self.print_state = "cancelled"
+        self.sim.cancel()
 
     def _record_history(self) -> None:
         self._job_id += 1
@@ -121,11 +101,11 @@ class MockState:
             0,
             {
                 "job_id": str(self._job_id),
-                "filename": self.filename,
+                "filename": self.sim.filename,
                 "status": "completed",
-                "filament_used": self.total_mm,
-                "print_duration": self.total_seconds,
-                "total_duration": self.total_seconds,
+                "filament_used": self.sim.total_mm,
+                "print_duration": self.sim.total_seconds,
+                "total_duration": self.sim.total_seconds,
                 "end_time": time.time(),
             },
         )
@@ -137,22 +117,18 @@ class MockState:
         the only place the terminal transition happens, so it fires from both the
         HTTP query and the WS push path.
         """
-        elapsed = self._sim_elapsed()
-        progress = min(elapsed / self.total_seconds, 1.0) if self.total_seconds else 0.0
-        if self.print_state == "printing" and progress >= 1.0:
-            self.print_state = "complete"
-            self._accumulated = self.total_seconds
-            self._started = None
+        was_printing = self.sim.state == "printing"
+        progress = self.sim.progress()
+        if was_printing and self.sim.state == "complete":
             self._record_history()
-        if self.print_state == "complete":
-            progress, elapsed = 1.0, self.total_seconds
+        elapsed = self.sim.elapsed()
 
-        filament_used = round(self.total_mm * progress, 4)
-        active = self.print_state in ("printing", "paused")
+        filament_used = self.sim.filament_used()
+        active = self.sim.is_active()
         return {
             "print_stats": {
-                "state": self.print_state,
-                "filename": self.filename,
+                "state": self.sim.state,
+                "filename": self.sim.filename,
                 "print_duration": round(elapsed, 2),
                 "total_duration": round(elapsed, 2),
                 "filament_used": filament_used,

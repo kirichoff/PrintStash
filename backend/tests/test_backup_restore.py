@@ -13,6 +13,7 @@ a local storage root under ``tmp_path``.
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -539,3 +540,145 @@ def test_purge_keeps_fresh_removes_old(
     remaining = {m.id for m in backup.list_backups()}
     assert old.id not in remaining
     assert fresh.id in remaining
+
+
+# ---------------------------------------------------------------------------
+# Corrupted / invalid archives (local — no MinIO needed)
+# ---------------------------------------------------------------------------
+
+
+def test_list_backups_skips_archive_with_unreadable_manifest(
+    backup_env: BackupEnv, caplog: pytest.LogCaptureFixture
+):
+    _seed_model_with_blob(backup_env, name="Widget", content=b"x")
+    good = backup.create_backup()
+
+    corrupt_path = backup_env.backup_dir / "printstash-backup-20200101-000000-deadbeefcafe.tar.gz"
+    corrupt_path.write_bytes(b"not a gzip file at all")
+
+    listed = {m.id for m in backup.list_backups()}
+    assert listed == {good.id}  # the corrupt archive is skipped, not raised
+
+
+def test_restore_of_corrupt_archive_raises_not_found(backup_env: BackupEnv):
+    """A gzip/manifest-corrupt archive fails to even list (see
+    ``test_list_backups_skips_archive_with_unreadable_manifest``), so
+    ``get_backup`` can't find it and restore never reaches ``tarfile.open`` —
+    it's rejected as unknown before any DB/file mutation, not mid-restore."""
+    _seed_model_with_blob(backup_env, name="Widget", content=b"x")
+    meta = backup.create_backup()
+    Path(meta.path).write_bytes(Path(meta.path).read_bytes()[:20])
+
+    with pytest.raises(FileNotFoundError):
+        backup.restore_backup(meta.id)
+
+    assert backup.restore_in_progress() is False
+
+
+def test_get_backup_archive_path_raises_for_unknown_id(backup_env: BackupEnv):
+    with pytest.raises(FileNotFoundError):
+        backup.get_backup_archive_path("does-not-exist")
+
+
+# ---------------------------------------------------------------------------
+# S3 backup destination (independent from vault storage) — needs MinIO
+# ---------------------------------------------------------------------------
+
+_S3_ENDPOINT = os.environ.get("PRINTSTASH_TEST_S3_ENDPOINT")
+requires_s3 = pytest.mark.skipif(
+    not _S3_ENDPOINT, reason="set PRINTSTASH_TEST_S3_ENDPOINT to run S3 backup tests"
+)
+
+
+@pytest.fixture
+def backup_s3_env(backup_env: BackupEnv) -> Iterator[BackupEnv]:
+    import uuid as _uuid
+
+    bucket = f"printstash-backup-test-{_uuid.uuid4().hex[:12]}"
+    _overlay.update(
+        {
+            "backup_s3_bucket": bucket,
+            "backup_s3_endpoint_url": _S3_ENDPOINT,
+            "backup_s3_region": "us-east-1",
+            "backup_s3_access_key": os.environ.get("PRINTSTASH_TEST_S3_ACCESS_KEY", "minioadmin"),
+            "backup_s3_secret_key": os.environ.get("PRINTSTASH_TEST_S3_SECRET_KEY", "minioadmin"),
+        }
+    )
+    # First call to _get_backup_s3() lazily creates the bucket via boto3's
+    # default behavior is *not* create-on-connect, so create it explicitly.
+    s3 = backup._get_backup_s3()
+    s3.create_bucket(Bucket=bucket)
+    try:
+        yield backup_env
+    finally:
+        for key in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket).search(
+            "Contents[].Key"
+        ):
+            if key:
+                s3.delete_object(Bucket=bucket, Key=key)
+        s3.delete_bucket(Bucket=bucket)
+        for field in (
+            "backup_s3_bucket",
+            "backup_s3_endpoint_url",
+            "backup_s3_region",
+            "backup_s3_access_key",
+            "backup_s3_secret_key",
+        ):
+            _overlay.pop(field, None)
+
+
+@requires_s3
+def test_create_backup_uploads_to_s3(backup_s3_env: BackupEnv):
+    _seed_model_with_blob(backup_s3_env, name="Widget", content=b"solid widget\n")
+
+    meta = backup.create_backup()
+
+    s3 = backup._get_backup_s3()
+    key = backup._backup_s3_key(Path(meta.path).name)
+    head = s3.head_object(Bucket=backup.settings.backup_s3_bucket, Key=key)
+    assert head["ContentLength"] == meta.size_bytes
+
+
+@requires_s3
+def test_list_backups_finds_s3_only_backup(backup_s3_env: BackupEnv):
+    _seed_model_with_blob(backup_s3_env, name="Widget", content=b"solid widget\n")
+    meta = backup.create_backup()
+
+    # Simulate cloud-only: the local copy is gone, only the S3 upload remains.
+    Path(meta.path).unlink()
+
+    found = backup.get_backup(meta.id)
+    assert found is not None
+    assert found.location == "s3"
+    assert found.file_count == meta.file_count
+
+
+@requires_s3
+def test_restore_downloads_s3_only_backup_before_restoring(backup_s3_env: BackupEnv):
+    _seed_model_with_blob(backup_s3_env, name="Widget", content=b"solid widget\n")
+    meta = backup.create_backup()
+    Path(meta.path).unlink()
+
+    result = backup.restore_backup(meta.id)
+
+    assert result["backup_id"] == meta.id
+    assert _read_model_names(backup_s3_env) == ["Widget"]
+    # _download_backup_to_local must have pulled a fresh local copy.
+    assert Path(meta.path).exists()
+
+
+@requires_s3
+def test_delete_backup_removes_s3_copy(backup_s3_env: BackupEnv):
+    _seed_model_with_blob(backup_s3_env, name="Widget", content=b"solid widget\n")
+    meta = backup.create_backup()
+
+    s3 = backup._get_backup_s3()
+    key = backup._backup_s3_key(Path(meta.path).name)
+    assert s3.head_object(Bucket=backup.settings.backup_s3_bucket, Key=key)
+
+    assert backup.delete_backup(meta.id) is True
+
+    import botocore.exceptions
+
+    with pytest.raises(botocore.exceptions.ClientError):
+        s3.head_object(Bucket=backup.settings.backup_s3_bucket, Key=key)
