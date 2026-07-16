@@ -94,6 +94,9 @@ def apply_overlay(session: Session) -> None:
     if config.makerworld_token:
         _overlay["makerworld_cookie"] = f"token={config.makerworld_token}"
 
+    if config.makerworld_3mf_only:
+        _overlay["makerworld_3mf_only"] = True
+
 
 def ensure_jwt_secret(session: Session) -> None:
     """Guarantee this install does not sign tokens with the published default.
@@ -187,6 +190,7 @@ def update_config(
     backup_s3_region: Optional[str] = None,
     backup_s3_access_key: Optional[str] = None,
     backup_s3_secret_key: Optional[str] = None,
+    makerworld_3mf_only: Optional[bool] = None,
 ) -> SystemConfig:
     """Persist config overrides into DB + overlay dict.
 
@@ -236,6 +240,15 @@ def update_config(
     _apply_str("backup_s3_region", backup_s3_region)
     _apply_str("backup_s3_access_key", backup_s3_access_key)
     _apply_str("backup_s3_secret_key", backup_s3_secret_key)
+
+    if makerworld_3mf_only is not None:
+        config.makerworld_3mf_only = makerworld_3mf_only
+        config.updated_at = utcnow()
+        session.add(config)
+        if makerworld_3mf_only:
+            _overlay["makerworld_3mf_only"] = True
+        else:
+            _overlay.pop("makerworld_3mf_only", None)
 
     config.updated_at = utcnow()
     session.add(config)
@@ -471,6 +484,7 @@ def get_effective_config(session: Session) -> dict:
         "notifications_enabled": notifications_enabled(session),
         "spoolman_enabled": spoolman_enabled(session),
         "currency": currency(session),
+        "makerworld_3mf_only": bool(_overlay.get("makerworld_3mf_only", False)),
     }
 
 

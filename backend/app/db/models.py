@@ -643,6 +643,9 @@ class SystemConfig(SQLModel, table=True):
     )
     makerworld_token_updated_at: Optional[datetime] = Field(default=None)
 
+    # MakerWorld: when True, download only the 3MF file instead of the STL zip.
+    makerworld_3mf_only: bool = Field(default=False)
+
     configured_at: Optional[datetime] = Field(default=None, index=True)
 
     created_at: datetime = Field(default_factory=utcnow)

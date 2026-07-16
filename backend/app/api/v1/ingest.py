@@ -26,6 +26,7 @@ from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
+from app.core.config import _overlay
 from app.core.logging import get_logger
 from app.core.security import require_auth, require_user
 from app.db.models import SUFFIX_TO_FILE_TYPE, Collection, CollectionRole, User
@@ -193,8 +194,15 @@ def _makerworld_cookie(override: Optional[str]) -> Optional[str]:
     ``settings.makerworld_cookie`` (admin pastes it once so end users paste
     nothing), and is ``None`` when neither is set — anonymous imports can list a
     collection but MakerWorld's auth-gated download endpoints will then 403.
+
+    When ``makerworld_3mf_only`` is enabled in the runtime overlay, appends
+    ``&3mf_only=1`` so the resolver switches to 3MF-only download.
     """
-    return (override or "").strip() or settings.makerworld_cookie.strip() or None
+    base = (override or "").strip() or settings.makerworld_cookie.strip() or None
+
+    if _overlay.get("makerworld_3mf_only"):
+        return (base or "") + "&3mf_only=1"
+    return base
 
 
 def _collection_target(parent: Optional[str], title: str) -> str:

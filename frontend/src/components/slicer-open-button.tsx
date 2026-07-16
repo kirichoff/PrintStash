@@ -1,42 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, ExternalLink } from "lucide-react";
 
 import { getJson } from "@/lib/api/request";
 import { toast } from "@/lib/toast";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import {
+  readCustomSlicers,
+  type CustomSlicer,
+} from "@/lib/slicer-config";
 
 type Slicer = {
   name: string;
   scheme: string;
-  // File extensions this slicer can actually open from a URL.
   types: ReadonlySet<string>;
+  custom: boolean;
 };
 
 // Which file types each slicer opens from a URL. Bambu Studio only loads 3MF
 // via URL (other formats error with "unknown format"); OrcaSlicer is broad.
-// PrusaSlicer doesn't reliably open arbitrary self-hosted URLs yet
-// (prusa3d/PrusaSlicer#13752) but is kept listed as best-effort.
 const ORCA_TYPES = new Set(["stl", "3mf", "obj", "step", "gcode"]);
-const SLICERS: Slicer[] = [
-  { name: "OrcaSlicer", scheme: "orcaslicer", types: ORCA_TYPES },
-  { name: "Bambu Studio", scheme: "bambustudio", types: new Set(["3mf"]) },
-  { name: "PrusaSlicer", scheme: "prusaslicer", types: ORCA_TYPES },
+const BUILTIN_SLICERS: Slicer[] = [
+  { name: "OrcaSlicer", scheme: "orcaslicer", types: ORCA_TYPES, custom: false },
+  { name: "Bambu Studio", scheme: "bambustudio", types: new Set(["3mf"]), custom: false },
+  { name: "PrusaSlicer", scheme: "prusaslicer", types: ORCA_TYPES, custom: false },
 ];
 
 function isMacOS() {
   if (typeof navigator === "undefined") return false;
-  // navigator.platform is deprecated but still the most reliable signal here;
-  // fall back to the user-agent string.
   const platform = navigator.platform ?? "";
   return /Mac/i.test(platform) || /Mac OS X/i.test(navigator.userAgent ?? "");
 }
 
 function slicerHref(scheme: string, fileUrl: string) {
-  // Bambu Studio uses a different URL scheme on macOS: the file URL is
-  // appended directly to the `bambustudioopen://` host instead of being passed
-  // as an `open?file=` query parameter (issue #27).
   if (scheme === "bambustudio" && isMacOS()) {
     return `bambustudioopen://${encodeURIComponent(fileUrl)}`;
   }
@@ -57,16 +54,32 @@ export function SlicerOpenButton({
   const iconSize = size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4";
   const chevronSize = size === "sm" ? "h-2.5 w-2.5" : "h-3 w-3";
 
-  const slicers = SLICERS.filter((s) => s.types.has(fileType));
+  const customSlicers = useMemo(() => {
+    try {
+      return readCustomSlicers().map(
+        (cs: CustomSlicer): Slicer => ({
+          name: cs.name,
+          scheme: cs.scheme,
+          types: new Set(cs.types),
+          custom: true,
+        }),
+      );
+    } catch {
+      return [] as Slicer[];
+    }
+  }, []);
+
+  const allSlicers = useMemo(
+    () => [...BUILTIN_SLICERS, ...customSlicers],
+    [customSlicers],
+  );
+
+  const slicers = allSlicers.filter((s) => s.types.has(fileType));
   if (slicers.length === 0) return null;
 
   async function openInSlicer(scheme: string) {
     setOpen(false);
     try {
-      // The slicer is a separate process with no login session, so it can't
-      // send our bearer token. The backend returns a short-lived, filename-
-      // bearing download URL (the path carries the extension so the slicer can
-      // detect the format) with a file-scoped token embedded.
       const { url } = await getJson<{ url: string }>(
         `/api/v1/files/${fileId}/slicer-url`,
         { fresh: true },
@@ -102,7 +115,7 @@ export function SlicerOpenButton({
       <p className="px-3 py-1.5 font-mono text-3xs uppercase tracking-wider text-on-surface-variant border-b border-outline-variant">
         Open in slicer
       </p>
-      {slicers.map(({ name, scheme }) => (
+      {slicers.map(({ name, scheme, custom }) => (
         <button
           key={scheme}
           type="button"
@@ -111,6 +124,9 @@ export function SlicerOpenButton({
           className="block w-full px-3 py-2 text-left font-mono text-xs text-on-surface hover:bg-surface-container-low focus-visible:bg-surface-container-low outline-none transition-colors last:rounded-b"
         >
           {name}
+          {custom && (
+            <span className="ml-2 text-3xs text-on-surface-variant">(custom)</span>
+          )}
         </button>
       ))}
     </DropdownMenu>

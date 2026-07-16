@@ -83,6 +83,37 @@ const ORCA_COVER_PATHS: Record<string, string> = {
   "Qidi Q1 Pro": "resources/profiles/Qidi/Qidi Q1 Pro_cover.png",
   "Qidi X-Plus 3": "resources/profiles/Qidi/Qidi X-Plus 3_cover.png",
   "Qidi X-Max 3": "resources/profiles/Qidi/Qidi X-Max 3_cover.png",
+
+  // Snapmaker
+  "Snapmaker A250": "resources/profiles/Snapmaker/Snapmaker A250_cover.png",
+  "Snapmaker A250 BKit": "resources/profiles/Snapmaker/Snapmaker A250 BKit_cover.png",
+  "Snapmaker A250 Dual": "resources/profiles/Snapmaker/Snapmaker A250 Dual_cover.png",
+  "Snapmaker A250 Dual BKit":
+    "resources/profiles/Snapmaker/Snapmaker A250 Dual BKit_cover.png",
+  "Snapmaker A250 Dual QSkit":
+    "resources/profiles/Snapmaker/Snapmaker A250 Dual QSKit_cover.png",
+  "Snapmaker A250 Dual QS+B Kit":
+    "resources/profiles/Snapmaker/Snapmaker A250 Dual QS+B Kit_cover.png",
+  "Snapmaker A250 QSkit":
+    "resources/profiles/Snapmaker/Snapmaker A250 QSKit_cover.png",
+  "Snapmaker A250 QS+B Kit":
+    "resources/profiles/Snapmaker/Snapmaker A250 QS+B Kit_cover.png",
+  "Snapmaker A350": "resources/profiles/Snapmaker/Snapmaker A350_cover.png",
+  "Snapmaker A350 BKit": "resources/profiles/Snapmaker/Snapmaker A350 BKit_cover.png",
+  "Snapmaker A350 Dual": "resources/profiles/Snapmaker/Snapmaker A350 Dual_cover.png",
+  "Snapmaker A350 Dual BKit":
+    "resources/profiles/Snapmaker/Snapmaker A350 Dual BKit_cover.png",
+  "Snapmaker A350 Dual QSkit":
+    "resources/profiles/Snapmaker/Snapmaker A350 Dual QSKit_cover.png",
+  "Snapmaker A350 Dual QS+B Kit":
+    "resources/profiles/Snapmaker/Snapmaker A350 Dual QS+B Kit_cover.png",
+  "Snapmaker A350 QSkit":
+    "resources/profiles/Snapmaker/Snapmaker A350 QSKit_cover.png",
+  "Snapmaker A350 QS+B Kit":
+    "resources/profiles/Snapmaker/Snapmaker A350 QS+B Kit_cover.png",
+  "Snapmaker Artisan": "resources/profiles/Snapmaker/Snapmaker Artisan_cover.png",
+  "Snapmaker J1": "resources/profiles/Snapmaker/Snapmaker J1_cover.png",
+  "Snapmaker U1": "resources/profiles/Snapmaker/Snapmaker U1_cover.png",
 };
 
 export interface PrinterArtwork {

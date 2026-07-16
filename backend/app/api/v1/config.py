@@ -69,6 +69,8 @@ class VaultConfigUpdate(BaseModel):
     backup_s3_access_key: Optional[str] = None
     backup_s3_secret_key: Optional[str] = None
 
+    makerworld_3mf_only: Optional[bool] = None
+
 
 @router.get(
     "",
@@ -253,6 +255,11 @@ def update_config(
 
     if body.currency is not None:
         runtime_config.set_currency(session, body.currency)
+
+    if body.makerworld_3mf_only is not None:
+        runtime_config.update_config(
+            session, makerworld_3mf_only=body.makerworld_3mf_only
+        )
 
     runtime_config.update_config(
         session,

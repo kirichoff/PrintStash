@@ -547,14 +547,25 @@ async def _resolve_makerworld(url: str, cookie: Optional[str]) -> Optional[str]:
     instance id, and the instance's ``f3mf`` endpoint yields the file link. The
     latter is auth-gated — without a login ``cookie`` it raises
     ``makerworld_login_required`` (surfaced via :func:`_makerworld_api_get`).
+
+    When the cookie carries a ``&3mf_only=1`` marker (appended by the import
+    pipeline), the fileType is switched to ``f3mf`` so MakerWorld returns a
+    single 3MF file instead of a zip of STLs.
     """
     design_id = _makerworld_id(url)
     if not design_id:
         return None
     base = "https://makerworld.com/api/v1/design-service"
 
+    # Parse the 3mf_only flag from the cookie value.
+    makerworld_3mf_only = False
+    effective_cookie = cookie or ""
+    if "&3mf_only=1" in effective_cookie:
+        makerworld_3mf_only = True
+        effective_cookie = effective_cookie.replace("&3mf_only=1", "")
+
     instance_id: Optional[str] = None
-    design = await _makerworld_api_get(f"{base}/design/{design_id}", url, None, cookie)
+    design = await _makerworld_api_get(f"{base}/design/{design_id}", url, None, effective_cookie or None)
     if isinstance(design, dict):
         if design.get("defaultInstanceId"):
             instance_id = str(design["defaultInstanceId"])
@@ -565,15 +576,16 @@ async def _resolve_makerworld(url: str, cookie: Optional[str]) -> Optional[str]:
                     break
 
     if instance_id:
-        api = f"{base}/instance/{instance_id}/f3mf?type=download&fileType=3mfstl"
-        data = await _makerworld_api_get(api, url, None, cookie)
+        file_type = "f3mf" if makerworld_3mf_only else "3mfstl"
+        api = f"{base}/instance/{instance_id}/f3mf?type=download&fileType={file_type}"
+        data = await _makerworld_api_get(api, url, None, effective_cookie or None)
         link = _first_download_url(data) if data is not None else None
         if link:
             return link
 
     # Fallback to the model-level download endpoint.
     api = f"https://makerworld.com/api/v1/models/{design_id}/download"
-    data = await _makerworld_api_get(api, url, None, cookie)
+    data = await _makerworld_api_get(api, url, None, effective_cookie or None)
     return _first_download_url(data) if data is not None else None
 
 

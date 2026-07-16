@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, KeyRound, Loader2, LogIn, Unplug } from "lucide-react";
 import {
   getMakerWorldStatus,
+  getVaultConfig,
   makerWorldDisconnect,
   makerWorldLogin,
   makerWorldSetToken,
   makerWorldVerify,
+  updateVaultConfig,
 } from "@/lib/api";
 import type { MakerWorldStatus } from "@/types";
 import { userMessage } from "@/lib/errors";
@@ -40,6 +42,8 @@ export function MakerWorldConnectCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const [makerworld3mfOnly, setMakerworld3mfOnly] = useState(false);
+
   const load = useCallback(async () => {
     try {
       setStatus(await getMakerWorldStatus());
@@ -47,6 +51,12 @@ export function MakerWorldConnectCard() {
       // ignore — treated as not connected
     } finally {
       setLoading(false);
+    }
+    try {
+      const cfg = await getVaultConfig();
+      setMakerworld3mfOnly(cfg.makerworld_3mf_only ?? false);
+    } catch {
+      // ignore
     }
   }, []);
 
@@ -184,6 +194,37 @@ export function MakerWorldConnectCard() {
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unplug className="h-3.5 w-3.5" />}
               Disconnect
+            </button>
+          </div>
+          <div className="border-t border-border pt-3 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-foreground">Download as 3MF</p>
+              <p className="text-xs text-muted-foreground">
+                When enabled, imports download a single 3MF file instead of a zip of STLs
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={makerworld3mfOnly}
+              onClick={async () => {
+                const next = !makerworld3mfOnly;
+                setMakerworld3mfOnly(next);
+                try {
+                  await updateVaultConfig({ makerworld_3mf_only: next });
+                } catch {
+                  setMakerworld3mfOnly(!next);
+                }
+              }}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                makerworld3mfOnly ? "bg-primary" : "bg-outline-variant"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                  makerworld3mfOnly ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
             </button>
           </div>
         ) : step === "creds" && tokenMode ? (

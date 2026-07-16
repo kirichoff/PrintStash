@@ -73,6 +73,7 @@ export interface VaultConfigRead {
   auto_mark_known_good: boolean;
   external_libraries_enabled: boolean;
   currency: string;
+  makerworld_3mf_only?: boolean;
 }
 
 export interface VaultConfigUpdate {
@@ -94,11 +95,16 @@ export interface VaultConfigUpdate {
   auto_mark_known_good?: boolean;
   external_libraries_enabled?: boolean;
   currency?: string;
+  makerworld_3mf_only?: boolean;
 }
 
 export interface MakerWorldStatus {
   connected: boolean;
   updated_at: string | null;
+}
+
+export interface VaultConfigRead {
+  makerworld_3mf_only?: boolean;
 }
 
 export interface MakerWorldLoginRequest {

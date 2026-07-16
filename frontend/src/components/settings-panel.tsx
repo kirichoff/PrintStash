@@ -9,6 +9,7 @@ import {
   Database,
   Download,
   Eraser,
+  ExternalLink,
   Eye,
   EyeOff,
   Files,
@@ -44,6 +45,7 @@ import { StorageConfigCard } from "@/components/storage-config-card";
 import { MakerWorldConnectCard } from "@/components/makerworld-connect-card";
 import { NotificationsPanel } from "@/components/notifications-panel";
 import { SpoolmanConnectCard } from "@/components/spoolman-connect-card";
+import { SlicerSettingsCard } from "@/components/slicer-settings-card";
 import { BrandMark } from "@/components/brand-mark";
 import {
   createApiKey,
@@ -121,6 +123,7 @@ type SettingsSection =
   | "libraries"
   | "notifications"
   | "spoolman"
+  | "slicers"
   | "design"
   | "trash"
   | "about";
@@ -137,6 +140,7 @@ const SETTINGS_SECTIONS: {
   { id: "libraries", label: "Shared volumes", icon: FolderSync },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "spoolman", label: "Spoolman", icon: Boxes },
+  { id: "slicers", label: "Slicers", icon: ExternalLink },
   { id: "design", label: "Design", icon: Palette },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "about", label: "About", icon: Info },
@@ -1555,6 +1559,12 @@ export function SettingsPanel() {
       {activeSection === "spoolman" && (
         <div className="space-y-6 animate-panel-in">
           <SpoolmanConnectCard canEdit={!!user?.is_superuser} />
+        </div>
+      )}
+
+      {activeSection === "slicers" && (
+        <div className="space-y-6 animate-panel-in">
+          <SlicerSettingsCard />
         </div>
       )}
 
