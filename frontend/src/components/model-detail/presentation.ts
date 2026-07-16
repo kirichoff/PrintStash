@@ -18,7 +18,7 @@ import {
 } from "@/lib/format";
 import { MetadataPreferences } from "@/lib/metadata-preferences";
 
-export type TabKey = "overview" | "settings" | "revisions" | "files" | "history";
+export type TabKey = "overview" | "settings" | "revisions" | "files" | "history" | "docs";
 
 export const TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "Overview" },
@@ -26,6 +26,7 @@ export const TABS: { key: TabKey; label: string }[] = [
   { key: "revisions", label: "Revisions" },
   { key: "files", label: "Files" },
   { key: "history", label: "History" },
+  { key: "docs", label: "Docs" },
 ];
 
 export function normalizeRecommendedGcodeFiles<

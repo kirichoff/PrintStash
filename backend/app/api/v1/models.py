@@ -29,7 +29,8 @@ from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, delete, select
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
-
+from app.api.v1.files import _serve_file
+from app.api.v1.documents import _item as _document_item
 from app.core.config import settings
 from app.core.security import require_auth, require_superuser, require_user
 from app.core.time import utcnow
@@ -1216,3 +1217,40 @@ def delete_model(
     m = _require_model_role(session, current_user, model_id, CollectionRole.EDIT)
     soft_delete_model(session, m)
     return Response(status_code=204)
+
+
+@router.get(
+    "/{model_id}/documents",
+    response_model=List[dict],
+    summary="List model-related documents (READMEs, manuals)",
+)
+def list_model_documents(
+    model_id: int,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> List[dict]:
+    model = _require_model_role(session, current_user, model_id, CollectionRole.VIEW)
+    if not model.collection_path:
+        return []
+
+    from app.db.models import Collection
+    from app.db.scopes import live
+
+    col = session.exec(
+        select(Collection).where(
+            Collection.path == model.collection_path,
+            live(Collection),
+        )
+    ).first()
+    if col is None:
+        return []
+
+    from app.db.models import Document
+
+    stmt = (
+        select(Document)
+        .where(Document.collection_id == col.id, Document.deleted_at.is_(None))
+        .order_by(Document.updated_at.desc())
+    )
+    docs = session.exec(stmt).all()
+    return [_document_item(session, current_user, d) for d in docs]

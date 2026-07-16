@@ -59,6 +59,7 @@ import { TabBar } from "@/components/ui/tabs";
 import { AddGcodeRevisionModal } from "./add-revision-modal";
 import { FilesTab } from "./files-tab";
 import { OverviewTab } from "./overview-tab";
+import { DocsTab } from "./docs-tab";
 import {
   TABS,
   TabKey,
@@ -844,6 +845,8 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
                 onJobCreated={(job) => setPrintJobs((p) => [job, ...p])}
               />
             )}
+
+            {activeTab === "docs" && <DocsTab modelId={model.id} />}
           </div>
 
           {/* Klipper Sync Panel */}
