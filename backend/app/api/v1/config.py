@@ -45,6 +45,8 @@ class VaultConfigRead(BaseModel):
     external_libraries_enabled: bool = False
     currency: str = "USD"
 
+    makerworld_3mf_only: bool = False
+
 
 class VaultConfigUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")

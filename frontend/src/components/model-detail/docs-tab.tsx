@@ -96,7 +96,7 @@ export function DocsTab({ modelId }: { modelId: number }) {
 
       {activeDoc.kind === "markdown" && activeDoc.body ? (
         <div className="rounded-lg border border-outline-variant bg-surface-container-low p-4 md:p-6">
-          <MarkdownView content={activeDoc.body} />
+          <MarkdownView source={activeDoc.body} />
         </div>
       ) : activeDoc.kind === "pdf" || activeDoc.filename ? (
         <div className="rounded-lg border border-outline-variant bg-surface-container-low p-4 md:p-6">

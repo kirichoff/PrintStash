@@ -171,6 +171,7 @@ export function MakerWorldConnectCard() {
             Only an administrator can connect MakerWorld.
           </p>
         ) : connected ? (
+          <>
           <div className="space-y-3">
             <div className="flex items-start gap-2 text-sm text-foreground">
               <CheckCircle2 className="h-4 w-4 mt-0.5 text-green-600 dark:text-green-400 flex-shrink-0" />
@@ -227,6 +228,7 @@ export function MakerWorldConnectCard() {
               />
             </button>
           </div>
+          </>
         ) : step === "creds" && tokenMode ? (
           <form
             className="space-y-3"

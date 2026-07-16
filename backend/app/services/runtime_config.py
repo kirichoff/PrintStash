@@ -458,6 +458,7 @@ def get_effective_config(session: Session) -> dict:
     ``settings`` is now a ConfigResolver — attribute reads already resolve
     overlay-preferred values. No manual merge needed.
     """
+    config = get_or_create(session)
     return {
         "storage_backend": str(settings.storage_backend),
         "data_dir": str(settings.data_dir),
@@ -484,7 +485,7 @@ def get_effective_config(session: Session) -> dict:
         "notifications_enabled": notifications_enabled(session),
         "spoolman_enabled": spoolman_enabled(session),
         "currency": currency(session),
-        "makerworld_3mf_only": bool(_overlay.get("makerworld_3mf_only", False)),
+        "makerworld_3mf_only": bool(config.makerworld_3mf_only) if config else bool(_overlay.get("makerworld_3mf_only", False)),
     }
 
 
