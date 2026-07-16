@@ -12,7 +12,15 @@ from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.core.config import _overlay
+from app.core.config import _overlay, settings
+
+# The dev shell exports a short VAULT_JWT_SECRET (e.g. "dev-jwt-secret", 14 bytes),
+# which PyJWT flags with InsecureKeyLengthWarning on every token encode/decode —
+# hundreds of them across the auth-heavy suite. Force a >=32-byte secret for the
+# whole run at the frozen layer (the effective fallback when no overlay is set),
+# so the suite runs clean regardless of the ambient value. Individual JWT tests
+# still monkeypatch this per-case; they revert to this compliant baseline.
+settings._frozen.jwt_secret = "printstash-test-jwt-secret-0123456789abcdef"  # 43 bytes
 from app.db.session import (
     SQLiteSessionFactory,
     _set_sqlite_pragmas,
@@ -159,6 +167,17 @@ def _patch_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
     _login_rate_limit.limiter.reset()  # type: ignore[attr-defined]
     _refresh_rate_limit.limiter.reset()  # type: ignore[attr-defined]
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run each test from a throwaway dir.
+
+    A few storage tests write bare relative keys (e.g. "already.stl") straight
+    through ``LocalStorageBackend``, which resolves them against cwd — without
+    this they land in the repo root instead of pytest's tmp dir.
+    """
+    monkeypatch.chdir(tmp_path)
 
 
 @pytest.fixture
