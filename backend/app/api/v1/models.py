@@ -1230,7 +1230,7 @@ def list_model_documents(
     session: Session = Depends(get_session),
 ) -> List[dict]:
     model = _require_model_role(session, current_user, model_id, CollectionRole.VIEW)
-    if not model.collection_path:
+    if not model.collection_rel or not model.collection_rel.path:
         return []
 
     from app.db.models import Collection
@@ -1238,7 +1238,7 @@ def list_model_documents(
 
     col = session.exec(
         select(Collection).where(
-            Collection.path == model.collection_path,
+            Collection.path == model.collection_rel.path,
             live(Collection),
         )
     ).first()

@@ -589,6 +589,46 @@ async def _resolve_makerworld(url: str, cookie: Optional[str]) -> Optional[str]:
     return _first_download_url(data) if data is not None else None
 
 
+async def resolve_makerworld_thumbnail(url: str, cookie: Optional[str] = None) -> Optional[str]:
+    """Resolve a MakerWorld model page to its cover/thumbnail image URL.
+
+    Returns the first available cover image URL from the design API, or None.
+    """
+    design_id = _makerworld_id(url)
+    if not design_id:
+        return None
+
+    effective_cookie = cookie or ""
+    if "&3mf_only=1" in effective_cookie:
+        effective_cookie = effective_cookie.replace("&3mf_only=1", "")
+
+    base = "https://makerworld.com/api/v1/design-service"
+    design = await _makerworld_api_get(
+        f"{base}/design/{design_id}", url, None, effective_cookie or None
+    )
+    if not isinstance(design, dict):
+        return None
+
+    # Try the instance-level cover first.
+    if design.get("defaultInstanceId"):
+        instance = await _makerworld_api_get(
+            f"{base}/instance/{design['defaultInstanceId']}",
+            url, None, effective_cookie or None,
+        )
+        if isinstance(instance, dict):
+            for field in ("cover", "thumbnail", "image", "previewImage"):
+                val = instance.get(field)
+                if isinstance(val, str) and val.startswith("http"):
+                    return val
+
+    # Fall back to the design-level image.
+    for field in ("cover", "thumbnail", "image", "previewImage", "coverUrl", "imageUrl"):
+        val = design.get(field)
+        if isinstance(val, str) and val.startswith("http"):
+            return val
+    return None
+
+
 def _makerworld_collection_members(next_data: Any) -> list[CollectionMember]:
     """Best-effort: pull member models out of a collection page's hydration JSON.
 

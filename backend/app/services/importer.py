@@ -38,6 +38,7 @@ from app.core.url_safety import (
 from app.db.models import SUFFIX_TO_FILE_TYPE
 from app.db.session import SessionFactory
 from app.services import storage
+from app.services.import_resolvers import resolve_makerworld_thumbnail
 from app.services.ingestion import ingest_mesh, ingest_orca_gcode
 from app.services.jobs import registry
 
@@ -400,6 +401,7 @@ def import_assets(
     session_factory: SessionFactory,
     model_name: Optional[str] = None,
     nest_subdirs: bool = False,
+    makerworld_cookie: Optional[str] = None,
 ) -> None:
     """Ingest each staged 3D file as its own Model, reporting aggregate progress.
 
@@ -467,6 +469,19 @@ def import_assets(
         ],
     )
 
+    # MakerWorld thumbnail fallback: if the first imported model is from MW
+    # and has no thumbnail, try to fetch one from the MW design API.
+    if (
+        makerworld_cookie
+        and imported
+        and source_url
+        and "makerworld.com" in source_url
+    ):
+        first = imported[0]
+        model_id = first.get("model_id")
+        if model_id:
+            _schedule_mw_thumbnail(model_id, source_url, makerworld_cookie, session_factory)
+
 
 @dataclass
 class ResolvedGroup:
@@ -490,6 +505,7 @@ def import_resolved_groups(
     tags: Optional[str],
     actor_user_id: Optional[int],
     session_factory: SessionFactory,
+    makerworld_cookie: Optional[str] = None,
 ) -> None:
     """Ingest many already-staged groups (e.g. collection members) into one
     collection, recording each group's own ``source_url`` on its models."""
@@ -570,3 +586,64 @@ def import_resolved_groups(
             for r in failures
         ],
     )
+
+    # MakerWorld thumbnail fallback for collection imports.
+    if makerworld_cookie and imported:
+        for r in imported:
+            mid = r.get("model_id")
+            src = r.get("source_url")
+            if mid and src and "makerworld.com" in src:
+                _schedule_mw_thumbnail(mid, src, makerworld_cookie, session_factory)
+
+def _schedule_mw_thumbnail(
+    model_id: int,
+    source_url: str,
+    makerworld_cookie: str,
+    session_factory: SessionFactory,
+) -> None:
+    """Best-effort: fetch a MakerWorld cover image and set it as the model thumbnail."""
+    import asyncio
+
+    from app.services.storage_backend import get_backend
+    from app.db.models import File as FileModel, FileType, Model
+
+    try:
+        thumb_url = asyncio.run(
+            resolve_makerworld_thumbnail(source_url, makerworld_cookie)
+        )
+        if not thumb_url:
+            return
+        import httpx
+
+        resp = httpx.get(thumb_url, timeout=15, follow_redirects=True)
+        resp.raise_for_status()
+        thumb_bytes = resp.content
+        if not thumb_bytes:
+            return
+        with session_factory() as session:
+            model = session.get(Model, model_id)
+            if model is None or (model.thumbnail_path and model.thumbnail_file_id):
+                return
+            backend = get_backend()
+            thumb_file = FileModel(
+                model_id=model_id,
+                original_filename="makerworld_cover.png",
+                file_type=FileType.IMAGE,
+                size_bytes=len(thumb_bytes),
+            )
+            session.add(thumb_file)
+            session.commit()
+            session.refresh(thumb_file)
+            thumb_key = backend.thumbnail_key(thumb_file.id)
+            backend.write_bytes(thumb_bytes, thumb_key)
+            model.thumbnail_path = thumb_key
+            model.thumbnail_file_id = thumb_file.id
+            session.add(model)
+            session.commit()
+            logger.info(
+                "mw_thumbnail: set cover for model %d from %s", model_id, thumb_url
+            )
+    except Exception:
+        logger.info(
+            "mw_thumbnail: failed for model %d (non-fatal)", model_id, exc_info=True
+        )

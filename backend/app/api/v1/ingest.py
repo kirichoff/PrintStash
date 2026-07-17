@@ -496,6 +496,7 @@ async def _handle_collection_url(
         groups=groups,
         collection=target,
         tags=req.tags,
+        makerworld_cookie=cookie,
         actor_user_id=actor_user_id,
         session_factory=session_factory,
     )
@@ -598,6 +599,7 @@ async def _import_from_url(
         collection=req.collection,
         tags=req.tags,
         source_url=req.url,
+        makerworld_cookie=cookie,
         actor_user_id=actor_user_id,
         session_factory=session_factory,
     )
@@ -676,6 +678,7 @@ async def _run_file_selection_import(
         source_url=page_url,
         actor_user_id=actor_user_id,
         session_factory=session_factory,
+        makerworld_cookie=makerworld_cookie,
     )
 
 
@@ -703,6 +706,7 @@ async def _run_collection_member_import(
         groups=groups,
         collection=target_collection,
         tags=tags,
+        makerworld_cookie=makerworld_cookie,
         actor_user_id=actor_user_id,
         session_factory=session_factory,
     )
@@ -883,6 +887,7 @@ async def select_archive_entries(
         tags=req.tags,
         source_url=pending.source_url,
         actor_user_id=current_user.id,
+        makerworld_cookie=makerworld_cookie,
         session_factory=session_factory,
         nest_subdirs=True,
     )
