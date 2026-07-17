@@ -431,6 +431,12 @@ def import_assets(
             if subdir:
                 base = (collection or "").rstrip("/")
                 file_collection = f"{base}/{subdir}" if base else subdir
+
+        # Extract embedded docs from 3MF archives BEFORE _ingest_one_file
+        # (which deletes staged)
+        if staged.suffix.lower() == ".3mf":
+            _import_3mf_embedded_docs(staged, collection, session_factory)
+
         res = _ingest_one_file(
             staged,
             rel_name,
@@ -445,10 +451,6 @@ def import_assets(
             continue
         results.append(res)
         done += 1
-
-        # Extract embedded docs from 3MF archives
-        if staged.suffix.lower() == ".3mf":
-            _import_3mf_embedded_docs(staged, collection, session_factory)
 
         # Fetch model description from MakerWorld/Printables page
         _schedule_source_metadata(
