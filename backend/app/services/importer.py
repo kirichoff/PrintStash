@@ -666,27 +666,77 @@ def _import_3mf_embedded_docs(
     collection: Optional[str],
     session_factory: SessionFactory,
 ) -> None:
-    """Extract .md/.txt files from a 3MF archive and save as collection documents."""
+    """Extract .md/.txt files AND 3dmodel.model Description XML from a 3MF archive.
+    
+    Parses the <metadata name="Description"> from 3D/3dmodel.model and saves
+    it as a "Model Description" markdown document in the model's collection.
+    """
     import zipfile
+    import xml.etree.ElementTree as ET
+    import html
+    import re as _html_re
     from app.db.models import Document, DocumentKind
+    from sqlmodel import select
 
     if not staged or not staged.exists():
         return
     try:
         with zipfile.ZipFile(staged) as zf:
             doc_entries = []
+            model_xml_description = None
+
             for info in zf.infolist():
                 if info.is_dir():
                     continue
                 suffix = Path(info.filename).suffix.lower()
                 if suffix in (".md", ".markdown", ".txt", ".pdf"):
                     doc_entries.append(info)
+                elif info.filename.lower().endswith("3dmodel.model"):
+                    try:
+                        xml_data = zf.read(info)
+                        root = ET.fromstring(xml_data)
+                        ns = {"": "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"}
+                        for meta in root.findall(".//metadata", ns):
+                            name = meta.get("name", "")
+                            if name == "Description" and meta.text and meta.text.strip():
+                                model_xml_description = meta.text.strip()
+                                break
+                    except Exception:
+                        pass
+
+            coll_id = _resolve_collection_id(collection, session_factory)
+
+            if model_xml_description and coll_id:
+                desc_text = html.unescape(model_xml_description)
+                for br_tag in ("<br>", "<br/>", "<br />"):
+                    desc_text = desc_text.replace(br_tag, "\n")
+                desc_text = _html_re.sub(r'<[^>]+>', '', desc_text)
+                desc_text = html.unescape(desc_text)
+
+                with session_factory() as session:
+                    existing = session.exec(
+                        select(Document).where(
+                            Document.name == "Model Description",
+                            Document.collection_id == coll_id,
+                            Document.deleted_at.is_(None),
+                        )
+                    ).first()
+                    if not existing:
+                        doc = Document(
+                            name="Model Description",
+                            kind=DocumentKind.MARKDOWN,
+                            collection_id=coll_id,
+                            body=desc_text.strip(),
+                        )
+                        session.add(doc)
+                        session.commit()
+                        logger.info(
+                            "_import_3mf_docs: saved description from 3dmodel.model (%d chars)",
+                            len(desc_text),
+                        )
 
             if not doc_entries:
                 return
-
-            # Resolve the collection id
-            coll_id = _resolve_collection_id(collection, session_factory)
             if coll_id is None:
                 return
 
