@@ -37,8 +37,8 @@ from app.core.url_safety import (
 )
 from app.db.models import SUFFIX_TO_FILE_TYPE
 from app.db.session import SessionFactory
+import urllib.parse
 from app.services import storage
-from app.services.import_resolvers import resolve_makerworld_thumbnail
 from app.services.ingestion import ingest_mesh, ingest_orca_gcode
 from app.services.jobs import registry
 
@@ -445,6 +445,17 @@ def import_assets(
             continue
         results.append(res)
         done += 1
+
+        # Extract embedded docs from 3MF archives
+        if staged.suffix.lower() == ".3mf":
+            _import_3mf_embedded_docs(staged, collection, session_factory)
+
+        # Fetch model description from MakerWorld/Printables page
+        _schedule_source_metadata(
+            res.get("model_id"),
+            source_url,
+            session_factory,
+        )
         registry.update(job_id, step=done, progress=done / total * 100)
 
     imported = [r for r in results if r.get("model_id")]
@@ -604,6 +615,7 @@ def _schedule_mw_thumbnail(
     """Best-effort: fetch a MakerWorld cover image and set it as the model thumbnail."""
     import asyncio
 
+    from app.services.import_resolvers import resolve_makerworld_thumbnail
     from app.services.storage_backend import get_backend
     from app.db.models import File as FileModel, FileType, Model
 
@@ -647,3 +659,147 @@ def _schedule_mw_thumbnail(
         logger.info(
             "mw_thumbnail: failed for model %d (non-fatal)", model_id, exc_info=True
         )
+
+
+def _import_3mf_embedded_docs(
+    staged: Path,
+    collection: Optional[str],
+    session_factory: SessionFactory,
+) -> None:
+    """Extract .md/.txt files from a 3MF archive and save as collection documents."""
+    import zipfile
+    from app.db.models import Document, DocumentKind
+
+    if not staged or not staged.exists():
+        return
+    try:
+        with zipfile.ZipFile(staged) as zf:
+            doc_entries = []
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                suffix = Path(info.filename).suffix.lower()
+                if suffix in (".md", ".markdown", ".txt", ".pdf"):
+                    doc_entries.append(info)
+
+            if not doc_entries:
+                return
+
+            # Resolve the collection id
+            coll_id = _resolve_collection_id(collection, session_factory)
+            if coll_id is None:
+                return
+
+            with session_factory() as session:
+                for entry in doc_entries:
+                    data = zf.read(entry)
+                    filename = Path(entry.filename).name
+                    name = filename.rsplit(".", 1)[0][:128]
+                    kind = (
+                        DocumentKind.MARKDOWN
+                        if suffix in (".md", ".markdown", ".txt")
+                        else DocumentKind.PDF if suffix == ".pdf"
+                        else DocumentKind.OTHER
+                    )
+
+                    doc = Document(
+                        name=name,
+                        kind=kind,
+                        collection_id=coll_id,
+                    )
+                    if kind is DocumentKind.MARKDOWN:
+                        doc.body = data.decode("utf-8", errors="replace")
+                    doc.size_bytes = len(data)
+                    session.add(doc)
+                session.commit()
+                logger.info(
+                    "_import_3mf_docs: created %d docs from %s",
+                    len(doc_entries),
+                    staged.name,
+                )
+    except Exception:
+        logger.info("_import_3mf_docs: failed for %s (non-fatal)", staged.name, exc_info=True)
+
+
+def _resolve_collection_id(
+    collection_path: Optional[str],
+    session_factory: SessionFactory,
+) -> Optional[int]:
+    """Resolve a collection path string to a collection DB id, creating if needed."""
+    if not collection_path:
+        return None
+    from app.services import taxonomy
+
+    with session_factory() as session:
+        col = taxonomy.resolve_or_create_collection(session, collection_path)
+        return col.id if col else None
+
+
+def _schedule_source_metadata(
+    model_id: Optional[int],
+    source_url: Optional[str],
+    session_factory: SessionFactory,
+) -> None:
+    """Fetch model description from MakerWorld or Printables and save as collection document."""
+    if not model_id or not source_url:
+        return
+
+    host = urllib.parse.urlsplit(source_url).hostname or ""
+    if "makerworld.com" not in host and "printables.com" not in host:
+        return
+
+    import asyncio
+
+    try:
+        with session_factory() as session:
+            from app.db.models import Model, Document, DocumentKind
+            model = session.get(Model, model_id)
+            if model is None:
+                return
+
+            # Only fetch if model has no description yet
+            if model.description and model.thumbnail_path:
+                return
+
+        import httpx
+
+        # Very basic page fetch - just get title and meta description
+        resp = httpx.get(source_url, timeout=15, follow_redirects=True,
+                         headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code != 200:
+            return
+
+        import re
+        html = resp.text
+
+        description = None
+        # Try meta description
+        m = re.search(r'<meta\s+name="description"\s+content="([^"]+)"', html, re.I)
+        if m:
+            description = m.group(1)
+        if not description:
+            m = re.search(r'<meta\s+property="og:description"\s+content="([^"]+)"', html, re.I)
+            if m:
+                description = m.group(1)
+        if not description:
+            m = re.search(r'<meta\s+name="twitter:description"\s+content="([^"]+)"', html, re.I)
+            description = m.group(1) if m else None
+
+        with session_factory() as session:
+            from app.db.models import Model
+            model = session.get(Model, model_id)
+            if model is None:
+                return
+            if description and not model.description:
+                model.description = description
+                session.add(model)
+                session.commit()
+                logger.info(
+                    "source_meta: set description for model %d from %s",
+                    model_id, source_url,
+                )
+    except Exception:
+        logger.info(
+            "source_meta: failed for model %d (non-fatal)", model_id, exc_info=True
+        )
+

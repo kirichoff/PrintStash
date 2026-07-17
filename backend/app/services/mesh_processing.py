@@ -320,7 +320,7 @@ def _exceeds_cap(path: Path) -> bool:
 
 # Slicer-generated 3MF archives usually embed a pre-rendered preview
 # (Metadata/thumbnail.png per spec; plate_*.png from Orca/Bambu).
-_3MF_THUMBNAIL_DIRS = ("metadata/", "3d/thumbnails/", "thumbnails/")
+_3MF_THUMBNAIL_DIRS = ("metadata/", "3d/thumbnails/", "thumbnails/", "auxiliaries/.thumbnails/")
 
 
 def _load_mesh(path: Path):
