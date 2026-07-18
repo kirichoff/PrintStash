@@ -730,7 +730,7 @@ def _3mf_extract_docs_and_plates(
             for br in ("<br>", "<br/>", "<br />"): desc = desc.replace(br, "\n")
             desc = re.sub(r"<[^>]+>", "", desc)
             desc = html.unescape(desc)
-            with session_factory() as session:
+            with session_factory.scoped_session() as session:
                 existing = session.exec(select(Document).where(Document.name == "Model Description", Document.collection_id == coll_id, Document.deleted_at.is_(None))).first()
                 if not existing:
                     session.add(Document(name="Model Description", kind=DocumentKind.MARKDOWN, collection_id=coll_id, body=desc.strip()))
@@ -738,7 +738,7 @@ def _3mf_extract_docs_and_plates(
                     import logging; logging.getLogger(__name__).info("_3mf_extract: saved description (%d chars)", len(desc))
         if plate_images and model_id:
             backend = get_backend()
-            with session_factory() as session:
+            with session_factory.scoped_session() as session:
                 for rel_path, img_data in plate_images:
                     pf = FileModel(model_id=model_id, original_filename=Path(rel_path).name, file_type=FileType.IMAGE, size_bytes=len(img_data))
                     session.add(pf); session.commit(); session.refresh(pf)
@@ -759,7 +759,7 @@ def _save_3mf_doc(zf, info, coll_id, session_factory):
     data = zf.read(info)
     name = Path(info.filename).stem[:128]
     kind = DocumentKind.MARKDOWN if s in (".md",".markdown",".txt") else DocumentKind.PDF if s==".pdf" else DocumentKind.OTHER
-    with session_factory() as session:
+    with session_factory.scoped_session() as session:
         doc = Document(name=name, kind=kind, collection_id=coll_id)
         if kind is DocumentKind.MARKDOWN: doc.body = data.decode("utf-8", errors="replace")
         doc.size_bytes = len(data)
