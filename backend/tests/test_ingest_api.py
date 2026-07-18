@@ -532,3 +532,74 @@ def test_force_rebuild_refreshes_existing_mesh_thumbnail(
     thumbnail = client.get(f"/api/v1/files/{file_id}/thumbnail", headers=auth_headers)
     assert thumbnail.status_code == 200, thumbnail.text
     assert thumbnail.content == replacement
+
+
+def test_force_rebuild_preserves_3mf_project_image_thumbnail(
+    tmp_path: Path,
+    client: TestClient,
+    auth_headers: dict[str, str],
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    """A forced rebuild must NOT clobber a model whose thumbnail is a project
+    IMAGE (extracted 3MF plate render) — feature #3 rebuild guard."""
+    _configure_storage(tmp_path)
+
+    payload = _completed_job(
+        client,
+        client.post(
+            "/api/v1/ingest/model",
+            headers=auth_headers,
+            files={"file": ("cube.stl", _cube_stl(), "application/sla")},
+            data={"model_name": "Cube With Project Image"},
+        ),
+    )
+    model_id = payload["model_id"]
+
+    backend = get_backend()
+    # Simulate the 3MF extraction outcome: an IMAGE File holding a plate render,
+    # adopted as the model thumbnail.
+    image_file = File(
+        model_id=model_id,
+        path="_3mf_plate_plate_1",
+        original_filename="plate_1.png",
+        file_type=FileType.IMAGE,
+        version=99,
+        size_bytes=len(PNG_MAGIC + b"plate"),
+        sha256="",
+    )
+    db_session.add(image_file)
+    db_session.commit()
+    db_session.refresh(image_file)
+    image_thumb_key = backend.thumbnail_key(image_file.id)
+    backend.write_bytes(PNG_MAGIC + b"plate-render", image_thumb_key)
+
+    model = db_session.get(Model, model_id)
+    model.thumbnail_path = image_thumb_key
+    model.thumbnail_file_id = image_file.id
+    db_session.add(model)
+    db_session.commit()
+
+    # If the guard fails, this render would be adopted and overwrite the image.
+    monkeypatch.setattr(
+        "app.services.mesh_processing.render_thumbnail",
+        lambda _path: PNG_MAGIC + b"mesh-render-should-not-win",
+    )
+
+    response = client.post(
+        "/api/v1/files/thumbnails/rebuild?force=true",
+        headers=auth_headers,
+    )
+    assert response.status_code == 202, response.text
+    job_id = response.json()["job_id"]
+    job = client.get(f"/api/v1/ingest/jobs/{job_id}", headers=auth_headers)
+    payload = job.json()
+    assert payload["state"] == "completed", payload
+    # The model with a project image is skipped, not rebuilt.
+    assert model_id not in payload["result"]["rebuilt"]
+    assert model_id in payload["result"]["skipped_no_mesh"]
+
+    db_session.expire_all()
+    refreshed = db_session.get(Model, model_id)
+    # Thumbnail still points at the project IMAGE, untouched.
+    assert refreshed.thumbnail_file_id == image_file.id

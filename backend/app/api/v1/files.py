@@ -351,6 +351,16 @@ def _run_thumbnail_rebuild(
                     label=f"rendering model {m.id}",
                     progress=index / len(models) * 100,
                 )
+                # A 3MF project/plate image is a higher-fidelity preview than a
+                # mesh render; never clobber it with a rebuild, even a forced
+                # one (the forced rebuild targets stale *mesh* renders, not the
+                # slicer previews the user saw).
+                if m.thumbnail_file_id:
+                    current = session.get(File, m.thumbnail_file_id)
+                    if current is not None and current.file_type == FileType.IMAGE:
+                        skipped.append(m.id)
+                        continue
+
                 # Newest mesh file wins.
                 mesh_file = session.exec(
                     select(File)
