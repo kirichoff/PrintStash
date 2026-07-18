@@ -107,3 +107,31 @@ def test_3mf_extracts_plate_images_as_files(
     names = {img.original_filename for img in images}
     # At least the per-plate slicer renders should be present.
     assert any(n.startswith("plate_") for n in names), names
+
+
+@_requires(MULTIPLATE_3MF)
+def test_3mf_extracts_project_pictures_and_prefers_plate_thumbnail(
+    tmp_path: Path, db_session: Session
+) -> None:
+    """Auxiliaries/Model Pictures/* are surfaced as IMAGE files, but the model
+    catalog thumbnail still prefers a clean plate render over a user photo."""
+    _configure_storage(tmp_path)
+    model, _ = _ingest_mesh(
+        db_session, MULTIPLATE_3MF, FileType.THREE_MF, model_name="Multiplate Pics"
+    )
+    images = db_session.exec(
+        select(File).where(
+            File.model_id == model.id, File.file_type == FileType.IMAGE
+        )
+    ).all()
+    names = {img.original_filename for img in images}
+    # The fixture ships two user project screenshots under Model Pictures/.
+    assert any("Screenshot" in n or n.endswith((".webp", ".jpg", ".jpeg")) for n in names), (
+        f"expected project pictures extracted, got {names}"
+    )
+    # Catalog thumbnail is a plate render, not one of the user screenshots.
+    thumb_file = db_session.get(File, model.thumbnail_file_id)
+    assert thumb_file is not None
+    assert thumb_file.original_filename.lower().startswith(
+        ("plate_", "top_", "pick_", "thumbnail_")
+    ), thumb_file.original_filename
