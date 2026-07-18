@@ -30,7 +30,7 @@ from sqlmodel import Session, delete, select
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from app.api.v1.files import _serve_file
-from app.api.v1.documents import _item as _document_item
+from app.api.v1.documents import _item as _document_item, _read as _document_read
 from app.core.config import settings
 from app.core.security import require_auth, require_superuser, require_user
 from app.core.time import utcnow
@@ -1254,4 +1254,4 @@ def list_model_documents(
         .order_by(Document.updated_at.desc())
     )
     docs = session.exec(stmt).all()
-    return [_document_item(session, current_user, d) for d in docs]
+    return [_document_read(session, current_user, d) for d in docs]
