@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from urllib.parse import quote
 
@@ -24,6 +25,7 @@ from app.db.models import CollectionRole, File, FileType, Model, User
 from app.db.scopes import live
 from app.db.session import SessionFactory, get_session, get_session_factory
 from app.schemas.ingest import IngestResponse
+from app.schemas.plates import PlateLayoutRead, PlateObjectRead, PlateRead
 from app.services import auth, rbac, thumbnail
 from app.services.jobs import registry
 from app.services.storage_backend import get_backend
@@ -318,6 +320,145 @@ def stl_response(f: File, request: Request):
         media_type="application/sla",
         headers={
             "Content-Disposition": f'attachment; filename="{stem}.stl"',
+            **cache_headers,
+        },
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Multi-plate 3MF rendering
+# --------------------------------------------------------------------------- #
+
+
+def _plate_object_cache_key(sha256: str, plate: int, obj: int) -> str:
+    """Cache key for one object's derived STL, namespaced by source sha256 so a
+    re-uploaded (content-addressed) file reuses it and the GC never orphans it."""
+    digest = hashlib.sha256(f"{sha256}:{plate}:{obj}".encode()).hexdigest()
+    return get_backend().stl_cache_key(f"plate-{digest}")
+
+
+@router.get(
+    "/{file_id}/plates",
+    response_model=PlateLayoutRead,
+    summary="Per-plate layout of a 3MF (objects placed on their build plates)",
+    description=(
+        "Parses a 3MF into its build plates, each holding its objects with a "
+        "bounding box, bed placement, and a URL to fetch that object's STL. "
+        "Returns 404 for non-3MF files."
+    ),
+)
+def file_plates(
+    file_id: int,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+) -> PlateLayoutRead:
+    f = _accessible_file(session, file_id, current_user)
+    if Path(f.original_filename).suffix.lower() != ".3mf":
+        raise HTTPException(status_code=404, detail="not_a_3mf")
+
+    backend = get_backend()
+    if not backend.exists(f.path):
+        raise HTTPException(status_code=410, detail="file_blob_missing")
+
+    from app.services import mesh_processing
+
+    with backend.local_path(f.path) as path:
+        plates = mesh_processing.parse_3mf_plates(path)
+
+    if not plates:
+        raise HTTPException(status_code=422, detail="no_plate_geometry")
+
+    out_plates: list[PlateRead] = []
+    object_count = 0
+    for plate in plates:
+        objs: list[PlateObjectRead] = []
+        for obj_index, obj in enumerate(plate.objects):
+            # Warm the per-object STL cache so the STL sub-route serves instantly.
+            cache_key = _plate_object_cache_key(f.sha256, plate.index, obj_index)
+            if not backend.exists(cache_key):
+                try:
+                    backend.write_bytes(obj.stl_bytes, cache_key)
+                except Exception:  # noqa: BLE001 — cache write is best-effort
+                    logger.warning(
+                        "plate STL cache write failed for file %s plate %s obj %s",
+                        f.id,
+                        plate.index,
+                        obj_index,
+                    )
+            objs.append(
+                PlateObjectRead(
+                    plate=plate.index,
+                    index=obj_index,
+                    name=obj.name,
+                    bbox_mm=obj.bbox_mm,
+                    origin_mm=obj.origin_mm,
+                    stl_url=f"/api/v1/files/{f.id}/plates/{plate.index}/objects/{obj_index}/stl",
+                )
+            )
+            object_count += 1
+        out_plates.append(PlateRead(index=plate.index, objects=objs))
+
+    return PlateLayoutRead(
+        file_id=f.id,
+        plate_count=len(out_plates),
+        object_count=object_count,
+        plates=out_plates,
+    )
+
+
+@router.get(
+    "/{file_id}/plates/{plate}/objects/{obj}/stl",
+    summary="Serve one plate object's mesh as binary STL",
+)
+def file_plate_object_stl(
+    file_id: int,
+    plate: int,
+    obj: int,
+    request: Request,
+    current_user: User = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    f = _accessible_file(session, file_id, current_user)
+    if Path(f.original_filename).suffix.lower() != ".3mf":
+        raise HTTPException(status_code=404, detail="not_a_3mf")
+
+    backend = get_backend()
+    etag = f'"{f.sha256}:{plate}:{obj}"'
+    cache_headers = {"Cache-Control": "public, max-age=3600", "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+
+    cache_key = _plate_object_cache_key(f.sha256, plate, obj)
+    if backend.exists(cache_key):
+        return _serve_file(
+            cache_key, f"plate_{plate}_obj_{obj}.stl",
+            media_type="application/sla", headers=cache_headers,
+        )
+
+    # Cache miss (e.g. server restarted between /plates and this call): reparse.
+    if not backend.exists(f.path):
+        raise HTTPException(status_code=410, detail="file_blob_missing")
+
+    from app.services import mesh_processing
+
+    with backend.local_path(f.path) as path:
+        plates = mesh_processing.parse_3mf_plates(path)
+
+    match = next((p for p in plates if p.index == plate), None)
+    if match is None or obj < 0 or obj >= len(match.objects):
+        raise HTTPException(status_code=404, detail="plate_object_not_found")
+
+    data = match.objects[obj].stl_bytes
+    try:
+        backend.write_bytes(data, cache_key)
+    except Exception:  # noqa: BLE001
+        logger.warning("plate STL cache write failed for file %s", f.id, exc_info=True)
+
+    return Response(
+        content=data,
+        media_type="application/sla",
+        headers={
+            "Content-Disposition": f'attachment; filename="plate_{plate}_obj_{obj}.stl"',
             **cache_headers,
         },
     )
