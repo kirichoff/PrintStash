@@ -27,6 +27,7 @@ class FileType(str, Enum):
     GCODE = "gcode"
     OBJ = "obj"
     STEP = "step"
+    IMAGE = "image"
 
 
 class FileRevisionStatus(str, Enum):
