@@ -464,6 +464,13 @@ def run_ingestion_pipeline(
 
             _apply_taxonomy(session, model, collection, tags)
 
+            # Extract embedded docs from 3MF archives (Description XML, .md/.txt, plates)
+            # Must run before persist_artifact (which moves/deletes staged)
+            if strategy.file_type == FileType.THREE_MF and staged_path.suffix.lower() == ".3mf":
+                _3mf_extract_docs_and_plates(
+                    staged_path, collection, session_factory, model.id,
+                )
+
             # Resolve where the blob lands: a NAS library (write-back) or vault.
             dest = resolve_write_target(
                 session,
@@ -491,12 +498,6 @@ def run_ingestion_pipeline(
             assert file_row.id is not None
 
             upsert_detected_profiles(session, meta)
-
-            # Extract embedded docs from 3MF archives (Description XML, .md/.txt, plates)
-            if strategy.file_type == FileType.THREE_MF and staged_path.suffix.lower() == ".3mf":
-                _3mf_extract_docs_and_plates(
-                    staged_path, collection, session_factory, model.id,
-                )
 
             registry.update(
                 job_id,
