@@ -470,6 +470,7 @@ def run_ingestion_pipeline(
                 _3mf_extract_docs_and_plates(
                     staged_path, collection, session_factory, model.id,
                 )
+                session.refresh(model)
 
             # Resolve where the blob lands: a NAS library (write-back) or vault.
             dest = resolve_write_target(
