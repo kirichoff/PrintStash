@@ -695,8 +695,6 @@ def add_gcode_revision_to_model(
 def _3mf_extract_docs_and_plates(
     staged_path, collection, session_factory, model_id,
 ):
-    import logging
-    logging.getLogger(__name__).info("_3mf_extract: CALLED path=%s exists=%s model=%s", staged_path, staged_path.exists() if staged_path else "N/A", model_id)
     import zipfile, html, re, xml.etree.ElementTree as ET
     from app.db.models import Document, DocumentKind, File as FileModel, FileType
     from sqlmodel import select
