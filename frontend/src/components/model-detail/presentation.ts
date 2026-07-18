@@ -26,7 +26,7 @@ export const TABS: { key: TabKey; label: string }[] = [
   { key: "revisions", label: "Revisions" },
   { key: "files", label: "Files" },
   { key: "history", label: "History" },
-  { key: "docs", label: "Docs" },
+  { key: "docs", label: "Project" },
 ];
 
 export function normalizeRecommendedGcodeFiles<
