@@ -740,7 +740,9 @@ def _3mf_extract_docs_and_plates(
             backend = get_backend()
             with session_factory.scoped_session() as session:
                 for rel_path, img_data in plate_images:
-                    pf = FileModel(model_id=model_id, original_filename=Path(rel_path).name, file_type=FileType.IMAGE, size_bytes=len(img_data))
+                    pf = FileModel(model_id=model_id, original_filename=Path(rel_path).name,
+                                   file_type=FileType.IMAGE, size_bytes=len(img_data),
+                                   path=f"_3mf_plate_{Path(rel_path).stem}", sha256="")
                     session.add(pf); session.commit(); session.refresh(pf)
                     tk = backend.thumbnail_key(pf.id)
                     backend.write_bytes(img_data, tk)
