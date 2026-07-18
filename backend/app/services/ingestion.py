@@ -263,7 +263,19 @@ def persist_artifact(
         if thumb_bytes:
             thumb_key = backend.thumbnail_key(file_row.id)
             backend.write_bytes(thumbnail.to_webp(thumb_bytes), thumb_key)
-            if overwrite_thumbnail or not model.thumbnail_path:
+            # A project/plate image extracted from a 3MF is a higher-fidelity
+            # preview (it's what the user saw in the slicer) than a bare mesh
+            # render, so it wins even when this artifact requested overwrite.
+            # Detect it by the current model thumbnail being an IMAGE File.
+            current_is_project_image = False
+            if model.thumbnail_file_id:
+                current = session.get(File, model.thumbnail_file_id)
+                current_is_project_image = (
+                    current is not None and current.file_type == FileType.IMAGE
+                )
+            if (
+                overwrite_thumbnail or not model.thumbnail_path
+            ) and not current_is_project_image:
                 model.thumbnail_path = thumb_key
                 model.thumbnail_file_id = file_row.id
                 session.add(model)
