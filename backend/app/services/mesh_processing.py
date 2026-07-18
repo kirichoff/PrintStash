@@ -18,8 +18,9 @@ import io
 import struct
 import threading
 import zipfile
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -570,4 +571,242 @@ def to_stl_bytes(path: Path) -> Optional[bytes]:
             return None
         finally:
             del mesh
+            _reclaim_memory()
+
+
+# --------------------------------------------------------------------------- #
+# Per-plate 3MF parsing (multi-plate viewer)
+# --------------------------------------------------------------------------- #
+
+# Bambu/Orca cap: refuse pathological archives with hundreds of objects.
+_MAX_PLATE_OBJECTS = 64
+
+
+@dataclass
+class PlateObject:
+    """One printable object placed on a plate."""
+
+    stl_bytes: bytes
+    bbox_mm: Tuple[float, float, float]
+    # Object translation on the bed (mm) from the build-item transform.
+    origin_mm: Tuple[float, float, float]
+    name: Optional[str] = None
+
+
+@dataclass
+class PlateGeometry:
+    """One build plate and the objects assigned to it."""
+
+    index: int  # 1-based plate number
+    objects: List[PlateObject] = field(default_factory=list)
+
+
+def _read_zip_member(zf: "zipfile.ZipFile", *candidates: str) -> Optional[bytes]:
+    """Return the first archive member matching one of *candidates*
+    (case-insensitive, tolerant of a leading slash), or None."""
+    names = {n.lower().lstrip("/"): n for n in zf.namelist()}
+    for cand in candidates:
+        key = cand.lower().lstrip("/")
+        if key in names:
+            return zf.read(names[key])
+    # Suffix match (e.g. "3d/3dmodel.model" regardless of casing/prefix).
+    for cand in candidates:
+        suffix = cand.lower().lstrip("/")
+        for low, real in names.items():
+            if low.endswith(suffix):
+                return zf.read(real)
+    return None
+
+
+def _parse_plate_object_map(config_xml: bytes) -> Dict[int, List[int]]:
+    """Map ``{plater_id: [root_object_id, ...]}`` from ``model_settings.config``.
+
+    Returns an empty dict when the config is absent or unparseable, signalling a
+    single-plate fallback to the caller.
+    """
+    import xml.etree.ElementTree as ET
+
+    out: Dict[int, List[int]] = {}
+    try:
+        root = ET.fromstring(config_xml)
+    except Exception:
+        return out
+    for plate in root.findall(".//plate"):
+        plater_id: Optional[int] = None
+        for m in plate.findall("./metadata"):
+            if m.get("key") == "plater_id":
+                try:
+                    plater_id = int(m.get("value", ""))
+                except (TypeError, ValueError):
+                    plater_id = None
+        if plater_id is None:
+            continue
+        obj_ids: List[int] = []
+        for inst in plate.findall("./model_instance"):
+            for m in inst.findall("./metadata"):
+                if m.get("key") == "object_id":
+                    try:
+                        obj_ids.append(int(m.get("value", "")))
+                    except (TypeError, ValueError):
+                        pass
+        out[plater_id] = obj_ids
+    return out
+
+
+def _parse_root_object_components(model_xml: bytes) -> Dict[int, str]:
+    """Map root ``<object id>`` → its component inner ``objectid`` (as a string
+    scene-geometry key) from ``3D/3dmodel.model``."""
+    import xml.etree.ElementTree as ET
+
+    out: Dict[int, str] = {}
+    try:
+        root = ET.fromstring(model_xml)
+    except Exception:
+        return out
+    # 3MF core namespace on <object>; components/component may carry it too.
+    for obj in root.iter():
+        if not obj.tag.endswith("}object") and obj.tag != "object":
+            continue
+        oid = obj.get("id")
+        if oid is None:
+            continue
+        for comp in obj.iter():
+            if comp.tag.endswith("}component") or comp.tag == "component":
+                inner = comp.get("objectid")
+                if inner is not None:
+                    try:
+                        out[int(oid)] = str(inner)
+                    except ValueError:
+                        pass
+                    break
+    return out
+
+
+def parse_3mf_plates(path: Path) -> List[PlateGeometry]:
+    """Parse a 3MF into per-plate object geometry, preserving plate grouping
+    and per-object bed placement. Never flattens across plates.
+
+    Degrades to a single plate holding every object when the archive carries no
+    Bambu/Orca plate config, and returns ``[]`` when the file is too large to
+    load safely or cannot be parsed.
+    """
+    import trimesh
+
+    if path.suffix.lower() != ".3mf":
+        return []
+    if _exceeds_cap(path):
+        logger.warning("mesh_processing: 3mf %s over cap, skipping plate parse", path.name)
+        return []
+
+    # Read the plate map + component map from the archive (best-effort).
+    plate_object_map: Dict[int, List[int]] = {}
+    root_components: Dict[int, str] = {}
+    try:
+        with zipfile.ZipFile(path) as zf:
+            cfg = _read_zip_member(zf, "Metadata/model_settings.config")
+            if cfg:
+                plate_object_map = _parse_plate_object_map(cfg)
+            model = _read_zip_member(zf, "3D/3dmodel.model", "3dmodel.model")
+            if model:
+                root_components = _parse_root_object_components(model)
+    except (zipfile.BadZipFile, OSError):
+        logger.warning("mesh_processing: 3mf %s not a readable zip", path.name, exc_info=True)
+        return []
+
+    with _render_semaphore():
+        try:
+            scene = trimesh.load(str(path), force="scene", process=False)
+        except Exception:
+            logger.warning("mesh_processing: trimesh scene load failed for %s", path.name, exc_info=True)
+            return []
+
+        try:
+            # Build {geometry_key: (Trimesh, translation_xyz)} from the scene graph.
+            geom_nodes: Dict[str, Tuple["trimesh.Trimesh", Tuple[float, float, float]]] = {}
+            if isinstance(scene, trimesh.Scene):
+                for node in scene.graph.nodes_geometry:
+                    transform, geom_key = scene.graph[node]
+                    mesh = scene.geometry.get(geom_key)
+                    if mesh is None or not isinstance(mesh, trimesh.Trimesh):
+                        continue
+                    t = transform[:3, 3]
+                    geom_nodes[str(geom_key)] = (
+                        mesh,
+                        (float(t[0]), float(t[1]), float(t[2])),
+                    )
+            elif isinstance(scene, trimesh.Trimesh):
+                geom_nodes["0"] = (scene, (0.0, 0.0, 0.0))
+
+            if not geom_nodes:
+                return []
+
+            def _make_object(
+                mesh: "trimesh.Trimesh", origin: Tuple[float, float, float]
+            ) -> Optional[PlateObject]:
+                try:
+                    out = io.BytesIO()
+                    mesh.export(out, file_type="stl")
+                    stl = out.getvalue()
+                except Exception:
+                    return None
+                if not stl or len(stl) <= 84:
+                    return None
+                if mesh.vertices.shape[0] > 0:
+                    extents = mesh.bounds[1] - mesh.bounds[0]
+                    bbox = (
+                        round(float(extents[0]), 2),
+                        round(float(extents[1]), 2),
+                        round(float(extents[2]), 2),
+                    )
+                else:
+                    bbox = (0.0, 0.0, 0.0)
+                return PlateObject(stl_bytes=stl, bbox_mm=bbox, origin_mm=origin)
+
+            plates: List[PlateGeometry] = []
+            used_keys: set[str] = set()
+            object_budget = _MAX_PLATE_OBJECTS
+
+            if plate_object_map and root_components:
+                for plater_id in sorted(plate_object_map):
+                    plate = PlateGeometry(index=plater_id)
+                    for root_obj_id in plate_object_map[plater_id]:
+                        geom_key = root_components.get(root_obj_id)
+                        if geom_key is None or geom_key not in geom_nodes:
+                            continue
+                        if object_budget <= 0:
+                            break
+                        mesh, origin = geom_nodes[geom_key]
+                        po = _make_object(mesh, origin)
+                        if po is not None:
+                            plate.objects.append(po)
+                            used_keys.add(geom_key)
+                            object_budget -= 1
+                    if plate.objects:
+                        plates.append(plate)
+
+            # Any geometry not claimed by a plate (or no plate map at all) goes
+            # onto a single fallback plate so nothing is silently dropped.
+            leftover = [
+                (k, v) for k, v in geom_nodes.items() if k not in used_keys
+            ]
+            if leftover and object_budget > 0:
+                fallback_index = (max((p.index for p in plates), default=0) + 1) if plates else 1
+                fallback = PlateGeometry(index=fallback_index)
+                for _key, (mesh, origin) in leftover:
+                    if object_budget <= 0:
+                        break
+                    po = _make_object(mesh, origin)
+                    if po is not None:
+                        fallback.objects.append(po)
+                        object_budget -= 1
+                if fallback.objects:
+                    plates.append(fallback)
+
+            # Re-number plates 1..N in order so the frontend gets a clean sequence.
+            plates.sort(key=lambda p: p.index)
+            for i, plate in enumerate(plates, start=1):
+                plate.index = i
+            return plates
+        finally:
+            del scene
             _reclaim_memory()
