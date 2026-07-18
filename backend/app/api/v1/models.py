@@ -77,6 +77,7 @@ from app.schemas.models import (
     VaultStatsRead,
 )
 from app.schemas.saved_views import ModelStarRead
+from app.schemas.documents import DocumentListItem
 from app.services import (
     job_import,
     library_transfer,
@@ -1221,14 +1222,14 @@ def delete_model(
 
 @router.get(
     "/{model_id}/documents",
-    response_model=List[dict],
+    response_model=List[DocumentListItem],
     summary="List model-related documents (READMEs, manuals)",
 )
 def list_model_documents(
     model_id: int,
     current_user: User = Depends(require_user),
     session: Session = Depends(get_session),
-) -> List[dict]:
+) -> List[DocumentListItem]:
     model = _require_model_role(session, current_user, model_id, CollectionRole.VIEW)
     if not model.collection_rel or not model.collection_rel.path:
         return []
