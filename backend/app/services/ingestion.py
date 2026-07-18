@@ -768,6 +768,6 @@ def _save_3mf_doc(zf, info, coll_id, session_factory):
 def _resolve_3mf_collection(collection, session_factory):
     from app.services import taxonomy
     if not collection: return None
-    with session_factory() as session:
+    with session_factory.scoped_session() as session:
         col = taxonomy.resolve_or_create_collection(session, collection)
         return col.id if col else None
