@@ -263,7 +263,19 @@ def persist_artifact(
         if thumb_bytes:
             thumb_key = backend.thumbnail_key(file_row.id)
             backend.write_bytes(thumbnail.to_webp(thumb_bytes), thumb_key)
-            if overwrite_thumbnail or not model.thumbnail_path:
+            # A project/plate image extracted from a 3MF is a higher-fidelity
+            # preview (it's what the user saw in the slicer) than a bare mesh
+            # render, so it wins even when this artifact requested overwrite.
+            # Detect it by the current model thumbnail being an IMAGE File.
+            current_is_project_image = False
+            if model.thumbnail_file_id:
+                current = session.get(File, model.thumbnail_file_id)
+                current_is_project_image = (
+                    current is not None and current.file_type == FileType.IMAGE
+                )
+            if (
+                overwrite_thumbnail or not model.thumbnail_path
+            ) and not current_is_project_image:
                 model.thumbnail_path = thumb_key
                 model.thumbnail_file_id = file_row.id
                 session.add(model)
@@ -716,6 +728,11 @@ def _3mf_extract_docs_and_plates(
                     _save_3mf_doc(zf, info, coll_id, session_factory)
                 elif s == ".png" and (fname.startswith("metadata/plate_") or fname.startswith("metadata/top_") or fname.startswith("metadata/pick_") or ".thumbnails/" in fname):
                     plate_images.append((info.filename, zf.read(info)))
+                elif s in (".png", ".webp", ".jpg", ".jpeg") and ("auxiliaries/model pictures/" in fname or "auxiliaries/profile pictures/" in fname):
+                    # User-authored project imagery (the pictures OrcaSlicer /
+                    # MakerWorld show on the project page). Surfaced in the
+                    # Project gallery; never auto-promoted over a plate render.
+                    plate_images.append((info.filename, zf.read(info)))
                 elif fname.endswith("3dmodel.model"):
                     try:
                         root = ET.fromstring(zf.read(info))
@@ -737,6 +754,23 @@ def _3mf_extract_docs_and_plates(
                     import logging; logging.getLogger(__name__).info("_3mf_extract: saved description (%d chars)", len(description_text.strip()))
         if plate_images and model_id:
             backend = get_backend()
+
+            def _is_plate_render(rel_path: str) -> bool:
+                stem = Path(rel_path).name.lower()
+                return (
+                    stem.startswith("plate_")
+                    or stem.startswith("top_")
+                    or stem.startswith("pick_")
+                    or stem.startswith("thumbnail_")
+                )
+
+            # The catalog thumbnail should be a clean slicer render, not a
+            # user's lifestyle photo, so a plate render wins; fall back to any
+            # picture only when no render exists.
+            thumb_candidate = next(
+                (rp for rp, _ in plate_images if _is_plate_render(rp)),
+                plate_images[0][0],
+            )
             with session_factory.scoped_session() as session:
                 for rel_path, img_data in plate_images:
                     pf = FileModel(model_id=model_id, original_filename=Path(rel_path).name,
@@ -746,7 +780,7 @@ def _3mf_extract_docs_and_plates(
                     tk = backend.thumbnail_key(pf.id)
                     backend.write_bytes(img_data, tk)
                     mdl = session.get(Model, model_id)
-                    if mdl and not mdl.thumbnail_path:
+                    if mdl and not mdl.thumbnail_path and rel_path == thumb_candidate:
                         mdl.thumbnail_path = tk; mdl.thumbnail_file_id = pf.id
                         session.add(mdl); session.commit()
                 import logging; logging.getLogger(__name__).info("_3mf_extract: saved %d plate images", len(plate_images))

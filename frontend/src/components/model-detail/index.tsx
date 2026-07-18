@@ -870,7 +870,13 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
               />
             )}
 
-            {activeTab === "docs" && <DocsTab modelId={model.id} />}
+            {activeTab === "docs" && (
+              <DocsTab
+                modelId={model.id}
+                collectionId={model.collection_id}
+                canEdit={canEditModel}
+              />
+            )}
           </div>
 
           {/* Klipper Sync Panel */}
