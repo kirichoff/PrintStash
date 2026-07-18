@@ -80,6 +80,10 @@ const STLViewer = lazy(() =>
   import("@/components/stl-viewer").then((m) => ({ default: m.STLViewer })),
 );
 
+const PlatedViewer = lazy(() =>
+  import("@/components/plated-viewer").then((m) => ({ default: m.PlatedViewer })),
+);
+
 const GcodeViewer = lazy(() =>
   import("@/components/gcode-viewer").then((m) => ({ default: m.GcodeViewer })),
 );
@@ -626,13 +630,33 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
             </Suspense>
           ) : meshFile ? (
             <Suspense fallback={ViewerFallback}>
-              <STLViewer
-                url={getAssetUrl(`/api/v1/files/${meshFile.id}/stl`)}
-                onControlsReady={(api) => { viewerControls.current = api; }}
-                displayMode={displayMode}
-                showGrid={showGrid}
-                screenshotName={model.slug || model.name}
-              />
+              {meshFile.file_type === "3mf" ? (
+                <PlatedViewer
+                  fileId={meshFile.id}
+                  printerBedMm={getBedSize(meta?.printer_model)}
+                  onControlsReady={(api) => { viewerControls.current = api; }}
+                  displayMode={displayMode}
+                  showGrid={showGrid}
+                  screenshotName={model.slug || model.name}
+                  fallback={
+                    <STLViewer
+                      url={getAssetUrl(`/api/v1/files/${meshFile.id}/stl`)}
+                      onControlsReady={(api) => { viewerControls.current = api; }}
+                      displayMode={displayMode}
+                      showGrid={showGrid}
+                      screenshotName={model.slug || model.name}
+                    />
+                  }
+                />
+              ) : (
+                <STLViewer
+                  url={getAssetUrl(`/api/v1/files/${meshFile.id}/stl`)}
+                  onControlsReady={(api) => { viewerControls.current = api; }}
+                  displayMode={displayMode}
+                  showGrid={showGrid}
+                  screenshotName={model.slug || model.name}
+                />
+              )}
             </Suspense>
           ) : thumbUrl ? (
             <img

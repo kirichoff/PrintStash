@@ -13,6 +13,7 @@ export * from "@/lib/api/documents";
 export * from "@/lib/api/filaments";
 export * from "@/lib/api/libraries";
 export * from "@/lib/api/models";
+export * from "@/lib/api/plates";
 export * from "@/lib/api/saved-views";
 export * from "@/lib/api/notifications";
 export * from "@/lib/api/printer-profiles";

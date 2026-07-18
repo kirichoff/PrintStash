@@ -1,6 +1,12 @@
 export type { DocumentKind, DocumentListItem, DocumentRead } from "./documents";
 
 export type {
+  PlateLayoutRead,
+  PlateRead,
+  PlateObjectRead,
+} from "./plates";
+
+export type {
   MetadataRead,
   FileRead,
   FileRevisionStatus,
