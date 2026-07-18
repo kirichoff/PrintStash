@@ -720,21 +720,21 @@ def _3mf_extract_docs_and_plates(
                     try:
                         root = ET.fromstring(zf.read(info))
                         ns = {"": "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"}
+                        all_meta: dict[str, str] = {}
                         for m in root.findall(".//metadata", ns):
-                            if m.get("name") == "Description" and m.text and m.text.strip():
-                                description_text = m.text.strip(); break
+                            name = m.get("name", "")
+                            if name and m.text and m.text.strip():
+                                all_meta[name] = m.text.strip()
+                        if all_meta:
+                            description_text = _render_3mf_info_markdown(all_meta)
                     except Exception: pass
         if description_text and coll_id:
-            desc = html.unescape(description_text)
-            for br in ("<br>", "<br/>", "<br />"): desc = desc.replace(br, "\n")
-            desc = re.sub(r"<[^>]+>", "", desc)
-            desc = html.unescape(desc)
             with session_factory.scoped_session() as session:
                 existing = session.exec(select(Document).where(Document.name == "Model Description", Document.collection_id == coll_id, Document.deleted_at.is_(None))).first()
                 if not existing:
-                    session.add(Document(name="Model Description", kind=DocumentKind.MARKDOWN, collection_id=coll_id, body=desc.strip()))
+                    session.add(Document(name="Model Description", kind=DocumentKind.MARKDOWN, collection_id=coll_id, body=description_text.strip()))
                     session.commit()
-                    import logging; logging.getLogger(__name__).info("_3mf_extract: saved description (%d chars)", len(desc))
+                    import logging; logging.getLogger(__name__).info("_3mf_extract: saved description (%d chars)", len(description_text.strip()))
         if plate_images and model_id:
             backend = get_backend()
             with session_factory.scoped_session() as session:
@@ -772,3 +772,36 @@ def _resolve_3mf_collection(collection, session_factory):
     with session_factory.scoped_session() as session:
         col = taxonomy.resolve_or_create_collection(session, collection)
         return col.id if col else None
+
+def _render_3mf_info_markdown(meta: dict[str, str]) -> str:
+    """Render 3MF metadata as an OrcaSlicer-style info markdown document."""
+    import html, re
+    lines = []
+    info_fields = [
+        ("Designer", "Designer"),
+        ("Application", "Application"),
+        ("Creation Date", "CreationDate"),
+        ("Modification Date", "ModificationDate"),
+        ("License", "License"),
+        ("Copyright", "Copyright"),
+        ("Profile", "ProfileTitle"),
+    ]
+    has_info = any(meta.get(key) for _, key in info_fields)
+    if has_info:
+        for label, key in info_fields:
+            val = meta.get(key)
+            if val:
+                lines.append(f"- **{label}**: {val}")
+        lines.append("")
+    desc = meta.get("Description", "")
+    if desc:
+        lines.append("## Description")
+        lines.append("")
+        desc = html.unescape(desc)
+        for br in ("<br>", "<br/>", "<br />"):
+            desc = desc.replace(br, "\n")
+        desc = re.sub(r"<[^>]+>", "", desc)
+        desc = html.unescape(desc)
+        lines.append(desc.strip())
+        lines.append("")
+    return "\n".join(lines).strip()
