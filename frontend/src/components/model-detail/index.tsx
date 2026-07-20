@@ -387,9 +387,15 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
     [sortedFiles],
   );
   const sourceFiles = useMemo(
-    () => sortedFiles.filter((f) => f.file_type !== "gcode"),
+    // Embedded 3MF renders belong to the Project/Info gallery. They are
+    // implementation assets, not downloadable source artifacts, so keep them
+    // out of the user-facing Files tab.
+    () => sortedFiles.filter(
+      (f) => f.file_type !== "gcode" && f.file_type !== "image",
+    ),
     [sortedFiles],
   );
+  const visibleFileCount = sourceFiles.length + gcodeFiles.length;
   // Binary G-code (.bgcode) is indexed for metadata but can't be printed by the
   // Moonraker/Bambu providers, so it's excluded from the "send to printer" list.
   const printableGcodeFiles = useMemo(
@@ -907,7 +913,7 @@ export function ModelDetail({ model: initialModel }: { model: ModelRead }) {
             )}
             <div className="flex items-center justify-between border-t border-surface-container-highest pt-3">
               <span className="font-mono text-xs text-on-surface-variant uppercase tracking-wider">Files</span>
-              <span className="font-mono text-sm text-on-surface font-semibold">{model.files.length}</span>
+              <span className="font-mono text-sm text-on-surface font-semibold">{visibleFileCount}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs text-on-surface-variant uppercase tracking-wider">Created</span>

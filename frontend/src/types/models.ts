@@ -39,7 +39,7 @@ export interface FileRead {
   id: number;
   model_id: number;
   original_filename: string;
-  file_type: "stl" | "3mf" | "gcode" | "obj" | "step";
+  file_type: "stl" | "3mf" | "gcode" | "obj" | "step" | "image";
   version: number;
   gcode_revision_number?: number | null;
   size_bytes: number;

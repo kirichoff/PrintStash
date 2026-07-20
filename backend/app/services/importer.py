@@ -26,6 +26,7 @@ from typing import Optional
 from urllib.parse import unquote, urlparse
 
 import httpx
+from sqlmodel import select
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -634,16 +635,19 @@ def _schedule_mw_thumbnail(
         thumb_bytes = resp.content
         if not thumb_bytes:
             return
-        with session_factory() as session:
+        with session_factory.scoped_session() as session:
             model = session.get(Model, model_id)
             if model is None or (model.thumbnail_path and model.thumbnail_file_id):
                 return
             backend = get_backend()
+            digest = __import__("hashlib").sha256(thumb_bytes).hexdigest()
             thumb_file = FileModel(
                 model_id=model_id,
                 original_filename="makerworld_cover.png",
                 file_type=FileType.IMAGE,
                 size_bytes=len(thumb_bytes),
+                path=f"_source_cover_{digest[:16]}",
+                sha256=digest,
             )
             session.add(thumb_file)
             session.commit()
@@ -715,7 +719,7 @@ def _import_3mf_embedded_docs(
                 desc_text = _html_re.sub(r'<[^>]+>', '', desc_text)
                 desc_text = html.unescape(desc_text)
 
-                with session_factory() as session:
+                with session_factory.scoped_session() as session:
                     existing = session.exec(
                         select(Document).where(
                             Document.name == "Model Description",
@@ -742,7 +746,7 @@ def _import_3mf_embedded_docs(
             if coll_id is None:
                 return
 
-            with session_factory() as session:
+            with session_factory.scoped_session() as session:
                 for entry in doc_entries:
                     data = zf.read(entry)
                     filename = Path(entry.filename).name
@@ -782,7 +786,7 @@ def _resolve_collection_id(
         return None
     from app.services import taxonomy
 
-    with session_factory() as session:
+    with session_factory.scoped_session() as session:
         col = taxonomy.resolve_or_create_collection(session, collection_path)
         return col.id if col else None
 
@@ -803,14 +807,24 @@ def _schedule_source_metadata(
     import asyncio
 
     try:
-        with session_factory() as session:
-            from app.db.models import Model, Document, DocumentKind
+        with session_factory.scoped_session() as session:
+            from app.db.models import Document, DocumentKind, File, FileType, Model
             model = session.get(Model, model_id)
             if model is None:
                 return
 
-            # Only fetch if model has no description yet
-            if model.description and model.thumbnail_path:
+            # A generated mesh render is only the final fallback. Keep fetching
+            # source metadata/cover unless the current thumbnail is already an
+            # embedded/source image asset.
+            current_cover = (
+                session.get(File, model.thumbnail_file_id)
+                if model.thumbnail_file_id is not None else None
+            )
+            if (
+                model.description
+                and current_cover is not None
+                and current_cover.file_type == FileType.IMAGE
+            ):
                 return
 
         import httpx
@@ -837,8 +851,31 @@ def _schedule_source_metadata(
             m = re.search(r'<meta\s+name="twitter:description"\s+content="([^"]+)"', html, re.I)
             description = m.group(1) if m else None
 
-        with session_factory() as session:
-            from app.db.models import Model
+        # Printables and MakerWorld expose their cover through OpenGraph.
+        image_url = None
+        for pattern in (
+            r'<meta\s+property="og:image"\s+content="([^"]+)"',
+            r'<meta\s+name="twitter:image"\s+content="([^"]+)"',
+        ):
+            match = re.search(pattern, html, re.I)
+            if match:
+                image_url = urllib.parse.urljoin(source_url, match.group(1))
+                break
+        source_image = None
+        if image_url:
+            try:
+                validate_public_url(image_url)
+                image_resp = httpx.get(
+                    image_url, timeout=15, follow_redirects=True,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                if image_resp.status_code == 200 and image_resp.content:
+                    source_image = image_resp.content
+            except Exception:
+                logger.info("source_meta: cover fetch failed for %s", image_url)
+
+        with session_factory.scoped_session() as session:
+            from app.db.models import Document, DocumentKind, File as FileModel, FileType, Model
             model = session.get(Model, model_id)
             if model is None:
                 return
@@ -850,6 +887,53 @@ def _schedule_source_metadata(
                     "source_meta: set description for model %d from %s",
                     model_id, source_url,
                 )
+            if description and model.collection_id is not None:
+                source_doc = session.exec(
+                    select(Document).where(
+                        Document.name == "Model Description",
+                        Document.collection_id == model.collection_id,
+                        Document.deleted_at == None,  # noqa: E711
+                    )
+                ).first()
+                if source_doc is None:
+                    session.add(Document(
+                        name="Model Description",
+                        kind=DocumentKind.MARKDOWN,
+                        collection_id=model.collection_id,
+                        body=description,
+                    ))
+                    session.commit()
+            existing_thumb = (
+                session.get(FileModel, model.thumbnail_file_id)
+                if model.thumbnail_file_id is not None else None
+            )
+            if source_image and (
+                existing_thumb is None or existing_thumb.file_type != FileType.IMAGE
+            ):
+                from app.services.storage_backend import get_backend
+                digest = __import__("hashlib").sha256(source_image).hexdigest()
+                cover = FileModel(
+                    model_id=model_id,
+                    original_filename=(
+                        "printables_cover.webp" if "printables.com" in host
+                        else "makerworld_cover.webp"
+                    ),
+                    file_type=FileType.IMAGE,
+                    size_bytes=len(source_image),
+                    path=f"_source_cover_{digest[:16]}",
+                    sha256=digest,
+                )
+                session.add(cover)
+                session.commit()
+                session.refresh(cover)
+                assert cover.id is not None
+                backend = get_backend()
+                thumb_key = backend.thumbnail_key(cover.id)
+                backend.write_bytes(source_image, thumb_key)
+                model.thumbnail_path = thumb_key
+                model.thumbnail_file_id = cover.id
+                session.add(model)
+                session.commit()
     except Exception:
         logger.info(
             "source_meta: failed for model %d (non-fatal)", model_id, exc_info=True

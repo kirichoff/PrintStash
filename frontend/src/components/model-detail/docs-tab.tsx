@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
   FileText,
   Image as ImageIcon,
   Loader2,
@@ -25,7 +28,45 @@ interface ModelFile {
 }
 
 interface ModelData {
+  name: string;
+  source_url?: string | null;
   files: ModelFile[];
+}
+
+interface ProjectInfo {
+  designer?: string;
+  license?: string;
+  application?: string;
+  creationDate?: string;
+  profile?: string;
+  description: string;
+}
+
+function parseProjectInfo(body: string | null | undefined): ProjectInfo {
+  const source = body ?? "";
+  const fields = new Map<string, string>();
+  const content: string[] = [];
+  let inDescription = false;
+  for (const line of source.split("\n")) {
+    if (/^##\s+Description\s*$/i.test(line.trim())) {
+      inDescription = true;
+      continue;
+    }
+    const field = line.match(/^\s*-\s+\*\*([^*]+)\*\*:\s*(.+)\s*$/);
+    if (!inDescription && field) {
+      fields.set(field[1].trim().toLowerCase(), field[2].trim());
+      continue;
+    }
+    if (inDescription || !field) content.push(line);
+  }
+  return {
+    designer: fields.get("designer"),
+    license: fields.get("license"),
+    application: fields.get("application"),
+    creationDate: fields.get("creation date"),
+    profile: fields.get("profile"),
+    description: content.join("\n").replace(/^\s+|\s+$/g, ""),
+  };
 }
 
 // Image files whose names identify them as slicer plate renders vs. the
@@ -50,6 +91,7 @@ export function DocsTab({
   canEdit: boolean;
 }) {
   const [docs, setDocs] = useState<DocumentRead[]>([]);
+  const [modelData, setModelData] = useState<ModelData | null>(null);
   const [imageFiles, setImageFiles] = useState<ModelFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +101,7 @@ export function DocsTab({
   const [editingBody, setEditingBody] = useState<string | null>(null);
   const [savingDoc, setSavingDoc] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [activeImage, setActiveImage] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +113,7 @@ export function DocsTab({
       .then(([docItems, modelData]) => {
         if (cancelled) return;
         setDocs(docItems);
+        setModelData(modelData);
         if (docItems.length > 0) setOpenDocId(docItems[0].id);
         const imgs = (modelData.files || []).filter(
           (f) => f.file_type === "image",
@@ -149,6 +193,9 @@ export function DocsTab({
   const projectPictures = imageFiles.filter(
     (f) => !isPlateRender(f.original_filename),
   );
+  const heroImages = projectPictures.length > 0 ? projectPictures : plateImages;
+  const projectInfo = parseProjectInfo(activeDoc?.body);
+  const hero = heroImages[Math.min(activeImage, Math.max(heroImages.length - 1, 0))];
   const hasImages = plateImages.length > 0 || projectPictures.length > 0;
 
   if (!hasDocs && !hasImages) {
@@ -200,70 +247,137 @@ export function DocsTab({
         </div>
       )}
 
-      {/* Document body */}
-      {hasDocs && activeDoc && (
-        <div className="rounded-lg border border-outline-variant bg-surface-container-low p-4 md:p-6">
-          {activeDoc.kind === "markdown" ? (
-            <>
-              {/* Edit toolbar */}
-              {canEditDoc && (
-                <div className="mb-3 flex items-center justify-end gap-2">
-                  {editingBody === null ? (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => setEditingBody(activeDoc.body ?? "")}
+      {/* OrcaSlicer Project > Model Information layout. */}
+      {(hasDocs || hasImages) && (
+        <div className="overflow-hidden rounded-lg border border-outline-variant bg-surface">
+          <div className="flex items-end justify-between gap-4 border-b border-outline-variant px-4 py-4 md:px-6">
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span className="shrink-0 text-sm font-semibold text-on-surface">Model name:</span>
+                <h2 className="truncate text-base font-semibold text-on-surface">
+                  {modelData?.name ?? "Model"}
+                </h2>
+              </div>
+              <p className="mt-1 text-sm text-on-surface-variant">
+                Model Author: <span className="text-on-surface">{projectInfo.designer || "Unknown"}</span>
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {projectInfo.license && (
+                <span className="rounded border border-outline-variant bg-surface-container-low px-2 py-1 text-2xs font-semibold uppercase text-on-surface-variant">
+                  {projectInfo.license}
+                </span>
+              )}
+              {modelData?.source_url && (
+                <a
+                  href={modelData.source_url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  aria-label="Open original model page"
+                  className="rounded p-1.5 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </div>
+
+          {hero && (
+            <div className="px-4 pt-4 md:px-6 md:pt-6">
+              <div className="group relative flex aspect-video items-center justify-center overflow-hidden rounded bg-surface-container-lowest">
+                <img
+                  src={`/api/v1/files/${hero.id}/thumbnail`}
+                  alt={hero.original_filename}
+                  className="h-full w-full object-contain"
+                />
+                {heroImages.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Previous image"
+                      onClick={() => setActiveImage((activeImage - 1 + heroImages.length) % heroImages.length)}
+                      className="absolute left-2 rounded-full border border-outline-variant bg-surface/90 p-2 text-on-surface shadow-sm opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
                     >
-                      <Pencil className="h-3.5 w-3.5" /> Edit
-                    </Button>
-                  ) : (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => setEditingBody(null)}
-                        disabled={savingDoc}
-                      >
-                        Cancel
-                      </Button>
-                      <Button size="xs" onClick={saveDoc} loading={savingDoc}>
-                        Save
-                      </Button>
-                    </>
-                  )}
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Next image"
+                      onClick={() => setActiveImage((activeImage + 1) % heroImages.length)}
+                      className="absolute right-2 rounded-full border border-outline-variant bg-surface/90 p-2 text-on-surface shadow-sm opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                  </>
+                )}
+              </div>
+              {heroImages.length > 1 && (
+                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                  {heroImages.map((image, index) => (
+                    <button
+                      key={image.id}
+                      type="button"
+                      onClick={() => setActiveImage(index)}
+                      aria-label={`Show image ${index + 1}`}
+                      className={`h-14 w-20 shrink-0 overflow-hidden rounded border bg-surface-container-low ${index === activeImage ? "border-primary" : "border-outline-variant"}`}
+                    >
+                      <img
+                        src={`/api/v1/files/${image.id}/thumbnail`}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    </button>
+                  ))}
                 </div>
               )}
-              {editingBody !== null ? (
+            </div>
+          )}
+
+          <div className="px-4 py-5 md:px-6">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-on-surface">Model description</h3>
+              {canEditDoc && editingBody === null && (
+                <Button variant="ghost" size="xs" onClick={() => setEditingBody(activeDoc.body ?? "")}>
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </Button>
+              )}
+            </div>
+            {editingBody !== null ? (
+              <div className="space-y-3">
                 <textarea
                   value={editingBody}
                   onChange={(e) => setEditingBody(e.target.value)}
                   placeholder="Write project notes in Markdown…"
-                  className="min-h-[240px] w-full rounded border border-outline-variant bg-surface p-3 font-mono text-sm text-on-surface focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="min-h-[240px] w-full rounded border border-outline-variant bg-surface p-3 font-mono text-sm text-on-surface focus:border-transparent focus:outline-none focus:ring-2 focus:ring-ring"
                 />
-              ) : activeDoc.body ? (
-                <MarkdownView source={activeDoc.body} />
-              ) : (
-                <p className="text-sm text-on-surface-variant">
-                  This document is empty.
-                </p>
-              )}
-            </>
-          ) : activeDoc.kind === "pdf" || activeDoc.filename ? (
-            <p className="text-sm text-on-surface-variant">
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="xs" onClick={() => setEditingBody(null)} disabled={savingDoc}>Cancel</Button>
+                  <Button size="xs" onClick={saveDoc} loading={savingDoc}>Save</Button>
+                </div>
+              </div>
+            ) : activeDoc?.kind === "markdown" && projectInfo.description ? (
+              <MarkdownView source={projectInfo.description} />
+            ) : activeDoc?.kind === "pdf" || activeDoc?.filename ? (
               <a
                 href={`/api/v1/documents/${activeDoc.id}/file`}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="text-primary hover:underline"
+                className="text-sm text-primary hover:underline"
               >
                 Open {activeDoc.filename ?? activeDoc.name}
               </a>
-            </p>
-          ) : (
-            <p className="text-sm text-on-surface-variant">
-              No preview available.
-            </p>
-          )}
+            ) : (
+              <p className="text-sm text-on-surface-variant">No model description.</p>
+            )}
+            {(projectInfo.profile || projectInfo.application || projectInfo.creationDate) && (
+              <dl className="mt-5 grid gap-x-4 gap-y-2 border-t border-outline-variant pt-4 text-xs sm:grid-cols-2">
+                {projectInfo.profile && <><dt className="text-on-surface-variant">Profile</dt><dd className="text-on-surface">{projectInfo.profile}</dd></>}
+                {projectInfo.application && <><dt className="text-on-surface-variant">Application</dt><dd className="text-on-surface">{projectInfo.application}</dd></>}
+                {projectInfo.creationDate && <><dt className="text-on-surface-variant">Created</dt><dd className="text-on-surface">{projectInfo.creationDate}</dd></>}
+              </dl>
+            )}
+          </div>
         </div>
       )}
 
@@ -279,13 +393,8 @@ export function DocsTab({
         </Button>
       )}
 
-      {/* Project pictures (user-authored) */}
-      {projectPictures.length > 0 && (
-        <ImageGallery title="Project Pictures" images={projectPictures} />
-      )}
-
-      {/* Plate previews (slicer renders) */}
-      {plateImages.length > 0 && (
+      {/* Technical plate renders stay below the Orca-style model carousel. */}
+      {projectPictures.length > 0 && plateImages.length > 0 && (
         <ImageGallery title="Plate Previews" images={plateImages} />
       )}
     </div>

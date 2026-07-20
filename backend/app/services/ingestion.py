@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -502,7 +503,16 @@ def run_ingestion_pipeline(
                 blob_hash=blob_hash,
                 meta=meta,
                 thumb_bytes=thumb_bytes,
-                overwrite_thumbnail=strategy.overwrite_thumbnail,
+                # Embedded 3MF artwork (Model Pictures / cover / plate render)
+                # is a better catalogue preview than the generated mesh render.
+                # _3mf_extract_docs_and_plates stores it before persistence.
+                overwrite_thumbnail=(
+                    strategy.overwrite_thumbnail
+                    and not (
+                        strategy.file_type == FileType.THREE_MF
+                        and model.thumbnail_file_id is not None
+                    )
+                ),
                 dest_key_override=dest.dest_key,
                 is_external=dest.is_external,
                 external_library_id=dest.external_library_id,
@@ -718,6 +728,7 @@ def _3mf_extract_docs_and_plates(
     coll_id = _resolve_3mf_collection(collection, session_factory)
     plate_images = []
     description_text = None
+    project_meta: dict[str, str] = {}
     try:
         with zipfile.ZipFile(staged_path) as zf:
             for info in zf.infolist():
@@ -726,7 +737,13 @@ def _3mf_extract_docs_and_plates(
                 s = Path(info.filename).suffix.lower()
                 if s in (".md", ".markdown", ".txt", ".pdf"):
                     _save_3mf_doc(zf, info, coll_id, session_factory)
-                elif s == ".png" and (fname.startswith("metadata/plate_") or fname.startswith("metadata/top_") or fname.startswith("metadata/pick_") or ".thumbnails/" in fname):
+                elif s in (".png", ".jpg", ".jpeg", ".webp") and (
+                    fname.startswith("metadata/plate_")
+                    or fname.startswith("metadata/top_")
+                    or fname.startswith("metadata/pick_")
+                    or ".thumbnails/" in fname
+                    or "model pictures/" in fname
+                ):
                     plate_images.append((info.filename, zf.read(info)))
                 elif s in (".png", ".webp", ".jpg", ".jpeg") and ("auxiliaries/model pictures/" in fname or "auxiliaries/profile pictures/" in fname):
                     # User-authored project imagery (the pictures OrcaSlicer /
@@ -743,6 +760,7 @@ def _3mf_extract_docs_and_plates(
                             if name and m.text and m.text.strip():
                                 all_meta[name] = m.text.strip()
                         if all_meta:
+                            project_meta = all_meta
                             description_text = _render_3mf_info_markdown(all_meta)
                     except Exception: pass
         if description_text and coll_id:
@@ -755,27 +773,42 @@ def _3mf_extract_docs_and_plates(
         if plate_images and model_id:
             backend = get_backend()
 
-            def _is_plate_render(rel_path: str) -> bool:
-                stem = Path(rel_path).name.lower()
-                return (
-                    stem.startswith("plate_")
-                    or stem.startswith("top_")
-                    or stem.startswith("pick_")
-                    or stem.startswith("thumbnail_")
-                )
+            # OrcaSlicer uses Model Pictures as its Info-tab carousel and a
+            # selected DesignerCover. Prefer those, then embedded thumbnails,
+            # then slicer plate renders for the catalogue card.
+            def image_priority(item):
+                name = item[0].lower()
+                if "model pictures/" in name: return 0
+                if "thumbnail_3mf" in name: return 1
+                if ".thumbnails/" in name: return 2
+                if "/plate_" in name: return 3
+                return 4
 
-            # The catalog thumbnail should be a clean slicer render, not a
-            # user's lifestyle photo, so a plate render wins; fall back to any
-            # picture only when no render exists.
+            cover_name = Path(project_meta.get("DesignerCover", "")).name.lower()
             thumb_candidate = next(
-                (rp for rp, _ in plate_images if _is_plate_render(rp)),
-                plate_images[0][0],
+                (
+                    rp for rp, _ in plate_images
+                    if cover_name and Path(rp).name.lower() == cover_name
+                ),
+                min(plate_images, key=image_priority)[0],
             )
             with session_factory.scoped_session() as session:
-                for rel_path, img_data in plate_images:
+                for rel_path, img_data in sorted(plate_images, key=image_priority):
+                    original_name = Path(rel_path).name
+                    existing_image = session.exec(
+                        select(FileModel).where(
+                            FileModel.model_id == model_id,
+                            FileModel.file_type == FileType.IMAGE,
+                            FileModel.original_filename == original_name,
+                            FileModel.deleted_at == None,  # noqa: E711
+                        )
+                    ).first()
+                    if existing_image:
+                        continue
+                    digest = hashlib.sha256(img_data).hexdigest()
                     pf = FileModel(model_id=model_id, original_filename=Path(rel_path).name,
                                    file_type=FileType.IMAGE, size_bytes=len(img_data),
-                                   path=f"_3mf_plate_{Path(rel_path).stem}", sha256="")
+                                   path=f"_3mf_image_{digest[:16]}", sha256=digest)
                     session.add(pf); session.commit(); session.refresh(pf)
                     tk = backend.thumbnail_key(pf.id)
                     backend.write_bytes(img_data, tk)
